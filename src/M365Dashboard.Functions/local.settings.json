@@ -1,0 +1,12 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "dotnet-isolated",
+    "ConnectionStrings__DefaultConnection": "Server=localhost;Database=M365Dashboard;Trusted_Connection=True;TrustServerCertificate=True;",
+    "AzureAd__TenantId": "YOUR_TENANT_ID",
+    "AzureAd__ClientId": "YOUR_CLIENT_ID",
+    "AzureAd__ClientSecret": "YOUR_CLIENT_SECRET",
+    "ReportSettings__SenderEmail": "noreply@yourdomain.com"
+  }
+}

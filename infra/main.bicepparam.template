@@ -1,0 +1,30 @@
+// ============================================================================
+// M365 Dashboard - Deployment Parameters
+// Copy this file to main.bicepparam and fill in your values
+// ============================================================================
+
+using 'main.bicep'
+
+// Resource naming and location
+param namePrefix = 'm365dash'
+param location = 'uksouth'
+param environment = 'prod'
+
+// Entra ID (Azure AD) Configuration
+// Create an App Registration in Entra ID with the following:
+// - Redirect URI: https://<your-app-url>/authentication/login-callback
+// - API Permissions: Microsoft Graph (Application permissions):
+//   - User.Read.All, Group.Read.All, Device.Read.All, Directory.Read.All
+//   - DeviceManagementManagedDevices.Read.All, DeviceManagementConfiguration.Read.All
+//   - SecurityEvents.Read.All, IdentityRiskyUser.Read.All
+//   - Mail.Read, Reports.Read.All
+param entraIdTenantId = '<your-tenant-id>'
+param entraIdClientId = '<your-client-id>'
+param entraIdClientSecret = '<your-client-secret>'
+
+// SQL Server Configuration
+param sqlAdminLogin = 'sqladmin'
+param sqlAdminPassword = '<strong-password-here>'
+
+// Container Image (leave empty for initial deployment, update after pushing image)
+param containerImage = ''

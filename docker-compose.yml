@@ -1,0 +1,61 @@
+# Development Docker Compose for M365 Dashboard
+# Runs frontend and backend in containers with hot reload
+
+services:
+  # Backend API (.NET 8)
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: backend
+    ports:
+      - "5001:5001"
+      - "5000:5000"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=https://+:5001;http://+:5000
+      - ASPNETCORE_Kestrel__Certificates__Default__Path=/https/aspnetapp.pfx
+      - ASPNETCORE_Kestrel__Certificates__Default__Password=password
+    volumes:
+      - ./src/M365Dashboard.Api:/app
+      - ~/.aspnet/https:/https:ro
+    depends_on:
+      - db
+    networks:
+      - m365dashboard
+
+  # Frontend (React + Vite)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: frontend
+    ports:
+      - "44477:44477"
+    environment:
+      - VITE_API_URL=https://api:5001
+    volumes:
+      - ./src/M365Dashboard.Api/ClientApp:/app
+      - /app/node_modules
+    networks:
+      - m365dashboard
+
+  # SQL Server for local development
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=YourStrong@Password123
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqldata:/var/opt/mssql
+    networks:
+      - m365dashboard
+
+networks:
+  m365dashboard:
+    driver: bridge
+
+volumes:
+  sqldata:

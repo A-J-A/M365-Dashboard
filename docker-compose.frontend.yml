@@ -1,0 +1,16 @@
+# Simple development setup - just the frontend in Docker
+# Backend runs natively on Windows
+
+services:
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    ports:
+      - "44477:44477"
+    volumes:
+      - ./src/M365Dashboard.Api/ClientApp:/app
+    command: sh -c "rm -rf node_modules/.vite && npm install && npm run dev"
+    environment:
+      - VITE_API_URL=https://host.docker.internal:5001
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

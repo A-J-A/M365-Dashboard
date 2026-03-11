@@ -1,0 +1,209 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.Identity.Web;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Graph;
+using Azure.Identity;
+using M365Dashboard.Api.Data;
+using M365Dashboard.Api.Services;
+using M365Dashboard.Api.Configuration;
+using M365Dashboard.Api.Middleware;
+using Serilog;
+using QuestPDF.Infrastructure;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Configure Serilog
+Log.Logger = new LoggerConfiguration()
+    .ReadFrom.Configuration(builder.Configuration)
+    .Enrich.FromLogContext()
+    .WriteTo.Console()
+    .CreateLogger();
+
+builder.Host.UseSerilog();
+
+// Add Azure Key Vault configuration
+// Loads when KeyVault:Uri is set (always in production via env var, optionally in dev)
+// Managed Identity is used in production; DefaultAzureCredential falls back to
+// Visual Studio / Azure CLI credentials for local development.
+var keyVaultUri = builder.Configuration["KeyVault:Uri"];
+if (!string.IsNullOrEmpty(keyVaultUri))
+{
+    builder.Configuration.AddAzureKeyVault(
+        new Uri(keyVaultUri),
+        new DefaultAzureCredential());
+    Log.Information("Azure Key Vault configuration loaded from {Uri}", keyVaultUri);
+}
+
+// Configure Entra ID Authentication for API (validates incoming tokens)
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"))
+    .EnableTokenAcquisitionToCallDownstreamApi()
+    .AddInMemoryTokenCaches();
+
+// Add JWT Bearer events for debugging
+builder.Services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme, options =>
+{
+    options.Events = new JwtBearerEvents
+    {
+        OnAuthenticationFailed = context =>
+        {
+            Log.Error(context.Exception, "Authentication failed: {Error}", context.Exception.Message);
+            return Task.CompletedTask;
+        },
+        OnTokenValidated = context =>
+        {
+            Log.Information("Token validated for: {User}", context.Principal?.Identity?.Name);
+            return Task.CompletedTask;
+        },
+        OnChallenge = context =>
+        {
+            Log.Warning("Authentication challenge: {Error} - {ErrorDescription}", context.Error, context.ErrorDescription);
+            return Task.CompletedTask;
+        }
+    };
+});
+
+// Configure Authorization Policies based on App Roles
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("RequireAdminRole", policy =>
+        policy.RequireRole("Dashboard.Admin"))
+    .AddPolicy("RequireReaderRole", policy =>
+        policy.RequireRole("Dashboard.Admin", "Dashboard.Reader"));
+
+// Configure Microsoft Graph Client with Client Credentials (Application Permissions)
+builder.Services.AddSingleton<GraphServiceClient>(sp =>
+{
+    var config = builder.Configuration.GetSection("AzureAd");
+    var tenantId = config["TenantId"];
+    var clientId = config["ClientId"];
+    var clientSecret = config["ClientSecret"];
+
+    // Use ClientSecretCredential for application permissions
+    var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+    
+    return new GraphServiceClient(credential, new[] { "https://graph.microsoft.com/.default" });
+});
+
+// Configure Entity Framework with SQL Server
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+{
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    
+    options.UseSqlServer(connectionString, sqlOptions =>
+    {
+        sqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 5,
+            maxRetryDelay: TimeSpan.FromSeconds(30),
+            errorNumbersToAdd: null);
+    });
+});
+
+// Register Application Services
+builder.Services.AddHttpClient(); // For SKU mapping service
+builder.Services.AddSingleton<ISkuMappingService, SkuMappingService>();
+builder.Services.AddHostedService(sp => (SkuMappingService)sp.GetRequiredService<ISkuMappingService>());
+builder.Services.AddScoped<IGraphService, GraphService>();
+builder.Services.AddScoped<IUserSettingsService, UserSettingsService>();
+builder.Services.AddScoped<IWidgetDataService, WidgetDataService>();
+builder.Services.AddScoped<ICacheService, CacheService>();
+builder.Services.AddScoped<IReportService, ReportService>();
+builder.Services.AddScoped<IEmailService, GraphEmailService>();
+builder.Services.AddScoped<ITenantSettingsService, TenantSettingsService>();
+builder.Services.AddSingleton<IDomainSecurityService, DomainSecurityService>();
+builder.Services.AddScoped<IExchangeOnlineService, ExchangeOnlineService>();
+builder.Services.AddScoped<ICisBenchmarkService, CisBenchmarkService>();
+builder.Services.AddScoped<ISecurityAssessmentService, SecurityAssessmentService>();
+builder.Services.AddScoped<IDefenderForOfficeService, DefenderForOfficeService>();
+builder.Services.AddSingleton<IOsVersionService, OsVersionService>();
+
+// Try to register PDF generator (only works on supported platforms: win-x64, linux-x64, linux-arm64, osx-x64, osx-arm64)
+try
+{
+    // Test if QuestPDF can load on this platform
+    QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+    builder.Services.AddScoped<PdfReportGenerator>();
+    Log.Information("PDF report generation enabled (QuestPDF)");
+}
+catch (Exception ex)
+{
+    Log.Warning("PDF report generation disabled - platform not supported: {Message}", ex.Message);
+    // PDF generator won't be registered, controller will fall back to Word
+}
+
+// Configure caching options
+builder.Services.Configure<CacheOptions>(builder.Configuration.GetSection("Cache"));
+
+// Add memory cache for hybrid caching strategy
+builder.Services.AddMemoryCache();
+builder.Services.AddDistributedMemoryCache();
+
+// Configure CORS for development
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("Development", policy =>
+    {
+        policy.SetIsOriginAllowed(origin => 
+            origin.StartsWith("http://localhost") || 
+            origin.StartsWith("https://localhost"))
+        .AllowAnyHeader()
+        .AllowAnyMethod()
+        .AllowCredentials();
+    });
+});
+
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    });
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new() { Title = "M365 Dashboard API", Version = "v1" });
+});
+
+var app = builder.Build();
+
+// Configure the HTTP request pipeline
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+    app.UseCors("Development");
+}
+else
+{
+    app.UseExceptionHandler("/Error");
+    app.UseHsts();
+}
+
+app.UseHttpsRedirection();
+
+app.UseSerilogRequestLogging();
+
+app.UseRouting();
+
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Custom middleware for request context
+app.UseMiddleware<RequestContextMiddleware>();
+
+app.MapControllers();
+
+// Apply database migrations on startup
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    await db.Database.MigrateAsync();
+    Log.Information("Database migrations applied successfully");
+}
+
+Log.Information("M365 Dashboard API started");
+
+// Serve React frontend static files
+app.UseStaticFiles();
+app.MapFallbackToFile("index.html");
+
+app.Run();
