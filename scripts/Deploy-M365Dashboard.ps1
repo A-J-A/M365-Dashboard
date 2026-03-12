@@ -35,15 +35,15 @@ $ErrorActionPreference = "Stop"
 
 # Azure region options
 $regionOptions = @{
-    "1" = @{ Code = "uksouth"; Name = "UK South" }
-    "2" = @{ Code = "ukwest"; Name = "UK West" }
-    "3" = @{ Code = "northeurope"; Name = "North Europe (Ireland)" }
-    "4" = @{ Code = "westeurope"; Name = "West Europe (Netherlands)" }
-    "5" = @{ Code = "eastus"; Name = "East US" }
-    "6" = @{ Code = "eastus2"; Name = "East US 2" }
-    "7" = @{ Code = "westus"; Name = "West US" }
-    "8" = @{ Code = "westus2"; Name = "West US 2" }
-    "9" = @{ Code = "centralus"; Name = "Central US" }
+    "1"  = @{ Code = "uksouth";       Name = "UK South" }
+    "2"  = @{ Code = "ukwest";        Name = "UK West" }
+    "3"  = @{ Code = "northeurope";   Name = "North Europe (Ireland)" }
+    "4"  = @{ Code = "westeurope";    Name = "West Europe (Netherlands)" }
+    "5"  = @{ Code = "eastus";        Name = "East US" }
+    "6"  = @{ Code = "eastus2";       Name = "East US 2" }
+    "7"  = @{ Code = "westus";        Name = "West US" }
+    "8"  = @{ Code = "westus2";       Name = "West US 2" }
+    "9"  = @{ Code = "centralus";     Name = "Central US" }
     "10" = @{ Code = "australiaeast"; Name = "Australia East" }
 }
 
@@ -89,11 +89,12 @@ if (-not $NamePrefix) {
     Write-Host ""
     $NamePrefix = Read-Host "Resource name prefix (3-10 chars, letters/numbers only)"
     
-    # Validate
-    if ($NamePrefix -notmatch "^[a-zA-Z][a-zA-Z0-9]{2,9}$") {
-        Write-Host "Invalid prefix. Using default: m365dash" -ForegroundColor Yellow
-        $NamePrefix = "m365dash"
+    while ($NamePrefix -notmatch "^[a-zA-Z][a-zA-Z0-9]{2,9}$") {
+        Write-Host "  Invalid prefix - must be 3-10 chars, start with a letter, letters/numbers only." -ForegroundColor Yellow
+        $NamePrefix = Read-Host "Resource name prefix"
     }
+    # Force lowercase - Azure Container Apps require lowercase names
+    $NamePrefix = $NamePrefix.ToLower()
 }
 
 # Prompt for Azure region
@@ -221,7 +222,6 @@ if ($existingRg) {
             "2" {
                 Write-Host "  Using existing location: $existingRg" -ForegroundColor Green
                 $Location = $existingRg
-                # Update location name
                 foreach ($key in $regionOptions.Keys) {
                     if ($regionOptions[$key].Code -eq $Location) {
                         $locationName = $regionOptions[$key].Name
@@ -281,8 +281,10 @@ Write-Host "  This may take 5-10 minutes..." -ForegroundColor Gray
 $infraPath = Join-Path (Join-Path (Join-Path $PSScriptRoot "..") "infra") "main.bicep"
 $infraPath = (Resolve-Path $infraPath).Path
 
-# Use unique deployment name to avoid conflicts
 $deploymentName = "$NamePrefix-$Environment-$(Get-Date -Format 'yyyyMMddHHmmss')"
+
+$deployingUserObjectId = cmd /c "az ad signed-in-user show --query id -o tsv 2>nul"
+$deployingUserObjectId = $deployingUserObjectId.Trim()
 
 $ErrorActionPreference = "Continue"
 $deploymentResult = az deployment sub create `
@@ -296,11 +298,11 @@ $deploymentResult = az deployment sub create `
     --parameters entraIdClientId=$ClientId `
     --parameters entraIdClientSecret="$ClientSecret" `
     --parameters sqlAdminPassword="$SqlPassword" `
+    --parameters deployingUserObjectId=$deployingUserObjectId `
     --query properties.outputs -o json 2>&1
 
 $ErrorActionPreference = "Stop"
 
-# Check if result contains error
 if ($deploymentResult -match "ERROR" -or -not $deploymentResult -or $LASTEXITCODE -ne 0) {
     Write-Host "Deployment failed:" -ForegroundColor Red
     Write-Host $deploymentResult -ForegroundColor Red
@@ -308,7 +310,6 @@ if ($deploymentResult -match "ERROR" -or -not $deploymentResult -or $LASTEXITCOD
 }
 
 $deploymentJson = $deploymentResult | Where-Object { $_ -notmatch "^WARNING:" } | Out-String
-
 $deploymentOutput = $deploymentJson | ConvertFrom-Json
 
 $resourceGroup = $deploymentOutput.resourceGroupName.value
@@ -324,8 +325,20 @@ Write-Host ""
 Write-Host "Building Docker image in Azure..." -ForegroundColor Yellow
 Write-Host "  This may take 5-10 minutes..." -ForegroundColor Gray
 
+# Must run from repo root so az acr build can find the Dockerfile
+$repoRootPath = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ErrorActionPreference = "Continue"
-cmd /c "az acr build --registry $acrName --image m365dashboard:latest . 2>&1"
+Push-Location $repoRootPath
+try {
+    cmd /c "az acr build --registry $acrName --image m365dashboard:latest . 2>&1"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  Warning: Docker image build reported errors - check output above" -ForegroundColor Yellow
+    } else {
+        Write-Host "  Docker image built and pushed successfully" -ForegroundColor Green
+    }
+} finally {
+    Pop-Location
+}
 $ErrorActionPreference = "Stop"
 
 Write-Host ""
@@ -336,93 +349,224 @@ cmd /c "az containerapp update --name $NamePrefix-$Environment-app --resource-gr
 Write-Host ""
 Write-Host "Configuring App Registration..." -ForegroundColor Yellow
 
-$redirectUri = "$appUrl/authentication/login-callback"
-Write-Host "  Adding redirect URI: $redirectUri" -ForegroundColor Gray
+# The MSAL redirectUri is window.location.origin (bare URL, no path)
+# Register that as the SPA redirect URI in Entra
+$appUrlClean = $appUrl.TrimEnd('/')
+Write-Host "  Setting redirect URI: $appUrlClean" -ForegroundColor Gray
 
-# Get current redirect URIs and add the new one
-$currentUris = cmd /c "az ad app show --id $ClientId --query spa.redirectUris -o tsv 2>nul"
-$uriList = @($currentUris -split "`n" | Where-Object { $_ -ne "" })
+# Get the app's object ID (different from the client/app ID)
+$appObjectId = (cmd /c "az ad app show --id $ClientId --query id -o tsv 2>nul").Trim()
 
-if ($uriList -notcontains $redirectUri) {
-    $uriList += $redirectUri
+# Write body to temp file to avoid JSON escaping issues in cmd
+$redirectBodyFile = [System.IO.Path]::GetTempFileName()
+$redirectBody = "{`"spa`":{`"redirectUris`":[`"$appUrlClean`"]}}"
+[System.IO.File]::WriteAllText($redirectBodyFile, $redirectBody, [System.Text.Encoding]::UTF8)
+
+$ErrorActionPreference = "Continue"
+$uriUpdateResult = cmd /c "az rest --method PATCH --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectId`" --body @`"$redirectBodyFile`" --headers Content-Type=application/json 2>&1"
+Remove-Item $redirectBodyFile -ErrorAction SilentlyContinue
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "  Redirect URI configured" -ForegroundColor Green
+} else {
+    Write-Host "  Warning: Could not set redirect URI: $uriUpdateResult" -ForegroundColor Yellow
 }
+$ErrorActionPreference = "Stop"
 
-# Build the URI list for the command
-$uriArgs = ($uriList | ForEach-Object { "`"$_`"" }) -join " "
-
-# Update the app with redirect URIs (SPA)
-cmd /c "az ad app update --id $ClientId --spa-redirect-uris $uriArgs 2>nul"
-Write-Host "  Redirect URI configured" -ForegroundColor Green
-
-# Enable access and ID tokens
 Write-Host "  Enabling access tokens and ID tokens..." -ForegroundColor Gray
 cmd /c "az ad app update --id $ClientId --enable-access-token-issuance true --enable-id-token-issuance true 2>nul"
 Write-Host "  Tokens enabled" -ForegroundColor Green
 
-# Grant admin consent
 Write-Host "  Granting admin consent for API permissions..." -ForegroundColor Gray
+$ErrorActionPreference = "Continue"
 $consentResult = cmd /c "az ad app permission admin-consent --id $ClientId 2>&1"
 if ($LASTEXITCODE -eq 0) {
     Write-Host "  Admin consent granted" -ForegroundColor Green
 } else {
-    Write-Host "  Could not grant admin consent automatically" -ForegroundColor Yellow
-    Write-Host "  Please grant manually: Azure Portal > App registrations > API permissions > Grant admin consent" -ForegroundColor Yellow
+    # Fallback: grant via Graph API directly
+    $graphConsentResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/oauth2PermissionGrants`" --body `"{`\`"clientId`\`":`\`"$spId`\`",`\`"consentType`\`":`\`"AllPrincipals`\`",`\`"resourceId`\`":`\`"$spId`\`",`\`"scope`\`":`\`"openid profile`\`"}`" 2>&1"
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  Admin consent granted via Graph API" -ForegroundColor Green
+    } else {
+        Write-Host "  Could not grant admin consent automatically - grant manually:" -ForegroundColor Yellow
+        Write-Host "  Azure Portal > Entra ID > App registrations > $ClientId > API permissions > Grant admin consent" -ForegroundColor Yellow
+    }
 }
+$ErrorActionPreference = "Stop"
 
-# Get current user and assign Dashboard Admin role
 Write-Host "  Assigning Dashboard Admin role to current user..." -ForegroundColor Gray
 $currentUser = cmd /c "az ad signed-in-user show --query id -o tsv 2>nul"
 $spId = cmd /c "az ad sp show --id $ClientId --query id -o tsv 2>nul"
 
 if ($currentUser -and $spId) {
-    # Get the Dashboard Admin role ID from the app
     $appRoles = cmd /c "az ad app show --id $ClientId --query appRoles -o json 2>nul" | ConvertFrom-Json
     $adminRole = $appRoles | Where-Object { $_.value -eq "Dashboard.Admin" }
     
     if ($adminRole) {
         $roleId = $adminRole.id
+        # Write body to temp file to avoid shell escaping issues
+        $roleBodyFile = [System.IO.Path]::GetTempFileName()
+        $roleBody = "{`"principalId`":`"$currentUser`",`"resourceId`":`"$spId`",`"appRoleId`":`"$roleId`"}"
+        [System.IO.File]::WriteAllText($roleBodyFile, $roleBody, [System.Text.Encoding]::UTF8)
         
-        # Create role assignment using Microsoft Graph
-        $body = @{
-            principalId = $currentUser
-            resourceId = $spId
-            appRoleId = $roleId
-        } | ConvertTo-Json -Compress
-        
-        # Use az rest to call Graph API
-        $assignResult = cmd /c "az rest --method POST --uri https://graph.microsoft.com/v1.0/users/$currentUser/appRoleAssignments --body '$($body -replace '"', '\"')' --headers Content-Type=application/json 2>&1"
+        $ErrorActionPreference = "Continue"
+        $assignResult = cmd /c "az rest --method POST --uri https://graph.microsoft.com/v1.0/users/$currentUser/appRoleAssignments --body @`"$roleBodyFile`" --headers Content-Type=application/json 2>&1"
+        $ErrorActionPreference = "Stop"
+        Remove-Item $roleBodyFile -ErrorAction SilentlyContinue
         
         if ($LASTEXITCODE -eq 0) {
             Write-Host "  Dashboard Admin role assigned to current user" -ForegroundColor Green
+        } elseif (($assignResult -join "") -match "already exists") {
+            Write-Host "  Dashboard Admin role already assigned" -ForegroundColor Green
         } else {
-            # Role might already be assigned
-            if ($assignResult -match "already exists") {
-                Write-Host "  Dashboard Admin role already assigned" -ForegroundColor Green
-            } else {
-                Write-Host "  Could not assign role automatically" -ForegroundColor Yellow
-            }
+            Write-Host "  Could not assign role automatically (may need to assign manually in Entra Enterprise Apps)" -ForegroundColor Yellow
         }
     }
 }
 
-# Update appsettings.Development.json with the SQL connection string
-# so local development works without any manual config
+# Update local dev config
 Write-Host ""
 Write-Host "Updating local development config..." -ForegroundColor Yellow
 $devSettingsPath = Join-Path $PSScriptRoot "..\src\M365Dashboard.Api\appsettings.Development.json"
 if (Test-Path $devSettingsPath) {
     try {
-        $devSettings = Get-Content $devSettingsPath -Raw | ConvertFrom-Json -AsHashtable
         $sqlConnStr = "Server=tcp:$($deploymentOutput.sqlServerFqdn.value),1433;Initial Catalog=$($deploymentOutput.sqlDatabaseName.value);Persist Security Info=False;User ID=sqladmin;Password=$SqlPassword;MultipleActiveResultSets=True;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"
-        $devSettings["ConnectionStrings"] = @{ DefaultConnection = $sqlConnStr }
-        $devSettings["KeyVault"] = @{ Uri = $deploymentOutput.keyVaultUri.value }
-        $devSettings | ConvertTo-Json -Depth 10 | Out-File $devSettingsPath -Encoding UTF8
+        $devSettingsRaw = Get-Content $devSettingsPath -Raw
+        $devSettingsObj = $devSettingsRaw | ConvertFrom-Json
+        # Add/update properties (compatible with PS5 and PS7)
+        if (-not $devSettingsObj.PSObject.Properties['ConnectionStrings']) {
+            $devSettingsObj | Add-Member -NotePropertyName 'ConnectionStrings' -NotePropertyValue ([PSCustomObject]@{ DefaultConnection = $sqlConnStr })
+        } else {
+            $devSettingsObj.ConnectionStrings = [PSCustomObject]@{ DefaultConnection = $sqlConnStr }
+        }
+        if (-not $devSettingsObj.PSObject.Properties['KeyVault']) {
+            $devSettingsObj | Add-Member -NotePropertyName 'KeyVault' -NotePropertyValue ([PSCustomObject]@{ Uri = $deploymentOutput.keyVaultUri.value })
+        } else {
+            $devSettingsObj.KeyVault = [PSCustomObject]@{ Uri = $deploymentOutput.keyVaultUri.value }
+        }
+        $devSettingsObj | ConvertTo-Json -Depth 10 | Out-File $devSettingsPath -Encoding UTF8
         Write-Host "  Local dev config updated with SQL connection string and Key Vault URI" -ForegroundColor Green
     } catch {
         Write-Host "  Could not update local dev config (non-critical): $_" -ForegroundColor Yellow
     }
 } else {
     Write-Host "  appsettings.Development.json not found - run Register-EntraApp.ps1 first to generate it" -ForegroundColor Yellow
+}
+
+# ============================================================================
+# Configure GitHub Actions secrets
+# ============================================================================
+Write-Host ""
+Write-Host "Configuring GitHub Actions CI/CD..." -ForegroundColor Yellow
+
+$acrUsername     = (cmd /c "az acr credential show --name $acrName --query username -o tsv 2>nul").Trim()
+$acrPassword     = (cmd /c "az acr credential show --name $acrName --query passwords[0].value -o tsv 2>nul").Trim()
+$subscriptionId  = (cmd /c "az account show --query id -o tsv 2>nul").Trim()
+$containerAppName = "$NamePrefix-$Environment-app"
+$spName          = "$NamePrefix-$Environment-github-actions"
+
+# Create service principal for GitHub Actions (Contributor on the resource group)
+Write-Host "  Creating service principal '$spName'..." -ForegroundColor Gray
+$ErrorActionPreference = "Continue"
+$spJson = cmd /c "az ad sp create-for-rbac --name `"$spName`" --role contributor --scopes /subscriptions/$subscriptionId/resourceGroups/$resourceGroup --sdk-auth 2>&1"
+if ($LASTEXITCODE -ne 0 -or ($spJson -join "") -match '"error"') {
+    Write-Host "  SP may already exist - resetting credentials..." -ForegroundColor Gray
+    $spJson = cmd /c "az ad sp credential reset --name `"$spName`" --sdk-auth 2>&1"
+}
+$ErrorActionPreference = "Stop"
+$spJson = ($spJson | Where-Object { $_ -notmatch "^WARNING:" }) -join "`n"
+
+if (-not $spJson -or ($spJson -notmatch '"clientId"')) {
+    Write-Host "  Could not create service principal automatically." -ForegroundColor Yellow
+    $spJson = "<run manually: az ad sp create-for-rbac --name $spName --role contributor --scopes /subscriptions/$subscriptionId/resourceGroups/$resourceGroup --sdk-auth>"
+}
+
+# Detect GitHub repo slug from git remote
+$repoRoot  = Split-Path $PSScriptRoot -Parent
+$gitRemote = (cmd /c "git -C `"$repoRoot`" remote get-url origin 2>nul").Trim()
+$repoSlug  = ""
+if ($gitRemote -match "github\.com[:/](.+?)(\.git)?$") {
+    $repoSlug = $Matches[1].Trim()
+}
+
+# Helper: print manual instructions
+function Write-GitHubSecretsInstructions {
+    $url = if ($repoSlug) { "https://github.com/$repoSlug/settings/secrets/actions" } else { "https://github.com/<owner>/<repo>/settings/secrets/actions" }
+    Write-Host ""
+    Write-Host "  Set these 6 secrets at:" -ForegroundColor Cyan
+    Write-Host "  $url" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  Secret Name            Value" -ForegroundColor White
+    Write-Host "  ---------------------  -----" -ForegroundColor DarkGray
+    Write-Host "  AZURE_CREDENTIALS      (JSON block printed below)" -ForegroundColor White
+    Write-Host "  ACR_LOGIN_SERVER       $acrServer" -ForegroundColor White
+    Write-Host "  ACR_USERNAME           $acrUsername" -ForegroundColor White
+    Write-Host "  ACR_PASSWORD           $acrPassword" -ForegroundColor White
+    Write-Host "  CONTAINER_APP_NAME     $containerAppName" -ForegroundColor White
+    Write-Host "  RESOURCE_GROUP         $resourceGroup" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  AZURE_CREDENTIALS value:" -ForegroundColor Cyan
+    Write-Host $spJson -ForegroundColor DarkGray
+    Write-Host ""
+}
+
+# Try gh CLI (fully automatic path)
+$ghAvailable = $null
+$ErrorActionPreference = "Continue"
+$ghAvailable = cmd /c "gh --version 2>nul"
+$ErrorActionPreference = "Stop"
+
+$secretsSet = $false
+
+if ($ghAvailable -and $repoSlug) {
+    $ErrorActionPreference = "Continue"
+    cmd /c "gh auth status 2>nul" | Out-Null
+    $ghAuthed = ($LASTEXITCODE -eq 0)
+    $ErrorActionPreference = "Stop"
+
+    if ($ghAuthed) {
+        Write-Host "  Setting GitHub Actions secrets via gh CLI..." -ForegroundColor Gray
+
+        # Write AZURE_CREDENTIALS to a temp file to avoid JSON quoting issues
+        $tempFile = [System.IO.Path]::GetTempFileName()
+        [System.IO.File]::WriteAllText($tempFile, $spJson, [System.Text.Encoding]::UTF8)
+
+        try {
+            $ErrorActionPreference = "Continue"
+            # Use PowerShell pipeline instead of cmd stdin redirection (more reliable cross-platform)
+            Get-Content $tempFile -Raw | & gh secret set AZURE_CREDENTIALS --repo $repoSlug
+            & gh secret set ACR_LOGIN_SERVER --body $acrServer --repo $repoSlug
+            & gh secret set ACR_USERNAME --body $acrUsername --repo $repoSlug
+            & gh secret set ACR_PASSWORD --body $acrPassword --repo $repoSlug
+            & gh secret set CONTAINER_APP_NAME --body $containerAppName --repo $repoSlug
+            & gh secret set RESOURCE_GROUP --body $resourceGroup --repo $repoSlug
+            $ErrorActionPreference = "Stop"
+
+            # Verify
+            $secretList = cmd /c "gh secret list --repo $repoSlug 2>nul"
+            $expected = @("AZURE_CREDENTIALS", "ACR_LOGIN_SERVER", "ACR_USERNAME", "ACR_PASSWORD", "CONTAINER_APP_NAME", "RESOURCE_GROUP")
+            $missing  = $expected | Where-Object { $secretList -notmatch $_ }
+
+            if ($missing.Count -eq 0) {
+                Write-Host "  All 6 GitHub Actions secrets configured for: $repoSlug" -ForegroundColor Green
+                Write-Host "  CI/CD is ready - every push to 'main' will auto-deploy" -ForegroundColor Green
+                $secretsSet = $true
+            } else {
+                Write-Host "  Warning: could not verify secrets: $($missing -join ', ')" -ForegroundColor Yellow
+            }
+        } finally {
+            Remove-Item $tempFile -ErrorAction SilentlyContinue
+        }
+    } else {
+        Write-Host "  GitHub CLI not authenticated - run 'gh auth login' to enable automatic secret setup." -ForegroundColor Yellow
+    }
+} elseif (-not $ghAvailable) {
+    Write-Host "  GitHub CLI not installed (https://cli.github.com) - set secrets manually." -ForegroundColor Yellow
+} elseif (-not $repoSlug) {
+    Write-Host "  Could not detect GitHub remote URL from git config - set secrets manually." -ForegroundColor Yellow
+}
+
+if (-not $secretsSet) {
+    Write-GitHubSecretsInstructions
 }
 
 Write-Host ""
