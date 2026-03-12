@@ -47,36 +47,153 @@ $regionOptions = @{
     "10" = @{ Code = "australiaeast"; Name = "Australia East" }
 }
 
-# Try to load config from Register-EntraApp.ps1 output
-$configPath = Join-Path (Join-Path $PSScriptRoot "..") "entra-app-config.json"
-if (Test-Path $configPath) {
-    Write-Host "Found Entra app config from previous registration..." -ForegroundColor Green
-    $savedConfig = Get-Content $configPath | ConvertFrom-Json
-    
-    if (-not $TenantId -and $savedConfig.TenantId) {
-        $TenantId = $savedConfig.TenantId
-        Write-Host "  Using Tenant ID: $TenantId" -ForegroundColor Gray
-    }
-    if (-not $ClientId -and $savedConfig.ClientId) {
-        $ClientId = $savedConfig.ClientId
-        Write-Host "  Using Client ID: $ClientId" -ForegroundColor Gray
-    }
-    if (-not $ClientSecret -and $savedConfig.ClientSecret) {
-        $ClientSecret = $savedConfig.ClientSecret
-        Write-Host "  Using Client Secret: ********" -ForegroundColor Gray
-    }
-}
+# ============================================================================
+# Entra ID App Registration
+# ============================================================================
+Write-Host ""
+Write-Host "Entra ID App Registration" -ForegroundColor Cyan
+Write-Host "-------------------------" -ForegroundColor Cyan
 
-# Prompt for any still-missing values
-if (-not $TenantId) {
-    $TenantId = Read-Host "Enter Entra ID Tenant ID"
-}
-if (-not $ClientId) {
-    $ClientId = Read-Host "Enter Entra ID Client ID"
-}
-if (-not $ClientSecret) {
-    $secureSecret = Read-Host "Enter Entra ID Client Secret" -AsSecureString
-    $ClientSecret = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureSecret))
+$configPath = Join-Path (Join-Path $PSScriptRoot "..") "entra-app-config.json"
+$configExists = Test-Path $configPath
+
+if ($TenantId -and $ClientId -and $ClientSecret) {
+    # All values passed as parameters - skip prompt
+    Write-Host "  Using credentials passed as parameters" -ForegroundColor Gray
+} else {
+    Write-Host ""
+    if ($configExists) {
+        $savedConfig = Get-Content $configPath | ConvertFrom-Json
+        Write-Host "  [1] Create a new app registration in this tenant" -ForegroundColor White
+        Write-Host "  [2] Use existing config ($($savedConfig.AppName), created $($savedConfig.CreatedAt))" -ForegroundColor White
+        Write-Host "  [3] Enter app details manually" -ForegroundColor White
+        Write-Host ""
+        $appChoice = Read-Host "Select option (1-3)"
+    } else {
+        Write-Host "  No existing app config found." -ForegroundColor Yellow
+        Write-Host "  [1] Create a new app registration in this tenant" -ForegroundColor White
+        Write-Host "  [2] Enter app details manually" -ForegroundColor White
+        Write-Host ""
+        $appChoice = Read-Host "Select option (1-2)"
+        # Remap so '2' = manual in both branches
+        if ($appChoice -eq "2") { $appChoice = "3" }
+    }
+
+    switch ($appChoice) {
+        "1" {
+            # ----------------------------------------------------------------
+            # Create a new app registration
+            # ----------------------------------------------------------------
+            Write-Host ""
+            $appNameInput = Read-Host "App registration name (default: M365 Dashboard)"
+            if ([string]::IsNullOrWhiteSpace($appNameInput)) { $appNameInput = "M365 Dashboard" }
+
+            $graphAppId = "00000003-0000-0000-c000-000000000000"
+            $ErrorActionPreference = "Continue"
+
+            Write-Host "  Creating app registration '$appNameInput'..." -ForegroundColor Gray
+            $newAppJson = cmd /c "az ad app create --display-name `"$appNameInput`" --sign-in-audience AzureADMyOrg --enable-access-token-issuance true --enable-id-token-issuance true 2>&1"
+            if ($LASTEXITCODE -ne 0 -or -not $newAppJson) {
+                Write-Host "  Failed to create app registration: $newAppJson" -ForegroundColor Red
+                exit 1
+            }
+            $newApp = $newAppJson | ConvertFrom-Json
+            $ClientId = $newApp.appId
+            $appObjectIdNew = $newApp.id
+            Write-Host "  App created. Client ID: $ClientId" -ForegroundColor Green
+
+            # Create service principal
+            Write-Host "  Creating service principal..." -ForegroundColor Gray
+            cmd /c "az ad sp create --id $ClientId 2>nul" | Out-Null
+
+            # Add Graph permissions
+            Write-Host "  Adding Microsoft Graph permissions..." -ForegroundColor Gray
+            $permissions = @(
+                @{ id = "df021288-bdef-4463-88db-98f22de89214"; name = "User.Read.All" }
+                @{ id = "5b567255-7703-4780-807c-7be8301ae99b"; name = "Group.Read.All" }
+                @{ id = "7ab1d382-f21e-4acd-a863-ba3e13f7da61"; name = "Directory.Read.All" }
+                @{ id = "7438b122-aefc-4978-80ed-43db9fcc7571"; name = "Device.Read.All" }
+                @{ id = "2f51be20-0bb4-4fed-bf7b-db946066c75e"; name = "DeviceManagementManagedDevices.Read.All" }
+                @{ id = "dc377aa6-52d8-4e23-b271-2a7ae04cedf3"; name = "DeviceManagementConfiguration.Read.All" }
+                @{ id = "06a5fe6d-c49d-46a7-b082-56b1b14103c7"; name = "DeviceManagementApps.Read.All" }
+                @{ id = "bf394140-e372-4bf9-a898-299cfc7564e5"; name = "SecurityEvents.Read.All" }
+                @{ id = "dc5007c0-2d7d-4c42-879c-2dab87571379"; name = "IdentityRiskyUser.Read.All" }
+                @{ id = "6e472fd1-ad78-48da-a0f0-97ab2c6b769e"; name = "IdentityRiskEvent.Read.All" }
+                @{ id = "230c1aed-a721-4c5d-9cb4-a90514e508ef"; name = "Reports.Read.All" }
+                @{ id = "b0afded3-3588-46d8-8b3d-9842eff778da"; name = "AuditLog.Read.All" }
+                @{ id = "810c84a8-4a9e-49e6-bf7d-12d183f40d01"; name = "Mail.Read" }
+                @{ id = "dbb9058a-0e50-45d7-ae91-66909b5d4664"; name = "Domain.Read.All" }
+                @{ id = "498476ce-e0fe-48b0-b801-37ba7e2685c6"; name = "Organization.Read.All" }
+                @{ id = "246dd0d5-5bd0-4def-940b-0421030a5b68"; name = "Policy.Read.All" }
+            )
+            foreach ($perm in $permissions) {
+                cmd /c "az ad app permission add --id $ClientId --api $graphAppId --api-permissions $($perm.id)=Role 2>nul" | Out-Null
+            }
+            Write-Host "  Graph permissions added" -ForegroundColor Green
+
+            # Add app roles
+            Write-Host "  Adding app roles..." -ForegroundColor Gray
+            $adminRoleId = [guid]::NewGuid().ToString()
+            $readerRoleId = [guid]::NewGuid().ToString()
+            $appRolesJson = "[{`"id`":`"$adminRoleId`",`"allowedMemberTypes`":[`"User`"],`"description`":`"Full administrative access to M365 Dashboard`",`"displayName`":`"Dashboard Admin`",`"isEnabled`":true,`"value`":`"Dashboard.Admin`"},{`"id`":`"$readerRoleId`",`"allowedMemberTypes`":[`"User`"],`"description`":`"Read-only access to M365 Dashboard`",`"displayName`":`"Dashboard Reader`",`"isEnabled`":true,`"value`":`"Dashboard.Reader`"}]"
+            $rolesFile = [System.IO.Path]::GetTempFileName()
+            [System.IO.File]::WriteAllText($rolesFile, $appRolesJson, [System.Text.Encoding]::UTF8)
+            cmd /c "az ad app update --id $ClientId --app-roles @`"$rolesFile`" 2>nul" | Out-Null
+            Remove-Item $rolesFile -ErrorAction SilentlyContinue
+            Write-Host "  App roles added" -ForegroundColor Green
+
+            # Create client secret
+            Write-Host "  Creating client secret..." -ForegroundColor Gray
+            $newSecretJson = cmd /c "az ad app credential reset --id $ClientId --append --display-name M365Dashboard-Secret --years 2 2>&1"
+            if ($LASTEXITCODE -ne 0 -or -not $newSecretJson) {
+                Write-Host "  Failed to create client secret" -ForegroundColor Red
+                exit 1
+            }
+            $newSecret = $newSecretJson | ConvertFrom-Json
+            $ClientSecret = $newSecret.password
+            Write-Host "  Client secret created (valid 2 years)" -ForegroundColor Green
+
+            # Grant admin consent
+            Write-Host "  Granting admin consent..." -ForegroundColor Gray
+            cmd /c "az ad app permission admin-consent --id $ClientId 2>nul" | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "  Admin consent granted" -ForegroundColor Green
+            } else {
+                Write-Host "  Could not auto-grant consent - grant manually after deployment:" -ForegroundColor Yellow
+                Write-Host "  Azure Portal > App registrations > $appNameInput > API permissions > Grant admin consent" -ForegroundColor Yellow
+            }
+
+            $ErrorActionPreference = "Stop"
+
+            # Get tenant ID from current login
+            $TenantId = (cmd /c "az account show --query tenantId -o tsv 2>nul").Trim()
+
+            # Save new config
+            $newConfig = @{ TenantId = $TenantId; ClientId = $ClientId; ClientSecret = $ClientSecret; AppName = $appNameInput; CreatedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") }
+            $newConfig | ConvertTo-Json | Out-File $configPath -Encoding UTF8
+            Write-Host "  Config saved to entra-app-config.json" -ForegroundColor Green
+        }
+        "2" {
+            # ----------------------------------------------------------------
+            # Use existing config
+            # ----------------------------------------------------------------
+            $TenantId     = $savedConfig.TenantId
+            $ClientId     = $savedConfig.ClientId
+            $ClientSecret = $savedConfig.ClientSecret
+            Write-Host "  Using Tenant ID:  $TenantId" -ForegroundColor Gray
+            Write-Host "  Using Client ID:  $ClientId" -ForegroundColor Gray
+            Write-Host "  Using Client Secret: ********" -ForegroundColor Gray
+        }
+        default {
+            # ----------------------------------------------------------------
+            # Enter manually
+            # ----------------------------------------------------------------
+            $TenantId = Read-Host "Enter Entra ID Tenant ID"
+            $ClientId = Read-Host "Enter Entra ID Client ID"
+            $secureSecret = Read-Host "Enter Entra ID Client Secret" -AsSecureString
+            $ClientSecret = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureSecret))
+        }
+    }
 }
 
 # Prompt for resource name prefix
