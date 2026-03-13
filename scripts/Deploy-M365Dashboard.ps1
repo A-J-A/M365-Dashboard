@@ -206,7 +206,7 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             $defenderPermissions = @(
                 @{ id = "ea8291d3-4b9a-44b5-bc3a-6cea3026dc79"; name = "Machine.Read.All" }
                 @{ id = "41269fc5-d04d-4bfd-bce7-43a51cea049a"; name = "Vulnerability.Read.All" }
-                @{ id = "9bc6a2e4-b4e5-4d2e-a8d6-7c9f62b5e8d1"; name = "Score.Read.All" }
+                @{ id = "02b005dd-f804-43b4-8fc7-078460413f74"; name = "Score.Read.All" }
             )
             foreach ($perm in $defenderPermissions) {
                 cmd /c "az ad app permission add --id $ClientId --api $defenderAppId --api-permissions $($perm.id)=Role 2>nul" | Out-Null
