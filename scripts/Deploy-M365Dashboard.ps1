@@ -216,6 +216,17 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             }
             Write-Host "  Client secret created (valid 2 years)" -ForegroundColor Green
 
+            # Expose access_as_user scope (required for frontend to get tokens for the backend API)
+            Write-Host "  Exposing access_as_user scope..." -ForegroundColor Gray
+            $appObjectIdForScope = ($newApp.id)
+            $scopeId = [guid]::NewGuid().ToString()
+            $scopeBody = "{`"api`":{`"oauth2PermissionScopes`":[{`"adminConsentDescription`":`"Allow the application to access M365 Dashboard on behalf of the signed-in user`",`"adminConsentDisplayName`":`"Access M365 Dashboard`",`"id`":`"$scopeId`",`"isEnabled`":true,`"type`":`"User`",`"userConsentDescription`":`"Allow the application to access M365 Dashboard on your behalf`",`"userConsentDisplayName`":`"Access M365 Dashboard`",`"value`":`"access_as_user`"} ] }}"
+            $scopeFile = [System.IO.Path]::GetTempFileName() + ".json"
+            [System.IO.File]::WriteAllText($scopeFile, $scopeBody, [System.Text.Encoding]::UTF8)
+            cmd /c "az rest --method PATCH --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectIdForScope`" --body @`"$scopeFile`" --headers Content-Type=application/json 2>nul" | Out-Null
+            Remove-Item $scopeFile -ErrorAction SilentlyContinue
+            Write-Host "  access_as_user scope exposed" -ForegroundColor Green
+
             # Grant admin consent - try az CLI first, fall back to Graph API
             Write-Host "  Granting admin consent..." -ForegroundColor Gray
             cmd /c "az ad app permission admin-consent --id $ClientId 2>nul" | Out-Null

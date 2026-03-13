@@ -160,6 +160,16 @@ Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
 Write-Host "  Added: Dashboard Admin" -ForegroundColor Gray
 Write-Host "  Added: Dashboard Reader" -ForegroundColor Gray
 
+# Step 4b: Expose access_as_user scope
+Write-Host "Exposing access_as_user scope..." -ForegroundColor Yellow
+$appScopeId = [guid]::NewGuid().ToString()
+$scopeBody = "{`"api`":{`"oauth2PermissionScopes`":[{`"adminConsentDescription`":`"Allow the application to access M365 Dashboard on behalf of the signed-in user`",`"adminConsentDisplayName`":`"Access M365 Dashboard`",`"id`":`"$appScopeId`",`"isEnabled`":true,`"type`":`"User`",`"userConsentDescription`":`"Allow the application to access M365 Dashboard on your behalf`",`"userConsentDisplayName`":`"Access M365 Dashboard`",`"value`":`"access_as_user`"} ] }}"
+$scopeFile = [System.IO.Path]::GetTempFileName() + ".json"
+[System.IO.File]::WriteAllText($scopeFile, $scopeBody, [System.Text.Encoding]::UTF8)
+cmd /c "az rest --method PATCH --uri `"https://graph.microsoft.com/v1.0/applications/$objectId`" --body @`"$scopeFile`" --headers Content-Type=application/json 2>nul" | Out-Null
+Remove-Item $scopeFile -ErrorAction SilentlyContinue
+Write-Host "  access_as_user scope exposed" -ForegroundColor Green
+
 # Step 5: Create client secret
 Write-Host "Creating client secret..." -ForegroundColor Yellow
 $secretJson = cmd /c "az ad app credential reset --id $appId --append --display-name M365Dashboard-Secret --years 2 2>nul"
