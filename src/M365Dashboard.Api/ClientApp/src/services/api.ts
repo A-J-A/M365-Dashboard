@@ -16,24 +16,31 @@ import type {
 
 const API_BASE = '/api';
 
-// Get access token for API calls
-async function getAccessToken(): Promise<string> {
-  const account = msalInstance.getActiveAccount();
-  if (!account) {
-    throw new Error('No active account');
-  }
+// Serialise all token acquisition attempts so concurrent callers never race
+// into acquireTokenPopup at the same time (causes interaction_in_progress error)
+let _tokenPromise: Promise<string> | null = null;
 
-  try {
-    const response = await msalInstance.acquireTokenSilent({
-      ...apiRequest,
-      account,
-    });
-    return response.accessToken;
-  } catch (error) {
-    // If silent acquisition fails, try interactive
-    const response = await msalInstance.acquireTokenPopup(apiRequest);
-    return response.accessToken;
-  }
+export async function getAccessToken(): Promise<string> {
+  if (_tokenPromise) return _tokenPromise;
+
+  _tokenPromise = (async () => {
+    const account = msalInstance.getActiveAccount();
+    if (!account) throw new Error('No active account');
+
+    try {
+      const response = await msalInstance.acquireTokenSilent({ ...apiRequest, account });
+      return response.accessToken;
+    } catch {
+      // Silent failed - only one popup will open; all other callers await this same promise
+      const response = await msalInstance.acquireTokenPopup(apiRequest);
+      return response.accessToken;
+    }
+  })().finally(() => {
+    // Clear so future calls re-acquire (don't cache stale tokens indefinitely)
+    _tokenPromise = null;
+  });
+
+  return _tokenPromise;
 }
 
 // Generic fetch wrapper with authentication

@@ -65,7 +65,7 @@ export function useTheme() {
 }
 
 // App Context (for accessing tokens)
-import { loginRequest, apiRequest } from '../services/authConfig';
+import { getAccessToken as getTokenFromApi } from '../services/api';
 
 interface AppContextType {
   getAccessToken: () => Promise<string>;
@@ -100,23 +100,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   const getAccessToken = useCallback(async (): Promise<string> => {
-    if (accounts.length === 0) {
-      throw new Error('No accounts found');
-    }
-
-    try {
-      // Use API-specific scopes for our backend
-      const response = await instance.acquireTokenSilent({
-        ...apiRequest,
-        account: accounts[0],
-      });
-      return response.accessToken;
-    } catch (error) {
-      // If silent token acquisition fails, try interactive
-      const response = await instance.acquireTokenPopup(apiRequest);
-      return response.accessToken;
-    }
-  }, [instance, accounts]);
+    return getTokenFromApi();
+  }, []);
 
   const refreshProfile = useCallback(async () => {
     if (!isAuthenticated || accounts.length === 0) {
