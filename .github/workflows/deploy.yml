@@ -51,6 +51,9 @@ jobs:
           tags: |
             ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
             ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest
+          build-args: |
+            VITE_AZURE_CLIENT_ID=${{ secrets.VITE_AZURE_CLIENT_ID }}
+            VITE_AZURE_TENANT_ID=${{ secrets.VITE_AZURE_TENANT_ID }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

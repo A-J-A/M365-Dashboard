@@ -33,6 +33,61 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# ============================================================================
+# Azure CLI Login
+# ============================================================================
+Write-Host ""
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host "M365 Dashboard - Deployment Script" -ForegroundColor Cyan
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Checking Azure CLI login..." -ForegroundColor Yellow
+
+$ErrorActionPreference = "Continue"
+$currentAccountJson = cmd /c "az account show 2>nul"
+$ErrorActionPreference = "Stop"
+
+if ($currentAccountJson) {
+    $currentAccount = $currentAccountJson | ConvertFrom-Json
+    $currentUser = $currentAccount.user.name
+    $currentTenant = $currentAccount.tenantId
+    Write-Host ""
+    Write-Host "  Currently logged in as: $currentUser" -ForegroundColor White
+    Write-Host "  Tenant ID:              $currentTenant" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  [1] Continue as $currentUser" -ForegroundColor White
+    Write-Host "  [2] Login as a different user" -ForegroundColor White
+    Write-Host ""
+    $loginChoice = Read-Host "Select option (1-2)"
+
+    if ($loginChoice -eq "2") {
+        Write-Host ""
+        Write-Host "  Logging out current session..." -ForegroundColor Gray
+        cmd /c "az logout 2>nul" | Out-Null
+        Write-Host "  Launching browser login..." -ForegroundColor Yellow
+        cmd /c "az login" | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  Login failed. Please run 'az login' manually and retry." -ForegroundColor Red
+            exit 1
+        }
+        $currentAccountJson = cmd /c "az account show 2>nul"
+        $currentAccount = $currentAccountJson | ConvertFrom-Json
+        Write-Host "  Logged in as: $($currentAccount.user.name)" -ForegroundColor Green
+    } else {
+        Write-Host "  Continuing as $currentUser" -ForegroundColor Green
+    }
+} else {
+    Write-Host "  Not logged in. Launching browser login..." -ForegroundColor Yellow
+    cmd /c "az login" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  Login failed. Please run 'az login' manually and retry." -ForegroundColor Red
+        exit 1
+    }
+    $currentAccountJson = cmd /c "az account show 2>nul"
+    $currentAccount = $currentAccountJson | ConvertFrom-Json
+    Write-Host "  Logged in as: $($currentAccount.user.name)" -ForegroundColor Green
+}
+
 # Azure region options
 $regionOptions = @{
     "1"  = @{ Code = "uksouth";       Name = "UK South" }
@@ -92,9 +147,11 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             $ErrorActionPreference = "Continue"
 
             Write-Host "  Creating app registration '$appNameInput'..." -ForegroundColor Gray
-            $newAppJson = cmd /c "az ad app create --display-name `"$appNameInput`" --sign-in-audience AzureADMyOrg --enable-access-token-issuance true --enable-id-token-issuance true 2>&1"
-            if ($LASTEXITCODE -ne 0 -or -not $newAppJson) {
-                Write-Host "  Failed to create app registration: $newAppJson" -ForegroundColor Red
+            $newAppRaw = cmd /c "az ad app create --display-name `"$appNameInput`" --sign-in-audience AzureADMyOrg --enable-access-token-issuance true --enable-id-token-issuance true 2>&1"
+            $newAppJson = ($newAppRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
+            if ($LASTEXITCODE -ne 0 -or -not $newAppJson -or $newAppJson -notmatch '"appId"') {
+                Write-Host "  Failed to create app registration:" -ForegroundColor Red
+                Write-Host $newAppRaw -ForegroundColor Red
                 exit 1
             }
             $newApp = $newAppJson | ConvertFrom-Json
@@ -112,10 +169,10 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
                 @{ id = "df021288-bdef-4463-88db-98f22de89214"; name = "User.Read.All" }
                 @{ id = "5b567255-7703-4780-807c-7be8301ae99b"; name = "Group.Read.All" }
                 @{ id = "7ab1d382-f21e-4acd-a863-ba3e13f7da61"; name = "Directory.Read.All" }
-                @{ id = "7438b122-aefc-4978-80ed-43db9fcc7571"; name = "Device.Read.All" }
+                @{ id = "7438b122-aefc-4978-80ed-43db9fcc7715"; name = "Device.Read.All" }
                 @{ id = "2f51be20-0bb4-4fed-bf7b-db946066c75e"; name = "DeviceManagementManagedDevices.Read.All" }
                 @{ id = "dc377aa6-52d8-4e23-b271-2a7ae04cedf3"; name = "DeviceManagementConfiguration.Read.All" }
-                @{ id = "06a5fe6d-c49d-46a7-b082-56b1b14103c7"; name = "DeviceManagementApps.Read.All" }
+                @{ id = "7a6ee1e7-141e-4cec-ae74-d9db155731ff"; name = "DeviceManagementApps.Read.All" }
                 @{ id = "bf394140-e372-4bf9-a898-299cfc7564e5"; name = "SecurityEvents.Read.All" }
                 @{ id = "dc5007c0-2d7d-4c42-879c-2dab87571379"; name = "IdentityRiskyUser.Read.All" }
                 @{ id = "6e472fd1-ad78-48da-a0f0-97ab2c6b769e"; name = "IdentityRiskEvent.Read.All" }
@@ -144,23 +201,44 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
 
             # Create client secret
             Write-Host "  Creating client secret..." -ForegroundColor Gray
-            $newSecretJson = cmd /c "az ad app credential reset --id $ClientId --append --display-name M365Dashboard-Secret --years 2 2>&1"
-            if ($LASTEXITCODE -ne 0 -or -not $newSecretJson) {
+            $newSecretRaw = cmd /c "az ad app credential reset --id $ClientId --append --display-name M365Dashboard-Secret --years 2 2>&1"
+            $newSecretJson = ($newSecretRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
+            if ($LASTEXITCODE -ne 0 -or -not $newSecretJson -or $newSecretJson -notmatch '"password"') {
                 Write-Host "  Failed to create client secret" -ForegroundColor Red
                 exit 1
             }
             $newSecret = $newSecretJson | ConvertFrom-Json
             $ClientSecret = $newSecret.password
+            if ([string]::IsNullOrWhiteSpace($ClientSecret)) {
+                Write-Host "  Failed to extract client secret from response" -ForegroundColor Red
+                Write-Host "  Raw response: $newSecretRaw" -ForegroundColor Red
+                exit 1
+            }
             Write-Host "  Client secret created (valid 2 years)" -ForegroundColor Green
 
-            # Grant admin consent
+            # Grant admin consent - try az CLI first, fall back to Graph API
             Write-Host "  Granting admin consent..." -ForegroundColor Gray
             cmd /c "az ad app permission admin-consent --id $ClientId 2>nul" | Out-Null
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "  Admin consent granted" -ForegroundColor Green
             } else {
-                Write-Host "  Could not auto-grant consent - grant manually after deployment:" -ForegroundColor Yellow
-                Write-Host "  Azure Portal > App registrations > $appNameInput > API permissions > Grant admin consent" -ForegroundColor Yellow
+                # Fallback: use Graph API oAuth2PermissionGrants
+                $spRaw = cmd /c "az ad sp show --id $ClientId --query id -o tsv 2>nul"
+                $spObjId = ($spRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+                $graphSpId = (cmd /c "az ad sp show --id $graphAppId --query id -o tsv 2>nul").Trim()
+                if ($spObjId) {
+                    $consentBody = "{`"clientId`":`"$spObjId`",`"consentType`":`"AllPrincipals`",`"resourceId`":`"$graphSpId`",`"scope`":`"openid profile`"}"
+                    $consentFile = [System.IO.Path]::GetTempFileName()
+                    [System.IO.File]::WriteAllText($consentFile, $consentBody, [System.Text.Encoding]::UTF8)
+                    cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/oauth2PermissionGrants`" --body @`"$consentFile`" --headers Content-Type=application/json 2>nul" | Out-Null
+                    Remove-Item $consentFile -ErrorAction SilentlyContinue
+                }
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "  Admin consent granted" -ForegroundColor Green
+                } else {
+                    Write-Host "  Could not auto-grant consent - grant manually after deployment:" -ForegroundColor Yellow
+                    Write-Host "  Azure Portal > App registrations > $appNameInput > API permissions > Grant admin consent" -ForegroundColor Yellow
+                }
             }
 
             $ErrorActionPreference = "Stop"
@@ -236,19 +314,12 @@ if (-not $Location) {
     }
 }
 
-# Check Azure CLI login and select subscription early
+# Select subscription
 Write-Host ""
 Write-Host "Azure Subscription" -ForegroundColor Cyan
 Write-Host "------------------" -ForegroundColor Cyan
 
-$ErrorActionPreference = "Continue"
-$accountJson = cmd /c "az account show 2>nul"
-$ErrorActionPreference = "Stop"
-
-if (-not $accountJson) {
-    Write-Host "Please run 'az login' first" -ForegroundColor Red
-    exit 1
-}
+$accountJson = $currentAccountJson
 
 # Get all subscriptions
 $subscriptionsJson = cmd /c "az account list --query [?state=='Enabled'] -o json 2>nul"
@@ -391,6 +462,15 @@ if ($confirm -eq "n" -or $confirm -eq "N") {
 }
 Write-Host ""
 
+# Final validation before deploying
+if ([string]::IsNullOrWhiteSpace($TenantId) -or [string]::IsNullOrWhiteSpace($ClientId) -or [string]::IsNullOrWhiteSpace($ClientSecret)) {
+    Write-Host "ERROR: Missing required Entra ID credentials before deployment:" -ForegroundColor Red
+    Write-Host "  TenantId:     $(if ($TenantId) { $TenantId } else { '(empty)' })" -ForegroundColor Red
+    Write-Host "  ClientId:     $(if ($ClientId) { $ClientId } else { '(empty)' })" -ForegroundColor Red
+    Write-Host "  ClientSecret: $(if ($ClientSecret) { '(set)' } else { '(empty)' })" -ForegroundColor Red
+    exit 1
+}
+
 # Deploy infrastructure
 Write-Host "Deploying Azure infrastructure..." -ForegroundColor Yellow
 Write-Host "  This may take 5-10 minutes..." -ForegroundColor Gray
@@ -447,7 +527,7 @@ $repoRootPath = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ErrorActionPreference = "Continue"
 Push-Location $repoRootPath
 try {
-    cmd /c "az acr build --registry $acrName --image m365dashboard:latest . 2>&1"
+    cmd /c "az acr build --registry $acrName --image m365dashboard:latest --build-arg VITE_AZURE_CLIENT_ID=$ClientId --build-arg VITE_AZURE_TENANT_ID=$TenantId . 2>&1"
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  Warning: Docker image build reported errors - check output above" -ForegroundColor Yellow
     } else {
@@ -620,6 +700,8 @@ function Write-GitHubSecretsInstructions {
     Write-Host "  ACR_PASSWORD           $acrPassword" -ForegroundColor White
     Write-Host "  CONTAINER_APP_NAME     $containerAppName" -ForegroundColor White
     Write-Host "  RESOURCE_GROUP         $resourceGroup" -ForegroundColor White
+    Write-Host "  VITE_AZURE_CLIENT_ID   $ClientId" -ForegroundColor White
+    Write-Host "  VITE_AZURE_TENANT_ID   $TenantId" -ForegroundColor White
     Write-Host ""
     Write-Host "  AZURE_CREDENTIALS value:" -ForegroundColor Cyan
     Write-Host $spJson -ForegroundColor DarkGray
@@ -656,11 +738,13 @@ if ($ghAvailable -and $repoSlug) {
             & gh secret set ACR_PASSWORD --body $acrPassword --repo $repoSlug
             & gh secret set CONTAINER_APP_NAME --body $containerAppName --repo $repoSlug
             & gh secret set RESOURCE_GROUP --body $resourceGroup --repo $repoSlug
+            & gh secret set VITE_AZURE_CLIENT_ID --body $ClientId --repo $repoSlug
+            & gh secret set VITE_AZURE_TENANT_ID --body $TenantId --repo $repoSlug
             $ErrorActionPreference = "Stop"
 
             # Verify
             $secretList = cmd /c "gh secret list --repo $repoSlug 2>nul"
-            $expected = @("AZURE_CREDENTIALS", "ACR_LOGIN_SERVER", "ACR_USERNAME", "ACR_PASSWORD", "CONTAINER_APP_NAME", "RESOURCE_GROUP")
+            $expected = @("AZURE_CREDENTIALS", "ACR_LOGIN_SERVER", "ACR_USERNAME", "ACR_PASSWORD", "CONTAINER_APP_NAME", "RESOURCE_GROUP", "VITE_AZURE_CLIENT_ID", "VITE_AZURE_TENANT_ID")
             $missing  = $expected | Where-Object { $secretList -notmatch $_ }
 
             if ($missing.Count -eq 0) {
