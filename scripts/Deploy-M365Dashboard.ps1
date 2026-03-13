@@ -163,30 +163,64 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             Write-Host "  Creating service principal..." -ForegroundColor Gray
             cmd /c "az ad sp create --id $ClientId 2>nul" | Out-Null
 
-            # Add Graph permissions
+            # Add Microsoft Graph permissions
             Write-Host "  Adding Microsoft Graph permissions..." -ForegroundColor Gray
-            $permissions = @(
+            $graphPermissions = @(
+                # Core
                 @{ id = "df021288-bdef-4463-88db-98f22de89214"; name = "User.Read.All" }
                 @{ id = "5b567255-7703-4780-807c-7be8301ae99b"; name = "Group.Read.All" }
                 @{ id = "7ab1d382-f21e-4acd-a863-ba3e13f7da61"; name = "Directory.Read.All" }
+                @{ id = "498476ce-e0fe-48b0-b801-37ba7e2685c6"; name = "Organization.Read.All" }
+                @{ id = "246dd0d5-5bd0-4def-940b-0421030a5b68"; name = "Policy.Read.All" }
+                @{ id = "dbb9058a-0e50-45d7-ae91-66909b5d4664"; name = "Domain.Read.All" }
+                # Devices & Intune
                 @{ id = "7438b122-aefc-4978-80ed-43db9fcc7715"; name = "Device.Read.All" }
                 @{ id = "2f51be20-0bb4-4fed-bf7b-db946066c75e"; name = "DeviceManagementManagedDevices.Read.All" }
                 @{ id = "dc377aa6-52d8-4e23-b271-2a7ae04cedf3"; name = "DeviceManagementConfiguration.Read.All" }
                 @{ id = "7a6ee1e7-141e-4cec-ae74-d9db155731ff"; name = "DeviceManagementApps.Read.All" }
+                @{ id = "06a5fe6d-c49d-46a7-b082-56b1b14103c7"; name = "DeviceManagementServiceConfig.Read.All" }
+                # Mail & Reports
+                @{ id = "810c84a8-4a9e-49e6-bf7d-12d183f40d01"; name = "Mail.Read" }
+                @{ id = "230c1aed-a721-4c5d-9cb4-a90514e508ef"; name = "Reports.Read.All" }
+                # Security
                 @{ id = "bf394140-e372-4bf9-a898-299cfc7564e5"; name = "SecurityEvents.Read.All" }
                 @{ id = "dc5007c0-2d7d-4c42-879c-2dab87571379"; name = "IdentityRiskyUser.Read.All" }
                 @{ id = "6e472fd1-ad78-48da-a0f0-97ab2c6b769e"; name = "IdentityRiskEvent.Read.All" }
-                @{ id = "230c1aed-a721-4c5d-9cb4-a90514e508ef"; name = "Reports.Read.All" }
                 @{ id = "b0afded3-3588-46d8-8b3d-9842eff778da"; name = "AuditLog.Read.All" }
-                @{ id = "810c84a8-4a9e-49e6-bf7d-12d183f40d01"; name = "Mail.Read" }
-                @{ id = "dbb9058a-0e50-45d7-ae91-66909b5d4664"; name = "Domain.Read.All" }
-                @{ id = "498476ce-e0fe-48b0-b801-37ba7e2685c6"; name = "Organization.Read.All" }
-                @{ id = "246dd0d5-5bd0-4def-940b-0421030a5b68"; name = "Policy.Read.All" }
+                @{ id = "e0b77adb-e790-44a3-b0a0-257d06303687"; name = "UserAuthenticationMethod.Read.All" }
+                @{ id = "93283d0a-6322-4fa8-966b-8c121624760d"; name = "AttackSimulation.Read.All" }
+                # SharePoint
+                @{ id = "332a536c-c7ef-4017-ab91-336970924f0d"; name = "Sites.Read.All" }
+                # Teams
+                @{ id = "45bbb07e-7321-4fd7-a8f6-3ff27e6a81c8"; name = "CallRecords.Read.All" }
             )
-            foreach ($perm in $permissions) {
+            foreach ($perm in $graphPermissions) {
                 cmd /c "az ad app permission add --id $ClientId --api $graphAppId --api-permissions $($perm.id)=Role 2>nul" | Out-Null
+                Write-Host "    + $($perm.name)" -ForegroundColor Gray
             }
-            Write-Host "  Graph permissions added" -ForegroundColor Green
+            Write-Host "  Graph permissions added (21 permissions)" -ForegroundColor Green
+
+            # Add Microsoft Defender for Endpoint permissions (separate API)
+            Write-Host "  Adding Microsoft Defender for Endpoint permissions..." -ForegroundColor Gray
+            $defenderAppId = "fc780465-2017-40d4-a0c5-307022471b92" # WindowsDefenderATP
+            $defenderPermissions = @(
+                @{ id = "ea8291d3-4b9a-44b5-bc3a-6cea3026dc79"; name = "Machine.Read.All" }
+                @{ id = "41269fc5-d04d-4bfd-bce7-43a51cea049a"; name = "Vulnerability.Read.All" }
+                @{ id = "9bc6a2e4-b4e5-4d2e-a8d6-7c9f62b5e8d1"; name = "Score.Read.All" }
+            )
+            foreach ($perm in $defenderPermissions) {
+                cmd /c "az ad app permission add --id $ClientId --api $defenderAppId --api-permissions $($perm.id)=Role 2>nul" | Out-Null
+                Write-Host "    + $($perm.name)" -ForegroundColor Gray
+            }
+            Write-Host "  Defender for Endpoint permissions added" -ForegroundColor Green
+
+            # Add Exchange Online permissions (separate API)
+            Write-Host "  Adding Exchange Online permissions..." -ForegroundColor Gray
+            $exchangeAppId = "00000002-0000-0ff1-ce00-000000000000" # Office 365 Exchange Online
+            $exchangePermId = "dc50a0fb-09a3-484d-be87-e023b12c6440" # Exchange.ManageAsApp
+            cmd /c "az ad app permission add --id $ClientId --api $exchangeAppId --api-permissions $exchangePermId=Role 2>nul" | Out-Null
+            Write-Host "    + Exchange.ManageAsApp" -ForegroundColor Gray
+            Write-Host "  Exchange Online permissions added" -ForegroundColor Green
 
             # Add app roles
             Write-Host "  Adding app roles..." -ForegroundColor Gray
@@ -789,5 +823,33 @@ Write-Host ""
 Write-Host "Your M365 Dashboard is available at:"
 Write-Host "  $appUrl" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Open the URL above and sign in with your Microsoft 365 account!" -ForegroundColor White
+Write-Host "============================================" -ForegroundColor Yellow
+Write-Host "Manual Steps Required" -ForegroundColor Yellow
+Write-Host "============================================" -ForegroundColor Yellow
+Write-Host ""
+Write-Host "The following permissions require manual configuration and cannot be automated:" -ForegroundColor White
+Write-Host ""
+Write-Host "1. Grant Admin Consent" -ForegroundColor Cyan
+Write-Host "   Azure Portal > Entra ID > App registrations > $ClientId" -ForegroundColor Gray
+Write-Host "   > API permissions > Grant admin consent" -ForegroundColor Gray
+Write-Host ""
+Write-Host "2. Exchange Recipient Administrator role" -ForegroundColor Cyan
+Write-Host "   Required for: Exchange mailbox/distribution list data" -ForegroundColor Gray
+Write-Host "   Entra admin centre > Roles & admins > Exchange Recipient Administrator" -ForegroundColor Gray
+Write-Host "   > Add assignments > select the app registration" -ForegroundColor Gray
+Write-Host ""
+Write-Host "3. Security Reader role in Exchange" -ForegroundColor Cyan
+Write-Host "   Required for: Defender for Office 365 policy data" -ForegroundColor Gray
+Write-Host "   Exchange Admin Centre > Roles > Admin roles" -ForegroundColor Gray
+Write-Host "   > View-Only Organization Management > Members > Add app registration" -ForegroundColor Gray
+Write-Host ""
+Write-Host "4. Defender for Endpoint permissions (if licensed)" -ForegroundColor Cyan
+Write-Host "   Required for: Device vulnerability and exposure data" -ForegroundColor Gray
+Write-Host "   Azure Portal > App registrations > $ClientId > API permissions" -ForegroundColor Gray
+Write-Host "   > Add permission > APIs my org uses > WindowsDefenderATP" -ForegroundColor Gray
+Write-Host "   > Add: Machine.Read.All, Vulnerability.Read.All, Score.Read.All" -ForegroundColor Gray
+Write-Host "   > Grant admin consent" -ForegroundColor Gray
+Write-Host ""
+Write-Host "Once complete, open the dashboard and sign in:" -ForegroundColor White
+Write-Host "  $appUrl" -ForegroundColor Cyan
 Write-Host ""

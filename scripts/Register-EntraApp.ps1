@@ -99,29 +99,48 @@ Write-Host "  Service Principal ready" -ForegroundColor Green
 # Step 3: Add Microsoft Graph API permissions
 Write-Host "Adding Microsoft Graph permissions..." -ForegroundColor Yellow
 
-$permissions = @(
+# Microsoft Graph permissions
+$graphPermissions = @(
+    # Core
     @{ id = "df021288-bdef-4463-88db-98f22de89214"; name = "User.Read.All" }
     @{ id = "5b567255-7703-4780-807c-7be8301ae99b"; name = "Group.Read.All" }
     @{ id = "7ab1d382-f21e-4acd-a863-ba3e13f7da61"; name = "Directory.Read.All" }
+    @{ id = "498476ce-e0fe-48b0-b801-37ba7e2685c6"; name = "Organization.Read.All" }
+    @{ id = "246dd0d5-5bd0-4def-940b-0421030a5b68"; name = "Policy.Read.All" }
+    @{ id = "dbb9058a-0e50-45d7-ae91-66909b5d4664"; name = "Domain.Read.All" }
+    # Devices & Intune
     @{ id = "7438b122-aefc-4978-80ed-43db9fcc7715"; name = "Device.Read.All" }
     @{ id = "2f51be20-0bb4-4fed-bf7b-db946066c75e"; name = "DeviceManagementManagedDevices.Read.All" }
     @{ id = "dc377aa6-52d8-4e23-b271-2a7ae04cedf3"; name = "DeviceManagementConfiguration.Read.All" }
     @{ id = "7a6ee1e7-141e-4cec-ae74-d9db155731ff"; name = "DeviceManagementApps.Read.All" }
+    @{ id = "06a5fe6d-c49d-46a7-b082-56b1b14103c7"; name = "DeviceManagementServiceConfig.Read.All" }
+    # Mail & Reports
+    @{ id = "810c84a8-4a9e-49e6-bf7d-12d183f40d01"; name = "Mail.Read" }
+    @{ id = "230c1aed-a721-4c5d-9cb4-a90514e508ef"; name = "Reports.Read.All" }
+    # Security
     @{ id = "bf394140-e372-4bf9-a898-299cfc7564e5"; name = "SecurityEvents.Read.All" }
     @{ id = "dc5007c0-2d7d-4c42-879c-2dab87571379"; name = "IdentityRiskyUser.Read.All" }
     @{ id = "6e472fd1-ad78-48da-a0f0-97ab2c6b769e"; name = "IdentityRiskEvent.Read.All" }
-    @{ id = "230c1aed-a721-4c5d-9cb4-a90514e508ef"; name = "Reports.Read.All" }
     @{ id = "b0afded3-3588-46d8-8b3d-9842eff778da"; name = "AuditLog.Read.All" }
-    @{ id = "810c84a8-4a9e-49e6-bf7d-12d183f40d01"; name = "Mail.Read" }
-    @{ id = "dbb9058a-0e50-45d7-ae91-66909b5d4664"; name = "Domain.Read.All" }
-    @{ id = "498476ce-e0fe-48b0-b801-37ba7e2685c6"; name = "Organization.Read.All" }
-    @{ id = "246dd0d5-5bd0-4def-940b-0421030a5b68"; name = "Policy.Read.All" }
+    @{ id = "e0b77adb-e790-44a3-b0a0-257d06303687"; name = "UserAuthenticationMethod.Read.All" }
+    @{ id = "93283d0a-6322-4fa8-966b-8c121624760d"; name = "AttackSimulation.Read.All" }
+    # SharePoint
+    @{ id = "332a536c-c7ef-4017-ab91-336970924f0d"; name = "Sites.Read.All" }
+    # Teams
+    @{ id = "45bbb07e-7321-4fd7-a8f6-3ff27e6a81c8"; name = "CallRecords.Read.All" }
 )
 
-foreach ($perm in $permissions) {
+foreach ($perm in $graphPermissions) {
     cmd /c "az ad app permission add --id $appId --api $graphAppId --api-permissions $($perm.id)=Role 2>nul" | Out-Null
     Write-Host "  Added: $($perm.name)" -ForegroundColor Gray
 }
+
+# Exchange Online permissions
+Write-Host "Adding Exchange Online permissions..." -ForegroundColor Yellow
+$exchangeAppId = "00000002-0000-0ff1-ce00-000000000000"
+$exchangePermId = "dc50a0fb-09a3-484d-be87-e023b12c6440" # Exchange.ManageAsApp
+cmd /c "az ad app permission add --id $appId --api $exchangeAppId --api-permissions $exchangePermId=Role 2>nul" | Out-Null
+Write-Host "  Added: Exchange.ManageAsApp" -ForegroundColor Gray
 
 # Step 4: Add App Roles
 Write-Host "Adding App Roles..." -ForegroundColor Yellow
