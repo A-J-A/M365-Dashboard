@@ -4,6 +4,11 @@ WORKDIR /app/frontend
 COPY src/M365Dashboard.Api/ClientApp/package*.json ./
 RUN npm ci
 COPY src/M365Dashboard.Api/ClientApp/ ./
+# Accept Entra app credentials as build args so Vite can bake them into the JS bundle
+ARG VITE_AZURE_CLIENT_ID
+ARG VITE_AZURE_TENANT_ID
+ENV VITE_AZURE_CLIENT_ID=$VITE_AZURE_CLIENT_ID
+ENV VITE_AZURE_TENANT_ID=$VITE_AZURE_TENANT_ID
 # Fix permissions for node_modules binaries and run build
 RUN chmod -R +x node_modules/.bin && npm run build
 

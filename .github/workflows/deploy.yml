@@ -54,8 +54,7 @@ jobs:
           build-args: |
             VITE_AZURE_CLIENT_ID=${{ secrets.VITE_AZURE_CLIENT_ID }}
             VITE_AZURE_TENANT_ID=${{ secrets.VITE_AZURE_TENANT_ID }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          no-cache: true
 
   deploy:
     runs-on: ubuntu-latest
