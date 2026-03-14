@@ -250,7 +250,12 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             }
             Write-Host "  Client secret created (valid 2 years)" -ForegroundColor Green
 
-            # Expose access_as_user scope (required for frontend to get tokens for the backend API)
+            # Set Application ID URI and expose access_as_user scope
+            # The identifier URI must be set first so Entra can resolve api://<clientId> as a resource
+            Write-Host "  Setting Application ID URI..." -ForegroundColor Gray
+            cmd /c "az ad app update --id $ClientId --identifier-uris `"api://$ClientId`" 2>nul" | Out-Null
+            Write-Host "  Application ID URI set: api://$ClientId" -ForegroundColor Green
+
             Write-Host "  Exposing access_as_user scope..." -ForegroundColor Gray
             $appObjectIdForScope = ($newApp.id)
             $scopeId = [guid]::NewGuid().ToString()
