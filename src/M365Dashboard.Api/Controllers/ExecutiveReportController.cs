@@ -2333,9 +2333,9 @@ public class ExecutiveReportController : ControllerBase
     <!-- Infographic 1 -->
     <div class='infographic page-break'>
         <div class='big-number'>99%</div>
-        <div class='line1'>of breaches could be mitigated</div>
-        <div class='line2'>with strong passwords and MFA</div>
-        <div class='source'>Source: Microsoft Security Report</div>
+        <div class='line1'>of identity-based attacks can be blocked</div>
+        <div class='line2'>by phishing-resistant MFA</div>
+        <div class='source'>Source: Microsoft Digital Defense Report 2025</div>
     </div>" : "")}
     
     <!-- Security Metrics -->
@@ -2467,10 +2467,10 @@ public class ExecutiveReportController : ControllerBase
     {(settings.ShowInfoGraphics ? $@"
     <!-- Infographic 2 -->
     <div class='infographic page-break'>
-        <div class='big-number'>84%</div>
-        <div class='line1'>of businesses fell victim</div>
-        <div class='line2'>to phishing attacks in 2024</div>
-        <div class='source'>Source: Cyber Security Breaches Survey</div>
+        <div class='big-number'>97%</div>
+        <div class='line1'>of identity attacks are password attacks</div>
+        <div class='line2'>with identity-based attacks up 32% in 2025</div>
+        <div class='source'>Source: Microsoft Digital Defense Report 2025</div>
     </div>" : "")}
     
     <div class='content page-break'>
@@ -2482,10 +2482,10 @@ public class ExecutiveReportController : ControllerBase
     {(settings.ShowInfoGraphics ? $@"
     <!-- Infographic 3 -->
     <div class='infographic page-break'>
-        <div class='big-number'>31%</div>
-        <div class='line1'>of all breaches over the past</div>
-        <div class='line2'>10 years involved stolen credentials</div>
-        <div class='source'>Source: Verizon DBIR</div>
+        <div class='big-number'>80%</div>
+        <div class='line1'>of cyber incidents investigated by Microsoft</div>
+        <div class='line2'>involved attackers attempting to steal data</div>
+        <div class='source'>Source: Microsoft Digital Defense Report 2025</div>
     </div>" : "")}
     
     <div class='content page-break'>
