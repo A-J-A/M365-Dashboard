@@ -296,6 +296,46 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             # Get tenant ID from current login
             $TenantId = (cmd /c "az account show --query tenantId -o tsv 2>nul").Trim()
 
+            # Assign Exchange Recipient Administrator role to the service principal
+            # This is an Entra directory role and can be automated via Graph API
+            # Role template ID: 31392ffb-586c-42d1-9346-e59415a2cc4e
+            Write-Host "  Assigning Exchange Recipient Administrator role..." -ForegroundColor Gray
+            $ErrorActionPreference = "Continue"
+            $exchangeRoleTemplateId = "31392ffb-586c-42d1-9346-e59415a2cc4e"
+            # Activate the role in the tenant if not already active
+            $activeRoleRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/directoryRoles?`$filter=roleTemplateId eq '$exchangeRoleTemplateId'`" 2>nul"
+            $activeRoleJson = ($activeRoleRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
+            $activeRole = $activeRoleJson | ConvertFrom-Json
+            $roleId = $activeRole.value[0].id
+            if (-not $roleId) {
+                # Role not yet activated in tenant - activate it
+                $activateBody = "{`"roleTemplateId`":`"$exchangeRoleTemplateId`"}"
+                $activateFile = [System.IO.Path]::GetTempFileName() + ".json"
+                [System.IO.File]::WriteAllText($activateFile, $activateBody, [System.Text.Encoding]::UTF8)
+                $activateRaw = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/directoryRoles`" --body @`"$activateFile`" --headers Content-Type=application/json 2>nul"
+                Remove-Item $activateFile -ErrorAction SilentlyContinue
+                $activateJson = ($activateRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
+                $roleId = ($activateJson | ConvertFrom-Json).id
+            }
+            # Get the service principal object ID
+            $spObjIdForRole = (cmd /c "az ad sp show --id $ClientId --query id -o tsv 2>nul").Trim()
+            if ($roleId -and $spObjIdForRole) {
+                $memberBody = "{`"@odata.id`":`"https://graph.microsoft.com/v1.0/directoryObjects/$spObjIdForRole`"}"
+                $memberFile = [System.IO.Path]::GetTempFileName() + ".json"
+                [System.IO.File]::WriteAllText($memberFile, $memberBody, [System.Text.Encoding]::UTF8)
+                $assignResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/directoryRoles/$roleId/members/`$ref`" --body @`"$memberFile`" --headers Content-Type=application/json 2>&1"
+                Remove-Item $memberFile -ErrorAction SilentlyContinue
+                if ($LASTEXITCODE -eq 0 -or ($assignResult -join "") -match "already exists") {
+                    Write-Host "  Exchange Recipient Administrator role assigned" -ForegroundColor Green
+                } else {
+                    Write-Host "  Could not assign Exchange Recipient Administrator role automatically" -ForegroundColor Yellow
+                    Write-Host "  Assign manually: Entra admin centre > Roles & admins > Exchange Recipient Administrator > Add assignments" -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host "  Could not resolve role or service principal - assign Exchange Recipient Administrator manually" -ForegroundColor Yellow
+            }
+            $ErrorActionPreference = "Stop"
+
             # Save new config
             $newConfig = @{ TenantId = $TenantId; ClientId = $ClientId; ClientSecret = $ClientSecret; AppName = $appNameInput; CreatedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") }
             $newConfig | ConvertTo-Json | Out-File $configPath -Encoding UTF8
@@ -832,24 +872,19 @@ Write-Host "============================================" -ForegroundColor Yello
 Write-Host "Manual Steps Required" -ForegroundColor Yellow
 Write-Host "============================================" -ForegroundColor Yellow
 Write-Host ""
-Write-Host "The following permissions require manual configuration and cannot be automated:" -ForegroundColor White
+Write-Host "The following steps require manual configuration:" -ForegroundColor White
 Write-Host ""
-Write-Host "1. Grant Admin Consent" -ForegroundColor Cyan
+Write-Host "1. Grant Admin Consent (required)" -ForegroundColor Cyan
 Write-Host "   Azure Portal > Entra ID > App registrations > $ClientId" -ForegroundColor Gray
-Write-Host "   > API permissions > Grant admin consent" -ForegroundColor Gray
+Write-Host "   > API permissions > Grant admin consent for [your tenant]" -ForegroundColor Gray
 Write-Host ""
-Write-Host "2. Exchange Recipient Administrator role" -ForegroundColor Cyan
-Write-Host "   Required for: Exchange mailbox/distribution list data" -ForegroundColor Gray
-Write-Host "   Entra admin centre > Roles & admins > Exchange Recipient Administrator" -ForegroundColor Gray
-Write-Host "   > Add assignments > select the app registration" -ForegroundColor Gray
-Write-Host ""
-Write-Host "3. Security Reader role in Exchange" -ForegroundColor Cyan
-Write-Host "   Required for: Defender for Office 365 policy data" -ForegroundColor Gray
+Write-Host "2. Security Reader role in Exchange (required for Defender for Office data)" -ForegroundColor Cyan
 Write-Host "   Exchange Admin Centre > Roles > Admin roles" -ForegroundColor Gray
-Write-Host "   > View-Only Organization Management > Members > Add app registration" -ForegroundColor Gray
+Write-Host "   > View-Only Organization Management > Members tab > Add" -ForegroundColor Gray
+Write-Host "   > Search for app registration by name and add it" -ForegroundColor Gray
+Write-Host "   Exchange Admin Centre: https://admin.exchange.microsoft.com/#/adminRoles" -ForegroundColor Gray
 Write-Host ""
-Write-Host "4. Defender for Endpoint permissions (if licensed)" -ForegroundColor Cyan
-Write-Host "   Required for: Device vulnerability and exposure data" -ForegroundColor Gray
+Write-Host "3. Defender for Endpoint permissions (only if Defender P1/P2 licensed)" -ForegroundColor Cyan
 Write-Host "   Azure Portal > App registrations > $ClientId > API permissions" -ForegroundColor Gray
 Write-Host "   > Add permission > APIs my org uses > WindowsDefenderATP" -ForegroundColor Gray
 Write-Host "   > Add: Machine.Read.All, Vulnerability.Read.All, Score.Read.All" -ForegroundColor Gray
