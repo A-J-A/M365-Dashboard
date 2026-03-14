@@ -1508,18 +1508,17 @@ function SettingsRow({ label, description, children }: SettingsRowProps) {
 const permissionFixInstructions: Record<string, { steps: string[]; links: { label: string; url: string }[] }> = {
   'Security Reader (Exchange)': {
     steps: [
-      'Open the Exchange Admin Centre (admin.exchange.microsoft.com)',
+      'Open the Exchange Admin Centre (admin.cloud.microsoft/exchange)',
       'Go to Roles → Admin roles',
-      'Open the "View-Only Organization Management" role group (or "Security Reader" if present)',
+      'Open the "View-Only Organization Management" role group',
       'Click "Edit" then go to the Members tab',
       'Click "Add" and search for your app registration by name and select it',
       'Save the role group',
-      'Restart the app to pick up the new role — in Azure App Service: go to your App Service in the Azure portal and click Restart. Running locally: stop and re-run dotnet run.',
+      'Allow a few minutes for the role to propagate, then refresh the permissions page',
     ],
     links: [
-      { label: 'Exchange Admin Centre', url: 'https://admin.exchange.microsoft.com/#/adminRoles' },
+      { label: 'Exchange Admin Centre', url: 'https://admin.cloud.microsoft/exchange#/adminRoles' },
       { label: 'Microsoft docs', url: 'https://learn.microsoft.com/en-us/microsoft-365/security/office-365-security/mdo-about' },
-      { label: 'Azure App Service (update when deployed)', url: 'https://portal.azure.com/#browse/Microsoft.Web%2Fsites' },
     ],
   },
   'Exchange Recipient Administrator': {
