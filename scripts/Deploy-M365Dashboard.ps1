@@ -34,58 +34,78 @@ param(
 $ErrorActionPreference = "Stop"
 
 # ============================================================================
-# Azure CLI Login
+# Deployment Mode & Login
 # ============================================================================
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host "M365 Dashboard - Deployment Script" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Checking Azure CLI login..." -ForegroundColor Yellow
+Write-Host "Deployment Mode" -ForegroundColor Cyan
+Write-Host "---------------" -ForegroundColor Cyan
+Write-Host "  [1] Standard          - App registration and Azure resources in the same tenant" -ForegroundColor White
+Write-Host "  [2] MSP / Multi-tenant - App registration in client's tenant, Azure resources in your subscription" -ForegroundColor White
+Write-Host ""
+$deployMode = Read-Host "Select mode (1-2)"
+$isMspMode = ($deployMode -eq "2")
 
-$ErrorActionPreference = "Continue"
-$currentAccountJson = cmd /c "az account show 2>nul"
-$ErrorActionPreference = "Stop"
+if ($isMspMode) {
+    Write-Host ""
+    Write-Host "  MSP mode selected." -ForegroundColor Cyan
+    Write-Host "  Step 1 of 2: Login as a Global Admin in the CLIENT'S Microsoft 365 tenant" -ForegroundColor Yellow
+    Write-Host "  (This is used to create the app registration in their tenant)" -ForegroundColor Gray
+    Write-Host ""
+    Read-Host "  Press Enter to open browser login for the CLIENT tenant"
+    cmd /c "az logout 2>nul" | Out-Null
+    cmd /c "az login" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  Login failed." -ForegroundColor Red; exit 1
+    }
+    $clientTenantAccountJson = cmd /c "az account show 2>nul"
+    $clientTenantAccount = $clientTenantAccountJson | ConvertFrom-Json
+    Write-Host "  Logged in as: $($clientTenantAccount.user.name) (tenant: $($clientTenantAccount.tenantId))" -ForegroundColor Green
+    $clientTenantId = $clientTenantAccount.tenantId
+} else {
+    Write-Host ""
+    Write-Host "Checking Azure CLI login..." -ForegroundColor Yellow
+    $ErrorActionPreference = "Continue"
+    $currentAccountJson = cmd /c "az account show 2>nul"
+    $ErrorActionPreference = "Stop"
 
-if ($currentAccountJson) {
-    $currentAccount = $currentAccountJson | ConvertFrom-Json
-    $currentUser = $currentAccount.user.name
-    $currentTenant = $currentAccount.tenantId
-    Write-Host ""
-    Write-Host "  Currently logged in as: $currentUser" -ForegroundColor White
-    Write-Host "  Tenant ID:              $currentTenant" -ForegroundColor White
-    Write-Host ""
-    Write-Host "  [1] Continue as $currentUser" -ForegroundColor White
-    Write-Host "  [2] Login as a different user" -ForegroundColor White
-    Write-Host ""
-    $loginChoice = Read-Host "Select option (1-2)"
-
-    if ($loginChoice -eq "2") {
+    if ($currentAccountJson) {
+        $currentAccount = $currentAccountJson | ConvertFrom-Json
+        $currentUser = $currentAccount.user.name
+        $currentTenant = $currentAccount.tenantId
         Write-Host ""
-        Write-Host "  Logging out current session..." -ForegroundColor Gray
-        cmd /c "az logout 2>nul" | Out-Null
-        Write-Host "  Launching browser login..." -ForegroundColor Yellow
+        Write-Host "  Currently logged in as: $currentUser" -ForegroundColor White
+        Write-Host "  Tenant ID:              $currentTenant" -ForegroundColor White
+        Write-Host ""
+        Write-Host "  [1] Continue as $currentUser" -ForegroundColor White
+        Write-Host "  [2] Login as a different user" -ForegroundColor White
+        Write-Host ""
+        $loginChoice = Read-Host "Select option (1-2)"
+        if ($loginChoice -eq "2") {
+            cmd /c "az logout 2>nul" | Out-Null
+            cmd /c "az login" | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "  Login failed." -ForegroundColor Red; exit 1
+            }
+            $currentAccountJson = cmd /c "az account show 2>nul"
+            $currentAccount = $currentAccountJson | ConvertFrom-Json
+            Write-Host "  Logged in as: $($currentAccount.user.name)" -ForegroundColor Green
+        } else {
+            Write-Host "  Continuing as $currentUser" -ForegroundColor Green
+        }
+    } else {
+        Write-Host "  Not logged in. Launching browser login..." -ForegroundColor Yellow
         cmd /c "az login" | Out-Null
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "  Login failed. Please run 'az login' manually and retry." -ForegroundColor Red
-            exit 1
+            Write-Host "  Login failed." -ForegroundColor Red; exit 1
         }
         $currentAccountJson = cmd /c "az account show 2>nul"
         $currentAccount = $currentAccountJson | ConvertFrom-Json
         Write-Host "  Logged in as: $($currentAccount.user.name)" -ForegroundColor Green
-    } else {
-        Write-Host "  Continuing as $currentUser" -ForegroundColor Green
     }
-} else {
-    Write-Host "  Not logged in. Launching browser login..." -ForegroundColor Yellow
-    cmd /c "az login" | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  Login failed. Please run 'az login' manually and retry." -ForegroundColor Red
-        exit 1
-    }
-    $currentAccountJson = cmd /c "az account show 2>nul"
-    $currentAccount = $currentAccountJson | ConvertFrom-Json
-    Write-Host "  Logged in as: $($currentAccount.user.name)" -ForegroundColor Green
 }
 
 # Azure region options
@@ -551,6 +571,25 @@ if ($confirm -eq "n" -or $confirm -eq "N") {
     exit 0
 }
 Write-Host ""
+
+# In MSP mode, switch from client tenant to your own Azure subscription for infrastructure deployment
+if ($isMspMode) {
+    Write-Host ""
+    Write-Host "Step 2 of 2: Login to YOUR Azure subscription for infrastructure deployment" -ForegroundColor Yellow
+    Write-Host "  (The app registration in the client tenant is complete)" -ForegroundColor Gray
+    Write-Host "  Now logging in to your Cloud1st Azure subscription..." -ForegroundColor Gray
+    Write-Host ""
+    Read-Host "  Press Enter to open browser login for YOUR Azure subscription"
+    cmd /c "az logout 2>nul" | Out-Null
+    cmd /c "az login" | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  Login failed." -ForegroundColor Red; exit 1
+    }
+    $yourAccountJson = cmd /c "az account show 2>nul"
+    $yourAccount = $yourAccountJson | ConvertFrom-Json
+    Write-Host "  Logged in as: $($yourAccount.user.name) (tenant: $($yourAccount.tenantId))" -ForegroundColor Green
+    Write-Host ""
+}
 
 # Final validation before deploying
 if ([string]::IsNullOrWhiteSpace($TenantId) -or [string]::IsNullOrWhiteSpace($ClientId) -or [string]::IsNullOrWhiteSpace($ClientSecret)) {
