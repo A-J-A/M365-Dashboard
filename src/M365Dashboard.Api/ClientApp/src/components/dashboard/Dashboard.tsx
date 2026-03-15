@@ -95,7 +95,7 @@ export function Dashboard() {
     const { isLoading: settingsLoading } = useSettings();
     const { data: summary, isLoading: summaryLoading, refresh: refreshSummary } = useDashboardSummary();
     const { data: signIns, isLoading: signInsLoading } = useSignInAnalytics();
-    const { data: devices, isLoading: devicesLoading } = useDeviceCompliance();
+    const { data: devices, isLoading: devicesLoading, error: devicesError } = useDeviceCompliance();
     const { profile } = useUser();
     const { resolvedTheme } = useTheme();
     const { getAccessToken } = useAppContext();
@@ -106,6 +106,7 @@ export function Dashboard() {
     const [userStatsLoading, setUserStatsLoading] = useState(true);
     const [securityStats, setSecurityStats] = useState<SecurityStats | null>(null);
     const [securityStatsLoading, setSecurityStatsLoading] = useState(true);
+    const [securityStatsError, setSecurityStatsError] = useState<string | null>(null);
     const [riskyUsers, setRiskyUsers] = useState<RiskyUser[]>([]);
     const [riskySignIns, setRiskySignIns] = useState<RiskySignIn[]>([]);
     const [applePushCert, setApplePushCert] = useState<ApplePushCertificate | null>(null);
@@ -138,6 +139,7 @@ export function Dashboard() {
     const fetchSecurityStats = useCallback(async () => {
         try {
             setSecurityStatsLoading(true);
+            setSecurityStatsError(null);
             const token = await getAccessToken();
             const response = await fetch('/api/security/stats', {
                 headers: { Authorization: `Bearer ${token}` },
@@ -145,8 +147,13 @@ export function Dashboard() {
             if (response.ok) {
                 const data = await response.json();
                 setSecurityStats(data);
+            } else {
+                const err = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+                setSecurityStatsError(err.error || `HTTP ${response.status}`);
+                console.error('Security stats error:', err);
             }
         } catch (error) {
+            setSecurityStatsError(error instanceof Error ? error.message : 'Unknown error');
             console.error('Failed to fetch security stats:', error);
         } finally {
             setSecurityStatsLoading(false);
@@ -351,7 +358,7 @@ export function Dashboard() {
                     title="MFA Coverage"
                     value={securityStats?.mfaRegistrationPercentage ?? 0}
                     suffix="%"
-                    subtitle={securityStats ? `${securityStats.mfaRegisteredUsers.toLocaleString()} of ${(securityStats.mfaRegisteredUsers + securityStats.mfaNotRegisteredUsers).toLocaleString()} users` : 'Users with MFA'}
+                    subtitle={securityStats ? `${securityStats.mfaRegisteredUsers.toLocaleString()} of ${(securityStats.mfaRegisteredUsers + securityStats.mfaNotRegisteredUsers).toLocaleString()} users` : (securityStatsError ? `Error: ${securityStatsError}` : 'Users with MFA')}
                     icon={LockClosed24Regular}
                     color={securityStats && securityStats.mfaRegistrationPercentage < 90 ? 'orange' : 'green'}
                     isLoading={securityStatsLoading}
@@ -373,7 +380,7 @@ export function Dashboard() {
                     title="Device Compliance"
                     value={devices?.complianceRate ?? summary?.deviceComplianceRate ?? 0}
                     suffix="%"
-                    subtitle={devices ? `${devices.compliantDevices.toLocaleString()} of ${devices.totalDevices.toLocaleString()} devices` : 'Compliant devices'}
+                    subtitle={devices ? `${devices.compliantDevices.toLocaleString()} of ${devices.totalDevices.toLocaleString()} devices` : (devicesError ? `Error: ${devicesError}` : 'Compliant devices')}
                     icon={Laptop24Regular}
                     color={devices && devices.complianceRate < 80 ? 'orange' : 'green'}
                     isLoading={devicesLoading}
