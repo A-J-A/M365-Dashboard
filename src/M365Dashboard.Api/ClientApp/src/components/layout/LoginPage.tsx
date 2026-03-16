@@ -4,45 +4,18 @@ import { loginRequest } from '../../services/authConfig';
 
 const features = [
   {
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 20, height: 20 }}>
-        <path d="M3 13.5L7.5 9l3 3L15 7.5l4.5 4.5" />
-        <rect x="3" y="3" width="18" height="18" rx="2" />
-      </svg>
-    ),
     title: 'Security & Compliance',
     description: 'MFA status, risky users, Secure Score, and Conditional Access insights',
   },
   {
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 20, height: 20 }}>
-        <circle cx="9" cy="7" r="4" />
-        <path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2" />
-        <path d="M16 3.13a4 4 0 010 7.75" />
-        <path d="M21 21v-2a4 4 0 00-3-3.87" />
-      </svg>
-    ),
     title: 'Users & Groups',
     description: 'Licence assignment, sign-in activity, group membership, and guest access',
   },
   {
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 20, height: 20 }}>
-        <rect x="5" y="2" width="14" height="20" rx="2" />
-        <path d="M12 18h.01" />
-        <path d="M9 6h6M9 10h6M9 14h4" />
-      </svg>
-    ),
     title: 'Devices & Intune',
     description: 'Compliance posture, OS versions, encryption status, and enrolment health',
   },
   {
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 20, height: 20 }}>
-        <path d="M20 7H4a2 2 0 00-2 2v6a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z" />
-        <path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16" />
-      </svg>
-    ),
     title: 'Licences & Reports',
     description: 'Subscription utilisation, mailflow analytics, and executive reporting',
   },
@@ -62,156 +35,87 @@ export function LoginPage() {
   };
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      backgroundColor: '#0f172a',
-      fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif",
-    }}>
+    <div className="min-h-screen flex bg-slate-900">
 
-      {/* Left panel — branding & features */}
-      <div style={{
-        display: 'none',
-        flex: 1,
-        padding: '3rem',
-        flexDirection: 'column',
-        justifyContent: 'space-between',
-        borderRight: '1px solid rgba(255,255,255,0.06)',
-      }} className="login-left-panel">
+      {/* Left panel — hidden on mobile, visible on lg+ */}
+      <div className="hidden lg:flex flex-1 flex-col justify-between p-12 border-r border-white/5">
 
-        {/* Logo mark */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{
-            width: 36, height: 36, borderRadius: 10,
-            background: 'linear-gradient(135deg, #3b82f6, #6366f1)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" style={{ width: 18, height: 18 }}>
-              <rect x="3" y="3" width="7" height="7" rx="1" />
-              <rect x="14" y="3" width="7" height="7" rx="1" />
-              <rect x="3" y="14" width="7" height="7" rx="1" />
-              <rect x="14" y="14" width="7" height="7" rx="1" />
-            </svg>
+        {/* Logo */}
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center flex-shrink-0">
+            <GridIcon />
           </div>
-          <span style={{ color: 'white', fontWeight: 600, fontSize: 15, letterSpacing: '-0.01em' }}>M365 Dashboard</span>
+          <span className="text-white font-semibold text-sm tracking-tight">M365 Dashboard</span>
         </div>
 
         {/* Headline */}
         <div>
-          <p style={{ fontSize: 12, color: '#60a5fa', fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 16 }}>Open Source</p>
-          <h1 style={{ fontSize: 36, fontWeight: 700, color: 'white', lineHeight: 1.15, letterSpacing: '-0.02em', margin: '0 0 16px' }}>
+          <p className="text-xs font-semibold text-blue-400 uppercase tracking-widest mb-4">Open Source</p>
+          <h1 className="text-4xl font-bold text-white leading-tight tracking-tight mb-4">
             Your Microsoft 365<br />tenant, at a glance.
           </h1>
-          <p style={{ fontSize: 15, color: '#94a3b8', lineHeight: 1.7, margin: 0 }}>
-            A unified dashboard for security posture, user management, device compliance, and operational reporting — all in one place.
+          <p className="text-slate-400 text-base leading-relaxed">
+            A unified dashboard for security posture, user management,
+            device compliance, and operational reporting — all in one place.
           </p>
         </div>
 
         {/* Feature list */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div className="space-y-5">
           {features.map((f) => (
-            <div key={f.title} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-              <div style={{
-                flexShrink: 0, width: 38, height: 38, borderRadius: 10,
-                background: 'rgba(59,130,246,0.12)',
-                border: '1px solid rgba(59,130,246,0.2)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                color: '#60a5fa',
-              }}>
-                {f.icon}
-              </div>
+            <div key={f.title} className="flex gap-4 items-start">
+              <div className="flex-shrink-0 w-2 h-2 rounded-full bg-blue-500 mt-2" />
               <div>
-                <p style={{ margin: '0 0 3px', fontSize: 14, fontWeight: 600, color: '#e2e8f0' }}>{f.title}</p>
-                <p style={{ margin: 0, fontSize: 13, color: '#64748b', lineHeight: 1.5 }}>{f.description}</p>
+                <p className="text-sm font-semibold text-slate-200 mb-0.5">{f.title}</p>
+                <p className="text-sm text-slate-500 leading-relaxed">{f.description}</p>
               </div>
             </div>
           ))}
         </div>
 
-        {/* Bottom tagline */}
-        <p style={{ fontSize: 12, color: '#334155', margin: 0 }}>
-          Powered by Microsoft Graph API &middot; Read-only tenant access
+        {/* Footer */}
+        <p className="text-xs text-slate-700">
+          Powered by Microsoft Graph API · Read-only tenant access
         </p>
       </div>
 
-      {/* Right panel — sign in card */}
-      <div style={{
-        width: '100%',
-        maxWidth: 480,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '2rem',
-        margin: '0 auto',
-      }}>
-        <div style={{ width: '100%' }}>
+      {/* Right panel — sign in */}
+      <div className="w-full lg:max-w-md flex items-center justify-center p-8 mx-auto">
+        <div className="w-full">
 
           {/* Card */}
-          <div style={{
-            background: '#1e293b',
-            border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: 20,
-            padding: '2.5rem',
-          }}>
+          <div className="bg-slate-800 border border-white/8 rounded-2xl p-10">
 
-            {/* Icon */}
-            <div style={{ marginBottom: 28 }}>
-              <div style={{
-                width: 52, height: 52, borderRadius: 14,
-                background: 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                marginBottom: 24,
-              }}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" style={{ width: 24, height: 24 }}>
-                  <rect x="3" y="3" width="7" height="7" rx="1" />
-                  <rect x="14" y="3" width="7" height="7" rx="1" />
-                  <rect x="3" y="14" width="7" height="7" rx="1" />
-                  <rect x="14" y="14" width="7" height="7" rx="1" />
-                </svg>
-              </div>
-              <h2 style={{ margin: '0 0 8px', fontSize: 22, fontWeight: 700, color: '#f1f5f9', letterSpacing: '-0.02em' }}>
-                Sign in
-              </h2>
-              <p style={{ margin: 0, fontSize: 14, color: '#64748b', lineHeight: 1.5 }}>
-                Use your Microsoft 365 work account to access the dashboard.
-              </p>
+            {/* App icon */}
+            <div className="w-14 h-14 rounded-2xl bg-blue-600 flex items-center justify-center mb-6">
+              <GridIcon className="w-7 h-7" />
             </div>
 
-            {/* Divider */}
-            <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', marginBottom: 28 }} />
+            <h2 className="text-2xl font-bold text-slate-100 tracking-tight mb-2">Sign in</h2>
+            <p className="text-sm text-slate-400 leading-relaxed mb-8">
+              Use your Microsoft 365 work account to access the dashboard.
+            </p>
 
-            {/* Sign in button */}
+            {/* Divider */}
+            <div className="border-t border-white/5 mb-8" />
+
+            {/* Button */}
             <button
               onClick={handleLogin}
               disabled={isLoading}
-              style={{
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 10,
-                padding: '13px 20px',
-                borderRadius: 12,
-                border: 'none',
-                background: isLoading
-                  ? 'rgba(59,130,246,0.5)'
-                  : 'linear-gradient(135deg, #3b82f6 0%, #6366f1 100%)',
-                color: 'white',
-                fontSize: 15,
-                fontWeight: 600,
-                letterSpacing: '-0.01em',
-                cursor: isLoading ? 'not-allowed' : 'pointer',
-                transition: 'opacity 0.15s, transform 0.1s',
-                fontFamily: 'inherit',
-              }}
-              onMouseEnter={e => { if (!isLoading) (e.currentTarget as HTMLButtonElement).style.opacity = '0.9'; }}
-              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.opacity = '1'; }}
-              onMouseDown={e => { if (!isLoading) (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.99)'; }}
-              onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)'; }}
+              className={`
+                w-full flex items-center justify-center gap-3 px-5 py-3.5
+                rounded-xl text-white text-sm font-semibold tracking-tight
+                transition-all duration-150
+                ${isLoading
+                  ? 'bg-blue-600/50 cursor-not-allowed'
+                  : 'bg-blue-600 hover:bg-blue-500 active:scale-[0.99] cursor-pointer'
+                }
+              `}
             >
               {isLoading ? (
                 <>
-                  <svg style={{ width: 18, height: 18, animation: 'spin 0.8s linear infinite' }} viewBox="0 0 24 24" fill="none">
+                  <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
                     <circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.3)" strokeWidth="3" />
                     <path d="M12 2a10 10 0 0110 10" stroke="white" strokeWidth="3" strokeLinecap="round" />
                   </svg>
@@ -225,57 +129,36 @@ export function LoginPage() {
               )}
             </button>
 
-            {/* Info chips */}
-            <div style={{ display: 'flex', gap: 8, marginTop: 20, flexWrap: 'wrap' }}>
-              <Chip icon="🔒" label="Read-only access" />
-              <Chip icon="🛡️" label="Entra ID auth" />
-              <Chip icon="✓" label="No data stored" />
-            </div>
+
           </div>
 
-          {/* Below card note */}
-          <p style={{ textAlign: 'center', marginTop: 24, fontSize: 12, color: '#334155' }}>
-            By signing in you agree to your organisation&apos;s acceptable use policy.
+          <p className="text-center mt-6 text-xs text-slate-700">
+            By signing in you agree to your organisation's acceptable use policy.
           </p>
         </div>
       </div>
-
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @media (min-width: 900px) {
-          .login-left-panel { display: flex !important; }
-        }
-      `}</style>
     </div>
+  );
+}
+
+function GridIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" className={className ?? 'w-5 h-5'}>
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+    </svg>
   );
 }
 
 function MicrosoftLogo() {
   return (
-    <svg viewBox="0 0 21 21" style={{ width: 18, height: 18, flexShrink: 0 }}>
+    <svg viewBox="0 0 21 21" className="w-4 h-4 flex-shrink-0">
       <rect x="1" y="1" width="9" height="9" fill="#f25022" />
       <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
       <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
       <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
     </svg>
-  );
-}
-
-function Chip({ icon, label }: { icon: string; label: string }) {
-  return (
-    <div style={{
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: 5,
-      padding: '5px 10px',
-      borderRadius: 8,
-      background: 'rgba(255,255,255,0.04)',
-      border: '1px solid rgba(255,255,255,0.07)',
-      fontSize: 12,
-      color: '#64748b',
-    }}>
-      <span style={{ fontSize: 11 }}>{icon}</span>
-      {label}
-    </div>
   );
 }
