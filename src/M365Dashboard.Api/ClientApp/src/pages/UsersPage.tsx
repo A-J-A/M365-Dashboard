@@ -146,14 +146,7 @@ const UsersPage: React.FC = () => {
   }, [users]);
 
   const noUsageLocationCount = useMemo(() => {
-    // Only count enabled member users with licenses but no usage location
-    // (guests and disabled accounts don't need usage locations)
-    return users.filter(u =>
-      u.accountEnabled &&
-      u.userType === 'Member' &&
-      u.assignedLicenses && u.assignedLicenses.length > 0 &&
-      !u.usageLocation
-    ).length;
+    return users.filter(u => !u.usageLocation).length;
   }, [users]);
 
   const filteredAndSortedUsers = useMemo(() => {
@@ -206,12 +199,7 @@ const UsersPage: React.FC = () => {
         result = result.filter((user) => !user.isMfaRegistered);
         break;
       case 'noUsageLocation':
-        result = result.filter((user) =>
-          user.accountEnabled &&
-          user.userType === 'Member' &&
-          user.assignedLicenses && user.assignedLicenses.length > 0 &&
-          !user.usageLocation
-        );
+        result = result.filter((user) => !user.usageLocation);
         break;
     }
 
@@ -502,7 +490,7 @@ const UsersPage: React.FC = () => {
               Usage location required for Microsoft 365 licence assignment
             </p>
             <p className="text-xs text-orange-700 dark:text-orange-300 mt-0.5">
-              Showing enabled member accounts with licences but no usage location set.
+              Showing all accounts with no usage location set.
               A usage location must be set before Microsoft 365 licences can be assigned to a user.
               Fix in Entra ID: User → Properties → Usage location.
             </p>
