@@ -146,7 +146,7 @@ const UsersPage: React.FC = () => {
   }, [users]);
 
   const noUsageLocationCount = useMemo(() => {
-    return users.filter(u => !u.usageLocation).length;
+    return users.filter(u => !u.usageLocation && u.userType !== 'Guest').length;
   }, [users]);
 
   const filteredAndSortedUsers = useMemo(() => {
@@ -199,7 +199,7 @@ const UsersPage: React.FC = () => {
         result = result.filter((user) => !user.isMfaRegistered);
         break;
       case 'noUsageLocation':
-        result = result.filter((user) => !user.usageLocation);
+        result = result.filter((user) => !user.usageLocation && user.userType !== 'Guest');
         break;
     }
 
