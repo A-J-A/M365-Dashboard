@@ -1187,10 +1187,13 @@ const TeamsGroupsPage: React.FC = () => {
                         const memberType = isExchangeMember 
                           ? exchangeMember.recipientType 
                           : graphMember.memberType;
-                        // For devices, UPN field holds the deviceId; for groups it's empty
+                        // For devices the UPN field holds the Entra device GUID; for groups/users it's the UPN or mail
                         const email = isExchangeMember 
                           ? exchangeMember.primarySmtpAddress 
-                          : graphMember.mail || graphMember.userPrincipalName;
+                          : graphMember.mail || (memberType !== 'Device' ? graphMember.userPrincipalName : null);
+                        const deviceSubtitle = memberType === 'Device' && graphMember.userPrincipalName
+                          ? `ID: ${graphMember.userPrincipalName}`
+                          : null;
                         
                         return (
                           <div 
@@ -1222,7 +1225,7 @@ const TeamsGroupsPage: React.FC = () => {
                                   {displayName}
                                 </p>
                                 <p className="text-sm text-slate-500 dark:text-slate-400 truncate">
-                                  {email || (memberType === 'Device' ? 'Device' : memberType === 'Group' ? 'Nested group' : 'No email')}
+                                  {deviceSubtitle || email || (memberType === 'Group' ? 'Nested group' : 'No email')}
                                 </p>
                               </div>
                               <span className={`flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${

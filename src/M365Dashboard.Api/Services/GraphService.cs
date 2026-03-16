@@ -1392,19 +1392,18 @@ public class GraphService : IGraphService
                         }
                         else
                         {
-                            // Device, ServicePrincipal, Contact, or other directory object
-                            // Pull available fields from AdditionalData since the SDK returns a base DirectoryObject
+                            // Device, ServicePrincipal, Contact, or other directory object.
+                            // The members endpoint with $select doesn't populate AdditionalData for
+                            // non-user types — store a placeholder and resolve devices in a second pass.
                             var data = member.AdditionalData ?? new Dictionary<string, object>();
-                            var displayName = data.TryGetValue("displayName", out var dn) ? dn?.ToString() ?? "Unknown" : "Unknown";
+                            var displayName = data.TryGetValue("displayName", out var dn) && dn?.ToString() is { Length: > 0 } dnStr ? dnStr : null;
                             var mail = data.TryGetValue("mail", out var m) ? m?.ToString() : null;
                             var upn = data.TryGetValue("userPrincipalName", out var u) ? u?.ToString() : null;
-                            // For devices, use deviceId or displayName as the identifier label
-                            var deviceId = data.TryGetValue("deviceId", out var did) ? did?.ToString() : null;
 
                             members.Add(new GroupMemberDto(
                                 Id: member.Id ?? string.Empty,
-                                DisplayName: displayName,
-                                UserPrincipalName: upn ?? deviceId,
+                                DisplayName: displayName ?? $"{memberType} ({member.Id?[..8]}…)",
+                                UserPrincipalName: upn,
                                 Mail: mail,
                                 MemberType: memberType
                             ));
@@ -1415,6 +1414,36 @@ public class GraphService : IGraphService
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Could not fetch members for group {GroupId}", groupId);
+            }
+
+            // Second pass: resolve device members by fetching their display name from /devices/{id}
+            var deviceMembers = members.Where(m => m.MemberType == "Device").ToList();
+            foreach (var dm in deviceMembers)
+            {
+                try
+                {
+                    var device = await _graphClient.Devices[dm.Id].GetAsync(config =>
+                    {
+                        config.QueryParameters.Select = new[] { "id", "displayName", "deviceId", "operatingSystem", "operatingSystemVersion" };
+                    });
+                    if (device != null)
+                    {
+                        var idx = members.FindIndex(m => m.Id == dm.Id);
+                        if (idx >= 0)
+                        {
+                            var os = device.OperatingSystem != null ? $" ({device.OperatingSystem})" : string.Empty;
+                            members[idx] = dm with
+                            {
+                                DisplayName = device.DisplayName ?? dm.DisplayName,
+                                UserPrincipalName = device.DeviceId  // Entra device GUID — useful as a subtitle
+                            };
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Could not resolve device {DeviceId}", dm.Id);
+                }
             }
 
             // Get owners
