@@ -14,6 +14,8 @@ import {
   ShieldCheckmarkRegular,
   LockClosedRegular,
   ShieldErrorRegular,
+  LocationRegular,
+  WarningRegular,
 } from '@fluentui/react-icons';
 import { useAppContext } from '../contexts/AppContext';
 
@@ -42,6 +44,7 @@ interface TenantUser {
   isMfaCapable: boolean;
   defaultMfaMethod: string | null;
   mfaMethods: string[] | null;
+  usageLocation: string | null;
 }
 
 interface UserStats {
@@ -64,7 +67,7 @@ interface UserListResult {
   nextLink: string | null;
 }
 
-type FilterType = 'all' | 'members' | 'guests' | 'enabled' | 'disabled' | 'licensed' | 'unlicensed' | 'active' | 'mfaEnabled' | 'mfaDisabled';
+type FilterType = 'all' | 'members' | 'guests' | 'enabled' | 'disabled' | 'licensed' | 'unlicensed' | 'active' | 'mfaEnabled' | 'mfaDisabled' | 'noUsageLocation';
 type SortField = 'displayName' | 'userPrincipalName' | 'userType' | 'accountEnabled' | 'lastSignInDateTime' | 'createdDateTime' | 'isMfaRegistered';
 type SortDirection = 'asc' | 'desc';
 
@@ -142,6 +145,17 @@ const UsersPage: React.FC = () => {
     return { mfaEnabled, mfaDisabled };
   }, [users]);
 
+  const noUsageLocationCount = useMemo(() => {
+    // Only count enabled member users with licenses but no usage location
+    // (guests and disabled accounts don't need usage locations)
+    return users.filter(u =>
+      u.accountEnabled &&
+      u.userType === 'Member' &&
+      u.assignedLicenses && u.assignedLicenses.length > 0 &&
+      !u.usageLocation
+    ).length;
+  }, [users]);
+
   const filteredAndSortedUsers = useMemo(() => {
     let result = [...users];
 
@@ -190,6 +204,14 @@ const UsersPage: React.FC = () => {
         break;
       case 'mfaDisabled':
         result = result.filter((user) => !user.isMfaRegistered);
+        break;
+      case 'noUsageLocation':
+        result = result.filter((user) =>
+          user.accountEnabled &&
+          user.userType === 'Member' &&
+          user.assignedLicenses && user.assignedLicenses.length > 0 &&
+          !user.usageLocation
+        );
         break;
     }
 
@@ -286,6 +308,7 @@ const UsersPage: React.FC = () => {
       case 'active': return 'Active (30d)';
       case 'mfaEnabled': return 'MFA On';
       case 'mfaDisabled': return 'MFA Off';
+      case 'noUsageLocation': return 'No Usage Location';
       default: return 'All Users';
     }
   };
@@ -390,7 +413,7 @@ const UsersPage: React.FC = () => {
       </div>
 
       {/* Stats Cards - Row 2 */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-4 gap-2">
         <StatCard
           title="Active"
           value={stats?.usersSignedInLast30Days ?? 0}
@@ -414,6 +437,14 @@ const UsersPage: React.FC = () => {
           color="text-red-600"
           isActive={filterType === 'mfaDisabled'}
           onClick={() => setFilterType('mfaDisabled')}
+        />
+        <StatCard
+          title="No Location"
+          value={loading ? 0 : noUsageLocationCount}
+          icon={<LocationRegular className="w-4 h-4 text-orange-600" />}
+          color={noUsageLocationCount > 0 ? 'text-orange-600' : 'text-slate-400'}
+          isActive={filterType === 'noUsageLocation'}
+          onClick={() => setFilterType('noUsageLocation')}
         />
       </div>
 
@@ -448,6 +479,7 @@ const UsersPage: React.FC = () => {
             <option value="active">Active (30d)</option>
             <option value="mfaEnabled">MFA On</option>
             <option value="mfaDisabled">MFA Off</option>
+            <option value="noUsageLocation">No Usage Location</option>
           </select>
         </div>
 
@@ -460,6 +492,23 @@ const UsersPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* No Usage Location Warning Banner */}
+      {filterType === 'noUsageLocation' && (
+        <div className="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-3 flex items-start gap-3">
+          <WarningRegular className="w-5 h-5 text-orange-600 dark:text-orange-400 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-orange-800 dark:text-orange-200">
+              Usage location required for Microsoft 365 licence assignment
+            </p>
+            <p className="text-xs text-orange-700 dark:text-orange-300 mt-0.5">
+              Showing enabled member accounts with licences but no usage location set.
+              A usage location must be set before Microsoft 365 licences can be assigned to a user.
+              Fix in Entra ID: User → Properties → Usage location.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Users Table / Cards */}
       <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
@@ -609,6 +658,11 @@ const UsersPage: React.FC = () => {
                     <th className="px-4 py-3 text-left text-sm font-medium text-slate-600 dark:text-slate-300">
                       Licenses
                     </th>
+                    {filterType === 'noUsageLocation' && (
+                      <th className="px-4 py-3 text-left text-sm font-medium text-orange-600 dark:text-orange-400">
+                        Usage Location
+                      </th>
+                    )}
                     <th className="px-4 py-3 text-right text-sm font-medium text-slate-600 dark:text-slate-300">
                       Actions
                     </th>
@@ -734,6 +788,14 @@ const UsersPage: React.FC = () => {
                           <span className="text-sm text-slate-400">No licenses</span>
                         )}
                       </td>
+                      {filterType === 'noUsageLocation' && (
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
+                            <LocationRegular className="w-3 h-3" />
+                            Not set
+                          </span>
+                        </td>
+                      )}
                       <td className="px-4 py-3 text-right">
                         <button
                           onClick={() => openInEntraPortal(user.id)}

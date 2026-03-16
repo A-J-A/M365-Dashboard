@@ -210,7 +210,8 @@ public record TenantUserDto(
     bool IsMfaRegistered,
     bool IsMfaCapable,
     string? DefaultMfaMethod,
-    List<string>? MfaMethods
+    List<string>? MfaMethods,
+    string? UsageLocation
 );
 
 public record UserListResultDto(

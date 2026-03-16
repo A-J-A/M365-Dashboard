@@ -632,7 +632,7 @@ public class GraphService : IGraphService
                 "id", "displayName", "userPrincipalName", "mail", "userType",
                 "accountEnabled", "createdDateTime", "jobTitle", "department",
                 "officeLocation", "city", "country", "mobilePhone", "businessPhones",
-                "assignedLicenses"
+                "assignedLicenses", "usageLocation"
             };
 
             // Try to include signInActivity if available
@@ -722,7 +722,8 @@ public class GraphService : IGraphService
                     IsMfaRegistered: mfa?.IsMfaRegistered ?? false,
                     IsMfaCapable: mfa?.IsMfaCapable ?? false,
                     DefaultMfaMethod: mfa?.DefaultMfaMethod,
-                    MfaMethods: mfa?.MfaMethods
+                    MfaMethods: mfa?.MfaMethods,
+                    UsageLocation: u.UsageLocation
                 );
             }).ToList();
 
