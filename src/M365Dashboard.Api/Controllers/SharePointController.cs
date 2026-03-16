@@ -308,15 +308,11 @@ public class SharePointController : ControllerBase
     {
         var allSites = new List<Site>();
         var siteIds = new HashSet<string>();
-        var groupSiteIds = new HashSet<string>(); // Track which sites came from groups
+        var groupSiteIds = new HashSet<string>();
 
-        // Method 1: Try to enumerate all sites using the sites endpoint without search
-        // This requires Sites.Read.All permission
+        // Method 1: Root site
         try
         {
-            _logger.LogInformation("Fetching all sites using Graph API");
-            
-            // First get root site
             var rootSite = await _graphClient.Sites["root"].GetAsync(config =>
             {
                 config.QueryParameters.Select = new[]
@@ -325,12 +321,11 @@ public class SharePointController : ControllerBase
                     "createdDateTime", "lastModifiedDateTime", "siteCollection"
                 };
             });
-            
+
             if (rootSite != null && !string.IsNullOrEmpty(rootSite.Id))
             {
                 allSites.Add(rootSite);
                 siteIds.Add(rootSite.Id);
-                _logger.LogInformation("Added root site: {Name} - {Url}", rootSite.DisplayName, rootSite.WebUrl);
             }
         }
         catch (Exception ex)
@@ -338,11 +333,9 @@ public class SharePointController : ControllerBase
             _logger.LogWarning(ex, "Could not fetch root site");
         }
 
-        // Method 2: Search with wildcard to find indexed sites
+        // Method 2: Wildcard search for SharePoint sites (excludes personal/OneDrive)
         try
         {
-            _logger.LogInformation("Searching for all sites using search API");
-            
             var searchResults = await _graphClient.Sites.GetAsync(config =>
             {
                 config.QueryParameters.Search = "*";
@@ -354,71 +347,46 @@ public class SharePointController : ControllerBase
                 config.QueryParameters.Top = 500;
             });
 
-            if (searchResults?.Value != null)
+            while (searchResults != null)
             {
-                foreach (var site in searchResults.Value)
+                foreach (var site in searchResults.Value ?? [])
                 {
                     if (site != null && !string.IsNullOrEmpty(site.Id) && !siteIds.Contains(site.Id))
                     {
                         allSites.Add(site);
                         siteIds.Add(site.Id);
-                        _logger.LogDebug("Search found site: {Name} - {Url}", site.DisplayName, site.WebUrl);
                     }
                 }
-                
-                // Page through results
-                while (searchResults?.OdataNextLink != null)
-                {
-                    searchResults = await _graphClient.Sites.WithUrl(searchResults.OdataNextLink).GetAsync();
-                    if (searchResults?.Value != null)
-                    {
-                        foreach (var site in searchResults.Value)
-                        {
-                            if (site != null && !string.IsNullOrEmpty(site.Id) && !siteIds.Contains(site.Id))
-                            {
-                                allSites.Add(site);
-                                siteIds.Add(site.Id);
-                            }
-                        }
-                    }
-                }
+                searchResults = searchResults.OdataNextLink != null
+                    ? await _graphClient.Sites.WithUrl(searchResults.OdataNextLink).GetAsync()
+                    : null;
             }
-            
-            _logger.LogInformation("Total sites after search: {Count}", allSites.Count);
+
+            _logger.LogInformation("Total SharePoint sites after search: {Count}", allSites.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Search API failed: {Message}", ex.Message);
+            _logger.LogWarning(ex, "Sites search API failed: {Message}", ex.Message);
         }
 
-        // Method 3: Get sites from Microsoft 365 Groups (these are Team Sites)
+        // Method 3: M365 Group team sites
         try
         {
-            _logger.LogInformation("Fetching sites from Microsoft 365 Groups");
-            
             var groups = await _graphClient.Groups.GetAsync(config =>
             {
                 config.QueryParameters.Filter = "groupTypes/any(c:c eq 'Unified')";
-                config.QueryParameters.Select = new[] { "id", "displayName" };
+                config.QueryParameters.Select = new[] { "id" };
                 config.QueryParameters.Top = 999;
             });
 
             var groupList = new List<Microsoft.Graph.Models.Group>();
-            if (groups?.Value != null)
+            while (groups != null)
             {
-                groupList.AddRange(groups.Value);
-                
-                while (groups?.OdataNextLink != null)
-                {
-                    groups = await _graphClient.Groups.WithUrl(groups.OdataNextLink).GetAsync();
-                    if (groups?.Value != null)
-                    {
-                        groupList.AddRange(groups.Value);
-                    }
-                }
+                if (groups.Value != null) groupList.AddRange(groups.Value);
+                groups = groups.OdataNextLink != null
+                    ? await _graphClient.Groups.WithUrl(groups.OdataNextLink).GetAsync()
+                    : null;
             }
-
-            _logger.LogInformation("Found {Count} Microsoft 365 Groups", groupList.Count);
 
             foreach (var group in groupList)
             {
@@ -429,15 +397,13 @@ public class SharePointController : ControllerBase
                         config.QueryParameters.Select = new[]
                         {
                             "id", "name", "displayName", "description", "webUrl",
-                            "createdDateTime", "lastModifiedDateTime", "siteCollection"
+                            "createdDateTime", "lastModifiedDateTime"
                         };
                     });
-                    
+
                     if (site != null && !string.IsNullOrEmpty(site.Id))
                     {
-                        // Mark this site as coming from a group (Team Site)
                         groupSiteIds.Add(site.Id);
-                        
                         if (!siteIds.Contains(site.Id))
                         {
                             allSites.Add(site);
@@ -445,35 +411,120 @@ public class SharePointController : ControllerBase
                         }
                     }
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Could not get site for group {GroupId}", group.Id);
-                }
+                catch { /* Group may not have a site */ }
             }
-            
-            _logger.LogInformation("Total group sites identified: {Count}", groupSiteIds.Count);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not fetch sites from groups");
         }
 
-        _logger.LogInformation("Total sites retrieved: {Count} (Group/Team sites: {GroupCount})", allSites.Count, groupSiteIds.Count);
+        // Method 4: OneDrive personal sites via the usage report
+        // The Graph sites search API does NOT return personal OneDrive sites.
+        // We use the OneDrive usage account detail report which lists all OneDrive accounts.
+        var oneDriveSiteDtos = new List<SharePointSiteDto>();
+        int oneDriveSiteCount = 0;
+        long oneDriveTotalStorage = 0;
 
-        // Convert to DTOs with storage info
+        try
+        {
+            _logger.LogInformation("Fetching OneDrive usage report for personal site counts");
+
+            var reportStream = await _graphClient.Reports
+                .GetOneDriveUsageAccountDetailWithPeriod("D30")
+                .GetAsync();
+
+            if (reportStream != null)
+            {
+                using var reader = new StreamReader(reportStream);
+                var csv = await reader.ReadToEndAsync();
+                var lines = csv.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+
+                if (lines.Length > 1)
+                {
+                    // Parse header
+                    var header = lines[0].Split(',').Select(h => h.Trim().Trim('"')).ToArray();
+                    var ownerIdx = Array.FindIndex(header, h => h.Equals("Owner Display Name", StringComparison.OrdinalIgnoreCase));
+                    var urlIdx = Array.FindIndex(header, h => h.Equals("Site URL", StringComparison.OrdinalIgnoreCase));
+                    var storageIdx = Array.FindIndex(header, h => h.Equals("Storage Used (Byte)", StringComparison.OrdinalIgnoreCase));
+                    var lastActivityIdx = Array.FindIndex(header, h => h.Equals("Last Activity Date", StringComparison.OrdinalIgnoreCase));
+                    var isDeletedIdx = Array.FindIndex(header, h => h.Equals("Is Deleted", StringComparison.OrdinalIgnoreCase));
+
+                    _logger.LogInformation("OneDrive report headers found - Owner:{O} URL:{U} Storage:{S}",
+                        ownerIdx, urlIdx, storageIdx);
+
+                    foreach (var line in lines.Skip(1))
+                    {
+                        var parts = line.Split(',').Select(p => p.Trim().Trim('"')).ToArray();
+
+                        // Skip deleted accounts
+                        if (isDeletedIdx >= 0 && isDeletedIdx < parts.Length &&
+                            parts[isDeletedIdx].Equals("True", StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        var siteUrl = urlIdx >= 0 && urlIdx < parts.Length ? parts[urlIdx] : null;
+                        var ownerName = ownerIdx >= 0 && ownerIdx < parts.Length ? parts[ownerIdx] : null;
+                        var storageUsed = storageIdx >= 0 && storageIdx < parts.Length &&
+                                         long.TryParse(parts[storageIdx], out var s) ? s : 0L;
+                        var lastActivity = lastActivityIdx >= 0 && lastActivityIdx < parts.Length &&
+                                          DateTime.TryParse(parts[lastActivityIdx], out var la) ? (DateTime?)la : null;
+
+                        if (string.IsNullOrEmpty(siteUrl)) continue;
+
+                        oneDriveSiteCount++;
+                        oneDriveTotalStorage += storageUsed;
+
+                        // Build a lightweight DTO for each OneDrive account
+                        oneDriveSiteDtos.Add(new SharePointSiteDto(
+                            Id: $"onedrive-{oneDriveSiteCount}",  // synthetic ID - no real Graph site ID
+                            Name: ownerName ?? "OneDrive",
+                            DisplayName: ownerName != null ? $"{ownerName}'s OneDrive" : "OneDrive",
+                            Description: null,
+                            WebUrl: siteUrl,
+                            SiteTemplate: "SPSPERS#10",
+                            CreatedDateTime: null,
+                            LastModifiedDateTime: lastActivity,
+                            StorageUsedBytes: storageUsed,
+                            StorageAllocatedBytes: 0,
+                            StorageUsedPercentage: 0,
+                            OwnerDisplayName: ownerName,
+                            OwnerEmail: null,
+                            IsPersonalSite: true,
+                            ItemCount: null,
+                            Status: "Active"
+                        ));
+                    }
+
+                    _logger.LogInformation("OneDrive report: {Count} personal sites, {Storage} bytes total",
+                        oneDriveSiteCount, oneDriveTotalStorage);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not fetch OneDrive usage report - personal site count will be 0");
+        }
+
+        _logger.LogInformation("Total SharePoint sites: {Sp}, OneDrive personal sites: {Od}",
+            allSites.Count, oneDriveSiteCount);
+
+        // Convert SharePoint sites to DTOs
         var siteDtos = new List<SharePointSiteDto>();
-        
+
         foreach (var site in allSites)
         {
-            long storageUsed = 0;
+            // Skip anything that looks like a personal site - those are covered by the report
+            var isPersonalSite = site.WebUrl?.Contains("-my.sharepoint.com") == true ||
+                                 site.WebUrl?.Contains("/personal/") == true;
+            if (isPersonalSite) continue;
 
+            long storageUsed = 0;
             try
             {
                 var drive = await _graphClient.Sites[site.Id].Drive.GetAsync(config =>
                 {
                     config.QueryParameters.Select = new[] { "quota" };
                 });
-
                 storageUsed = drive?.Quota?.Used ?? 0;
             }
             catch (Exception ex)
@@ -481,38 +532,15 @@ public class SharePointController : ControllerBase
                 _logger.LogDebug(ex, "Could not get storage info for site {SiteId}", site.Id);
             }
 
-            var isPersonalSite = site.WebUrl?.Contains("-my.sharepoint.com") == true ||
-                                 site.WebUrl?.Contains("/personal/") == true;
-
-            // Determine site type
-            // 1. If it came from a Group -> Team Site
-            // 2. If it's a personal site -> Personal Site  
-            // 3. If it has /sites/ or is root -> Communication Site
-            // 4. Otherwise -> Other
             bool isTeamSite = groupSiteIds.Contains(site.Id ?? "");
-            
             string? siteTemplate;
-            if (isPersonalSite)
-            {
-                siteTemplate = "SPSPERS#10";
-            }
-            else if (isTeamSite)
-            {
-                siteTemplate = "GROUP#0"; // Team site connected to M365 Group
-            }
-            else if (site.WebUrl?.Contains("/sites/") == true || 
-                     (site.WebUrl != null && !site.WebUrl.Contains("/teams/") && !site.WebUrl.Contains("/personal/")))
-            {
-                // Communication site - either /sites/ path OR root site (no special path)
+            if (isTeamSite)
+                siteTemplate = "GROUP#0";
+            else if (site.WebUrl?.Contains("/sites/") == true ||
+                     (site.WebUrl != null && !site.WebUrl.Contains("/teams/")))
                 siteTemplate = "SITEPAGEPUBLISHING#0";
-            }
             else
-            {
                 siteTemplate = "OTHER";
-            }
-
-            _logger.LogDebug("Site {Name} ({Url}) - IsTeamSite: {IsTeam}, Template: {Template}", 
-                site.DisplayName, site.WebUrl, isTeamSite, siteTemplate);
 
             siteDtos.Add(new SharePointSiteDto(
                 Id: site.Id ?? string.Empty,
@@ -528,12 +556,14 @@ public class SharePointController : ControllerBase
                 StorageUsedPercentage: 0,
                 OwnerDisplayName: null,
                 OwnerEmail: null,
-                IsPersonalSite: isPersonalSite,
+                IsPersonalSite: false,
                 ItemCount: null,
                 Status: "Active"
             ));
         }
 
+        // Merge SharePoint sites + OneDrive sites
+        siteDtos.AddRange(oneDriveSiteDtos);
         return siteDtos;
     }
 
