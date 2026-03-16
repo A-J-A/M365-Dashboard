@@ -280,7 +280,9 @@ const UsersPage: React.FC = () => {
   };
 
   const openInEntraPortal = (userId: string) => {
-    const url = `https://entra.microsoft.com/#view/Microsoft_AAD_UsersAndTenants/UserProfileMenuBlade/~/overview/userId/${userId}/tenantId/${tenantId}`;
+    const url = filterType === 'noUsageLocation'
+      ? `https://entra.microsoft.com/#view/Microsoft_AAD_UsersAndTenants/UserProfileMenuBlade/~/Properties/userId/${userId}/tenantId/${tenantId}`
+      : `https://entra.microsoft.com/#view/Microsoft_AAD_UsersAndTenants/UserProfileMenuBlade/~/overview/userId/${userId}/tenantId/${tenantId}`;
     window.open(url, '_blank');
   };
 
@@ -490,9 +492,18 @@ const UsersPage: React.FC = () => {
               Usage location required for Microsoft 365 licence assignment
             </p>
             <p className="text-xs text-orange-700 dark:text-orange-300 mt-0.5">
-              Showing all accounts with no usage location set.
+              Showing all non-guest accounts with no usage location set.
               A usage location must be set before Microsoft 365 licences can be assigned to a user.
-              Fix in Entra ID: User → Properties → Usage location.
+              To fix, open the user in the{' '}
+              <a
+                href={`https://entra.microsoft.com/#view/Microsoft_AAD_UsersAndTenants/UserManagementMenuBlade/~/AllUsers`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline font-medium hover:text-orange-900 dark:hover:text-orange-200"
+              >
+                Entra admin centre
+              </a>
+              {' '}and set Properties → Usage location.
             </p>
           </div>
         </div>
