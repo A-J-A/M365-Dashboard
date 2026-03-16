@@ -1359,7 +1359,17 @@ public class GraphService : IGraphService
                 {
                     foreach (var member in membersResponse.Value)
                     {
-                        var memberType = member.OdataType?.Replace("#microsoft.graph.", "") ?? "Unknown";
+                        var rawType = member.OdataType?.Replace("#microsoft.graph.", "") ?? "Unknown";
+                        var memberType = rawType switch
+                        {
+                            "user" => "User",
+                            "group" => "Group",
+                            "device" => "Device",
+                            "servicePrincipal" => "Service Principal",
+                            "orgContact" => "Contact",
+                            _ => rawType
+                        };
+
                         if (member is User user)
                         {
                             members.Add(new GroupMemberDto(
@@ -1370,13 +1380,32 @@ public class GraphService : IGraphService
                                 MemberType: "User"
                             ));
                         }
-                        else
+                        else if (member is Group nestedGroup)
                         {
                             members.Add(new GroupMemberDto(
-                                Id: member.Id ?? string.Empty,
-                                DisplayName: member.AdditionalData.TryGetValue("displayName", out var name) ? name?.ToString() ?? "Unknown" : "Unknown",
+                                Id: nestedGroup.Id ?? string.Empty,
+                                DisplayName: nestedGroup.DisplayName ?? "Unknown",
                                 UserPrincipalName: null,
-                                Mail: null,
+                                Mail: nestedGroup.Mail,
+                                MemberType: "Group"
+                            ));
+                        }
+                        else
+                        {
+                            // Device, ServicePrincipal, Contact, or other directory object
+                            // Pull available fields from AdditionalData since the SDK returns a base DirectoryObject
+                            var data = member.AdditionalData ?? new Dictionary<string, object>();
+                            var displayName = data.TryGetValue("displayName", out var dn) ? dn?.ToString() ?? "Unknown" : "Unknown";
+                            var mail = data.TryGetValue("mail", out var m) ? m?.ToString() : null;
+                            var upn = data.TryGetValue("userPrincipalName", out var u) ? u?.ToString() : null;
+                            // For devices, use deviceId or displayName as the identifier label
+                            var deviceId = data.TryGetValue("deviceId", out var did) ? did?.ToString() : null;
+
+                            members.Add(new GroupMemberDto(
+                                Id: member.Id ?? string.Empty,
+                                DisplayName: displayName,
+                                UserPrincipalName: upn ?? deviceId,
+                                Mail: mail,
                                 MemberType: memberType
                             ));
                         }

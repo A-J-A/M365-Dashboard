@@ -1182,12 +1182,15 @@ const TeamsGroupsPage: React.FC = () => {
                       {filteredMembers.map((member) => {
                         const isExchangeMember = selectedExchangeDL !== null;
                         const displayName = member.displayName;
-                        const email = isExchangeMember 
-                          ? (member as ExchangeDLMember).primarySmtpAddress 
-                          : (member as GroupMember).mail || (member as GroupMember).userPrincipalName;
+                        const graphMember = member as GroupMember;
+                        const exchangeMember = member as ExchangeDLMember;
                         const memberType = isExchangeMember 
-                          ? (member as ExchangeDLMember).recipientType 
-                          : (member as GroupMember).memberType;
+                          ? exchangeMember.recipientType 
+                          : graphMember.memberType;
+                        // For devices, UPN field holds the deviceId; for groups it's empty
+                        const email = isExchangeMember 
+                          ? exchangeMember.primarySmtpAddress 
+                          : graphMember.mail || graphMember.userPrincipalName;
                         
                         return (
                           <div 
@@ -1198,10 +1201,18 @@ const TeamsGroupsPage: React.FC = () => {
                               <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
                                 memberType === 'User' || memberType === 'UserMailbox' || memberType === 'MailUser'
                                   ? 'bg-blue-100 dark:bg-blue-900/30'
+                                  : memberType === 'Device'
+                                  ? 'bg-green-100 dark:bg-green-900/30'
+                                  : memberType === 'Group'
+                                  ? 'bg-purple-100 dark:bg-purple-900/30'
                                   : 'bg-slate-100 dark:bg-slate-700'
                               }`}>
                                 {memberType === 'User' || memberType === 'UserMailbox' || memberType === 'MailUser' ? (
                                   <PersonRegular className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                                ) : memberType === 'Device' ? (
+                                  <span className="text-xs font-bold text-green-600 dark:text-green-400">PC</span>
+                                ) : memberType === 'Group' ? (
+                                  <PeopleCommunityRegular className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                                 ) : (
                                   <PeopleCommunityRegular className="w-5 h-5 text-slate-600 dark:text-slate-400" />
                                 )}
@@ -1211,12 +1222,16 @@ const TeamsGroupsPage: React.FC = () => {
                                   {displayName}
                                 </p>
                                 <p className="text-sm text-slate-500 dark:text-slate-400 truncate">
-                                  {email || 'No email'}
+                                  {email || (memberType === 'Device' ? 'Device' : memberType === 'Group' ? 'Nested group' : 'No email')}
                                 </p>
                               </div>
                               <span className={`flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
                                 memberType === 'User' || memberType === 'UserMailbox' || memberType === 'MailUser'
                                   ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                                  : memberType === 'Device'
+                                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                  : memberType === 'Group'
+                                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
                                   : 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400'
                               }`}>
                                 {memberType}
