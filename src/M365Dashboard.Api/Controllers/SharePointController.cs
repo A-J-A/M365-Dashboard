@@ -419,94 +419,93 @@ public class SharePointController : ControllerBase
             _logger.LogWarning(ex, "Could not fetch sites from groups");
         }
 
-        // Method 4: OneDrive personal sites via the usage report
+        // Method 4: OneDrive personal sites via user drives
         // The Graph sites search API does NOT return personal OneDrive sites.
-        // We use the OneDrive usage account detail report which lists all OneDrive accounts.
+        // We enumerate licensed users and fetch their OneDrive drive quota.
         var oneDriveSiteDtos = new List<SharePointSiteDto>();
-        int oneDriveSiteCount = 0;
-        long oneDriveTotalStorage = 0;
 
         try
         {
-            _logger.LogInformation("Fetching OneDrive usage report for personal site counts");
+            _logger.LogInformation("Fetching OneDrive personal sites via user drives");
 
-            var reportStream = await _graphClient.Reports
-                .GetOneDriveUsageAccountDetailWithPeriod("D30")
-                .GetAsync();
-
-            if (reportStream != null)
+            // Get all member users who are likely to have OneDrive (licensed, member type)
+            var users = new List<User>();
+            var userResponse = await _graphClient.Users.GetAsync(config =>
             {
-                using var reader = new StreamReader(reportStream);
-                var csv = await reader.ReadToEndAsync();
-                var lines = csv.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                config.QueryParameters.Select = new[] { "id", "displayName", "mail", "userPrincipalName", "assignedLicenses", "userType" };
+                config.QueryParameters.Filter = "userType eq 'Member' and assignedLicenses/$count ne 0";
+                config.QueryParameters.Top = 999;
+                config.QueryParameters.Count = true;
+                config.Headers.Add("ConsistencyLevel", "eventual");
+            });
 
-                if (lines.Length > 1)
+            while (userResponse != null)
+            {
+                if (userResponse.Value != null) users.AddRange(userResponse.Value);
+                userResponse = userResponse.OdataNextLink != null
+                    ? await _graphClient.Users.WithUrl(userResponse.OdataNextLink).GetAsync()
+                    : null;
+            }
+
+            _logger.LogInformation("Found {Count} licensed member users to check for OneDrive", users.Count);
+
+            int idx = 0;
+            foreach (var user in users)
+            {
+                idx++;
+                try
                 {
-                    // Parse header
-                    var header = lines[0].Split(',').Select(h => h.Trim().Trim('"')).ToArray();
-                    var ownerIdx = Array.FindIndex(header, h => h.Equals("Owner Display Name", StringComparison.OrdinalIgnoreCase));
-                    var urlIdx = Array.FindIndex(header, h => h.Equals("Site URL", StringComparison.OrdinalIgnoreCase));
-                    var storageIdx = Array.FindIndex(header, h => h.Equals("Storage Used (Byte)", StringComparison.OrdinalIgnoreCase));
-                    var lastActivityIdx = Array.FindIndex(header, h => h.Equals("Last Activity Date", StringComparison.OrdinalIgnoreCase));
-                    var isDeletedIdx = Array.FindIndex(header, h => h.Equals("Is Deleted", StringComparison.OrdinalIgnoreCase));
-
-                    _logger.LogInformation("OneDrive report headers found - Owner:{O} URL:{U} Storage:{S}",
-                        ownerIdx, urlIdx, storageIdx);
-
-                    foreach (var line in lines.Skip(1))
+                    var drive = await _graphClient.Users[user.Id].Drive.GetAsync(config =>
                     {
-                        var parts = line.Split(',').Select(p => p.Trim().Trim('"')).ToArray();
+                        config.QueryParameters.Select = new[] { "id", "webUrl", "quota", "lastModifiedDateTime" };
+                    });
 
-                        // Skip deleted accounts
-                        if (isDeletedIdx >= 0 && isDeletedIdx < parts.Length &&
-                            parts[isDeletedIdx].Equals("True", StringComparison.OrdinalIgnoreCase))
-                            continue;
+                    if (drive == null || string.IsNullOrEmpty(drive.WebUrl)) continue;
 
-                        var siteUrl = urlIdx >= 0 && urlIdx < parts.Length ? parts[urlIdx] : null;
-                        var ownerName = ownerIdx >= 0 && ownerIdx < parts.Length ? parts[ownerIdx] : null;
-                        var storageUsed = storageIdx >= 0 && storageIdx < parts.Length &&
-                                         long.TryParse(parts[storageIdx], out var s) ? s : 0L;
-                        var lastActivity = lastActivityIdx >= 0 && lastActivityIdx < parts.Length &&
-                                          DateTime.TryParse(parts[lastActivityIdx], out var la) ? (DateTime?)la : null;
+                    // Only include drives that are OneDrive personal (webUrl contains -my.sharepoint.com)
+                    if (!drive.WebUrl.Contains("-my.sharepoint.com", StringComparison.OrdinalIgnoreCase)) continue;
 
-                        if (string.IsNullOrEmpty(siteUrl)) continue;
+                    var storageUsed = drive.Quota?.Used ?? 0;
+                    var ownerName = user.DisplayName ?? user.UserPrincipalName ?? "Unknown";
 
-                        oneDriveSiteCount++;
-                        oneDriveTotalStorage += storageUsed;
-
-                        // Build a lightweight DTO for each OneDrive account
-                        oneDriveSiteDtos.Add(new SharePointSiteDto(
-                            Id: $"onedrive-{oneDriveSiteCount}",  // synthetic ID - no real Graph site ID
-                            Name: ownerName ?? "OneDrive",
-                            DisplayName: ownerName != null ? $"{ownerName}'s OneDrive" : "OneDrive",
-                            Description: null,
-                            WebUrl: siteUrl,
-                            SiteTemplate: "SPSPERS#10",
-                            CreatedDateTime: null,
-                            LastModifiedDateTime: lastActivity,
-                            StorageUsedBytes: storageUsed,
-                            StorageAllocatedBytes: 0,
-                            StorageUsedPercentage: 0,
-                            OwnerDisplayName: ownerName,
-                            OwnerEmail: null,
-                            IsPersonalSite: true,
-                            ItemCount: null,
-                            Status: "Active"
-                        ));
-                    }
-
-                    _logger.LogInformation("OneDrive report: {Count} personal sites, {Storage} bytes total",
-                        oneDriveSiteCount, oneDriveTotalStorage);
+                    oneDriveSiteDtos.Add(new SharePointSiteDto(
+                        Id: $"onedrive-{drive.Id ?? idx.ToString()}",
+                        Name: ownerName,
+                        DisplayName: $"{ownerName}'s OneDrive",
+                        Description: null,
+                        WebUrl: drive.WebUrl,
+                        SiteTemplate: "SPSPERS#10",
+                        CreatedDateTime: null,
+                        LastModifiedDateTime: drive.LastModifiedDateTime?.DateTime,
+                        StorageUsedBytes: storageUsed,
+                        StorageAllocatedBytes: drive.Quota?.Total ?? 0,
+                        StorageUsedPercentage: drive.Quota?.Total > 0
+                            ? Math.Round((double)(drive.Quota.Used ?? 0) / drive.Quota.Total.Value * 100, 1)
+                            : 0,
+                        OwnerDisplayName: ownerName,
+                        OwnerEmail: user.Mail ?? user.UserPrincipalName,
+                        IsPersonalSite: true,
+                        ItemCount: null,
+                        Status: "Active"
+                    ));
+                }
+                catch (Exception ex)
+                {
+                    // User may not have OneDrive provisioned - skip silently
+                    _logger.LogDebug(ex, "No OneDrive for user {UserId}", user.Id);
                 }
             }
+
+            _logger.LogInformation("OneDrive: found {Count} personal sites from {Total} licensed users",
+                oneDriveSiteDtos.Count, users.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Could not fetch OneDrive usage report - personal site count will be 0");
+            _logger.LogWarning(ex, "Could not fetch OneDrive personal sites - count will be 0");
         }
 
         _logger.LogInformation("Total SharePoint sites: {Sp}, OneDrive personal sites: {Od}",
-            allSites.Count, oneDriveSiteCount);
+            allSites.Count, oneDriveSiteDtos.Count);
 
         // Convert SharePoint sites to DTOs
         var siteDtos = new List<SharePointSiteDto>();
