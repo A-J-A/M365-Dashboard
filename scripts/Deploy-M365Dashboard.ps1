@@ -973,11 +973,105 @@ Write-Host "   https://admin.cloud.microsoft/exchange#/adminRoles" -ForegroundCo
 Write-Host "   > View-Only Organization Management > Members tab > Add" -ForegroundColor Gray
 Write-Host "   > Search for app registration by name and add it" -ForegroundColor Gray
 Write-Host ""
-Write-Host "3. Defender for Endpoint permissions (only if Defender P1/P2 licensed)" -ForegroundColor Cyan
-Write-Host "   https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/CallAnAPI/appId/$ClientId" -ForegroundColor Gray
-Write-Host "   > Add permission > APIs my org uses > WindowsDefenderATP" -ForegroundColor Gray
-Write-Host "   > Add: Machine.Read.All, Vulnerability.Read.All, Score.Read.All" -ForegroundColor Gray
-Write-Host "   > Grant admin consent" -ForegroundColor Gray
+# ── Check 3: Defender for Endpoint licensing and consent ─────────────────────────
+$defenderLicensed    = $false
+$defenderConsentDone = $false
+$defenderAppId       = "fc780465-2017-40d4-a0c5-307022471b92" # WindowsDefenderATP
+
+try {
+    $ErrorActionPreference = "Continue"
+
+    # Defender P1/P2 SKU prefixes to look for in subscribedSkus
+    $defenderSkus = @(
+        "WIN_DEF_ATP",           # Microsoft Defender for Endpoint P1/P2
+        "MDATP_Server",          # Defender for Servers
+        "DEFENDER_ENDPOINT_P1",  # Standalone P1
+        "MDATP_XPLAT"            # Cross-platform
+    )
+
+    Write-Host "Checking Defender for Endpoint licensing..." -ForegroundColor Gray
+    $skusRaw  = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/subscribedSkus`" --query value -o json 2>nul"
+    $skusJson = ($skusRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
+
+    if ($skusJson -and $skusJson -ne '[]' -and $skusJson -ne 'null') {
+        $skus = $skusJson | ConvertFrom-Json
+        foreach ($sku in $skus) {
+            $partNumber = $sku.skuPartNumber
+            if ($defenderSkus | Where-Object { $partNumber -like "*$_*" }) {
+                if ($sku.prepaidUnits.enabled -gt 0) {
+                    $defenderLicensed = $true
+                    Write-Host "  Defender licence detected: $partNumber" -ForegroundColor Green
+                    break
+                }
+            }
+        }
+    }
+
+    if ($defenderLicensed) {
+        Write-Host "  Granting Defender for Endpoint API consent..." -ForegroundColor Gray
+
+        # Ensure the WindowsDefenderATP service principal exists in this tenant
+        $defSpRaw = cmd /c "az ad sp show --id $defenderAppId --query id -o tsv 2>nul"
+        $defSpId  = ($defSpRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+
+        if (-not $defSpId) {
+            # SP not yet in tenant - create it
+            cmd /c "az ad sp create --id $defenderAppId 2>nul" | Out-Null
+            Start-Sleep -Seconds 5
+            $defSpRaw = cmd /c "az ad sp show --id $defenderAppId --query id -o tsv 2>nul"
+            $defSpId  = ($defSpRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+        }
+
+        if ($spObjId -and $defSpId) {
+            # Grant each Defender app role assignment
+            $defenderRoles = @(
+                @{ id = "ea8291d3-4b9a-44b5-bc3a-6cea3026dc79"; name = "Machine.Read.All" }
+                @{ id = "41269fc5-d04d-4bfd-bce7-43a51cea049a"; name = "Vulnerability.Read.All" }
+                @{ id = "02b005dd-f804-43b4-8fc7-078460413f74"; name = "Score.Read.All" }
+            )
+
+            $allRolesGranted = $true
+            foreach ($role in $defenderRoles) {
+                # Check if already assigned
+                $existingRaw  = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals/$spObjId/appRoleAssignments`" --query `"value[?appRoleId=='$($role.id)']`" -o json 2>nul"
+                $existingJson = ($existingRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
+                if ($existingJson -and $existingJson -ne '[]' -and $existingJson -ne 'null') {
+                    Write-Host "    + $($role.name) [already granted]" -ForegroundColor Gray
+                    continue
+                }
+
+                $body    = "{`"principalId`":`"$spObjId`",`"resourceId`":`"$defSpId`",`"appRoleId`":`"$($role.id)`"}"
+                $grantRaw = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/servicePrincipals/$spObjId/appRoleAssignments`" --body `"$body`" --headers Content-Type=application/json 2>&1"
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "    + $($role.name) [granted]" -ForegroundColor Green
+                } else {
+                    Write-Host "    ! $($role.name) [failed]" -ForegroundColor Yellow
+                    $allRolesGranted = $false
+                }
+            }
+            $defenderConsentDone = $allRolesGranted
+        }
+    }
+    $ErrorActionPreference = "Stop"
+} catch {
+    Write-Host "  Defender check encountered an error: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
+Write-Host "3. Defender for Endpoint permissions" -NoNewline -ForegroundColor Cyan
+if (-not $defenderLicensed) {
+    Write-Host "  [NOT LICENSED - SKIPPED]" -ForegroundColor Gray
+    Write-Host "   No Defender for Endpoint P1/P2 licence detected in this tenant." -ForegroundColor Gray
+    Write-Host "   If you add a Defender licence later, grant consent manually:" -ForegroundColor Gray
+    Write-Host "   https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/CallAnAPI/appId/$ClientId" -ForegroundColor Gray
+} elseif ($defenderConsentDone) {
+    Write-Host "  [CONSENT GRANTED]" -ForegroundColor Green
+    Write-Host "   Machine.Read.All, Vulnerability.Read.All, Score.Read.All - all consented." -ForegroundColor Gray
+} else {
+    Write-Host "  [REQUIRES MANUAL CONSENT]" -ForegroundColor Yellow
+    Write-Host "   Defender licence found but consent could not be fully automated." -ForegroundColor Yellow
+    Write-Host "   https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/CallAnAPI/appId/$ClientId" -ForegroundColor Gray
+    Write-Host "   > Grant admin consent for [your tenant]" -ForegroundColor Gray
+}
 Write-Host ""
 Write-Host "Once complete, open the dashboard and sign in:" -ForegroundColor White
 Write-Host "  $appUrl" -ForegroundColor Cyan
