@@ -293,4 +293,142 @@ public class SettingsController : ControllerBase
             return StatusCode(500, new { error = "Failed to import Entra branding logo", message = ex.Message });
         }
     }
+
+    // -------------------------------------------------------------------------
+    // Break Glass Accounts
+    // -------------------------------------------------------------------------
+
+    private static readonly string BreakGlassFileName = "breakglass-settings.json";
+
+    private string GetBreakGlassFilePath()
+    {
+        var dataPath = Path.Combine(_environment.ContentRootPath, "App_Data");
+        if (!Directory.Exists(dataPath))
+            Directory.CreateDirectory(dataPath);
+        return Path.Combine(dataPath, BreakGlassFileName);
+    }
+
+    /// <summary>
+    /// Get break glass account settings
+    /// </summary>
+    [HttpGet("breakglass")]
+    public IActionResult GetBreakGlassSettings()
+    {
+        try
+        {
+            var filePath = GetBreakGlassFilePath();
+            if (!System.IO.File.Exists(filePath))
+                return Ok(new { accounts = new object[0], lastUpdated = (string?)null, lastModifiedBy = (string?)null });
+
+            var json = System.IO.File.ReadAllText(filePath);
+            var data = JsonSerializer.Deserialize<BreakGlassSettingsFile>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                       ?? new BreakGlassSettingsFile();
+
+            return Ok(new
+            {
+                accounts = data.UserPrincipalNames.Select(upn => new
+                {
+                    userPrincipalName = upn,
+                    displayName       = (string?)null,
+                    objectId          = (string?)null,
+                    isResolved        = false,
+                }),
+                lastUpdated    = data.LastUpdated,
+                lastModifiedBy = data.LastModifiedBy,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading break glass settings");
+            return StatusCode(500, new { error = "Failed to load break glass settings" });
+        }
+    }
+
+    /// <summary>
+    /// Save break glass accounts and resolve them against the directory
+    /// </summary>
+    [HttpPut("breakglass")]
+    public async Task<IActionResult> SaveBreakGlassSettings(
+        [FromBody] SaveBreakGlassRequest request,
+        [FromServices] M365Dashboard.Api.Services.IGraphService graphService)
+    {
+        try
+        {
+            var upns = (request.UserPrincipalNames ?? new List<string>())
+                .Select(u => u.Trim())
+                .Where(u => !string.IsNullOrWhiteSpace(u))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            // Resolve each UPN against the directory
+            var resolvedAccounts = new List<object>();
+            foreach (var upn in upns)
+            {
+                try
+                {
+                    var resolved = await graphService.ResolveUserAsync(upn);
+                    resolvedAccounts.Add(new
+                    {
+                        userPrincipalName = upn,
+                        displayName       = resolved?.DisplayName,
+                        objectId          = resolved?.ObjectId,
+                        isResolved        = resolved?.IsResolved ?? false,
+                    });
+                }
+                catch
+                {
+                    resolvedAccounts.Add(new
+                    {
+                        userPrincipalName = upn,
+                        displayName       = (string?)null,
+                        objectId          = (string?)null,
+                        isResolved        = false,
+                    });
+                }
+            }
+
+            // Persist
+            var currentUser = User.FindFirst("preferred_username")?.Value
+                           ?? User.FindFirst("upn")?.Value
+                           ?? User.Identity?.Name
+                           ?? "unknown";
+
+            var fileData = new BreakGlassSettingsFile
+            {
+                UserPrincipalNames = upns,
+                LastUpdated        = DateTime.UtcNow.ToString("o"),
+                LastModifiedBy     = currentUser,
+            };
+
+            var filePath = GetBreakGlassFilePath();
+            System.IO.File.WriteAllText(filePath, JsonSerializer.Serialize(fileData, new JsonSerializerOptions { WriteIndented = true }));
+
+            _logger.LogInformation("Break glass accounts saved: {Count} accounts by {User}", upns.Count, currentUser);
+
+            return Ok(new
+            {
+                accounts       = resolvedAccounts,
+                lastUpdated    = fileData.LastUpdated,
+                lastModifiedBy = fileData.LastModifiedBy,
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving break glass settings");
+            return StatusCode(500, new { error = "Failed to save break glass accounts", message = ex.Message });
+        }
+    }
+}
+
+// DTO used only within this file
+internal class BreakGlassSettingsFile
+{
+    public List<string> UserPrincipalNames { get; set; } = new();
+    public string? LastUpdated { get; set; }
+    public string? LastModifiedBy { get; set; }
+}
+
+internal class SaveBreakGlassRequest
+{
+    public List<string>? UserPrincipalNames { get; set; }
 }
