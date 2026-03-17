@@ -908,23 +908,73 @@ Write-Host "Your M365 Dashboard is available at:"
 Write-Host "  $appUrl" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Yellow
+Write-Host "Post-Deployment Checks" -ForegroundColor Yellow
+Write-Host "============================================" -ForegroundColor Yellow
+Write-Host ""
+
+# ── Check 1: Admin consent ──────────────────────────────────────────────────
+Write-Host "Checking admin consent status..." -ForegroundColor Gray
+$consentGranted = $false
+try {
+    $ErrorActionPreference = "Continue"
+    # Get the service principal object ID for our app
+    $spObjRaw = cmd /c "az ad sp show --id $ClientId --query id -o tsv 2>nul"
+    $spObjId  = ($spObjRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+
+    if ($spObjId) {
+        # Query oauth2PermissionGrants - if any AllPrincipals grant exists, consent was given
+        $grantsRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/oauth2PermissionGrants?`$filter=clientId eq '$spObjId'`" --query value -o json 2>nul"
+        $grantsJson = ($grantsRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
+        if ($grantsJson -and $grantsJson -ne '[]' -and $grantsJson -ne 'null') {
+            $grants = $grantsJson | ConvertFrom-Json
+            if ($grants -and $grants.Count -gt 0) {
+                $consentGranted = $true
+            }
+        }
+
+        # Also check appRoleAssignments - application permissions granted show up here
+        if (-not $consentGranted) {
+            $assignmentsRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals/$spObjId/appRoleAssignments`" --query value -o json 2>nul"
+            $assignmentsJson = ($assignmentsRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
+            if ($assignmentsJson -and $assignmentsJson -ne '[]' -and $assignmentsJson -ne 'null') {
+                $assignments = $assignmentsJson | ConvertFrom-Json
+                if ($assignments -and $assignments.Count -gt 0) {
+                    $consentGranted = $true
+                }
+            }
+        }
+    }
+    $ErrorActionPreference = "Stop"
+} catch {
+    # Consent check failed non-fatally - default to showing the manual step
+    $consentGranted = $false
+}
+
+Write-Host ""
+Write-Host "============================================" -ForegroundColor Yellow
 Write-Host "Manual Steps Required" -ForegroundColor Yellow
 Write-Host "============================================" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "The following steps require manual configuration:" -ForegroundColor White
 Write-Host ""
-Write-Host "1. Grant Admin Consent (required)" -ForegroundColor Cyan
-Write-Host "   Azure Portal > Entra ID > App registrations > $ClientId" -ForegroundColor Gray
-Write-Host "   > API permissions > Grant admin consent for [your tenant]" -ForegroundColor Gray
+
+if ($consentGranted) {
+    Write-Host "1. Grant Admin Consent" -NoNewline -ForegroundColor Cyan
+    Write-Host "  [ALREADY GRANTED]" -ForegroundColor Green
+    Write-Host "   All permissions have been consented for this app registration." -ForegroundColor Gray
+} else {
+    Write-Host "1. Grant Admin Consent (required)" -ForegroundColor Cyan
+    Write-Host "   https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/CallAnAPI/appId/$ClientId" -ForegroundColor Gray
+    Write-Host "   > Grant admin consent for [your tenant]" -ForegroundColor Gray
+}
 Write-Host ""
 Write-Host "2. Security Reader role in Exchange (required for Defender for Office data)" -ForegroundColor Cyan
-Write-Host "   Exchange Admin Centre > Roles > Admin roles" -ForegroundColor Gray
+Write-Host "   https://admin.cloud.microsoft/exchange#/adminRoles" -ForegroundColor Gray
 Write-Host "   > View-Only Organization Management > Members tab > Add" -ForegroundColor Gray
 Write-Host "   > Search for app registration by name and add it" -ForegroundColor Gray
-Write-Host "   Exchange Admin Centre: https://admin.exchange.microsoft.com/#/adminRoles" -ForegroundColor Gray
 Write-Host ""
 Write-Host "3. Defender for Endpoint permissions (only if Defender P1/P2 licensed)" -ForegroundColor Cyan
-Write-Host "   Azure Portal > App registrations > $ClientId > API permissions" -ForegroundColor Gray
+Write-Host "   https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/CallAnAPI/appId/$ClientId" -ForegroundColor Gray
 Write-Host "   > Add permission > APIs my org uses > WindowsDefenderATP" -ForegroundColor Gray
 Write-Host "   > Add: Machine.Read.All, Vulnerability.Read.All, Score.Read.All" -ForegroundColor Gray
 Write-Host "   > Grant admin consent" -ForegroundColor Gray
