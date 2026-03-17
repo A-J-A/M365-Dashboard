@@ -337,13 +337,12 @@ public class SettingsController : ControllerBase
     private static object BuildBreakGlassResponse(BreakGlassSettingsFile data) =>
         new
         {
-            accounts = data.UserPrincipalNames.Select(upn => new BreakGlassAccountDto
-            {
-                UserPrincipalName = upn,
-                DisplayName       = null,
-                ObjectId          = null,
-                IsResolved        = false,
-            }).ToList(),
+            accounts = data.UserPrincipalNames.Select(upn => new M365Dashboard.Api.Models.Dtos.BreakGlassAccountDto(
+                UserPrincipalName: upn,
+                DisplayName: null,
+                ObjectId: null,
+                IsResolved: false
+            )).ToList(),
             lastUpdated    = data.LastUpdated,
             lastModifiedBy = data.LastModifiedBy,
         };
@@ -353,41 +352,39 @@ public class SettingsController : ControllerBase
     /// </summary>
     [HttpPut("breakglass")]
     public async Task<IActionResult> SaveBreakGlassSettings(
-        [FromBody] SaveBreakGlassRequest request,
+        [FromBody] M365Dashboard.Api.Models.Dtos.UpdateBreakGlassSettingsRequest request,
         [FromServices] M365Dashboard.Api.Services.IGraphService graphService)
     {
         try
         {
-            var upns = (request.UserPrincipalNames ?? new List<string>())
+            var upns = request.UserPrincipalNames
                 .Select(u => u.Trim())
                 .Where(u => !string.IsNullOrWhiteSpace(u))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
             // Resolve each UPN against the directory
-            var resolvedAccounts = new List<BreakGlassAccountDto>();
+            var resolvedAccounts = new List<M365Dashboard.Api.Models.Dtos.BreakGlassAccountDto>();
             foreach (var upn in upns)
             {
                 try
                 {
                     var resolved = await graphService.ResolveUserAsync(upn);
-                    resolvedAccounts.Add(new BreakGlassAccountDto
-                    {
-                        UserPrincipalName = upn,
-                        DisplayName       = resolved?.DisplayName,
-                        ObjectId          = resolved?.ObjectId,
-                        IsResolved        = resolved?.IsResolved ?? false,
-                    });
+                    resolvedAccounts.Add(new M365Dashboard.Api.Models.Dtos.BreakGlassAccountDto(
+                        UserPrincipalName: upn,
+                        DisplayName: resolved?.DisplayName,
+                        ObjectId: resolved?.ObjectId,
+                        IsResolved: resolved?.IsResolved ?? false
+                    ));
                 }
                 catch
                 {
-                    resolvedAccounts.Add(new BreakGlassAccountDto
-                    {
-                        UserPrincipalName = upn,
-                        DisplayName       = null,
-                        ObjectId          = null,
-                        IsResolved        = false,
-                    });
+                    resolvedAccounts.Add(new M365Dashboard.Api.Models.Dtos.BreakGlassAccountDto(
+                        UserPrincipalName: upn,
+                        DisplayName: null,
+                        ObjectId: null,
+                        IsResolved: false
+                    ));
                 }
             }
 
@@ -424,23 +421,10 @@ public class SettingsController : ControllerBase
     }
 }
 
-// Types used only by SettingsController break glass endpoints
+// File-local persistence model for break glass settings
 public class BreakGlassSettingsFile
 {
     public List<string> UserPrincipalNames { get; set; } = new();
     public string? LastUpdated { get; set; }
     public string? LastModifiedBy { get; set; }
-}
-
-public class BreakGlassAccountDto
-{
-    public string UserPrincipalName { get; set; } = string.Empty;
-    public string? DisplayName { get; set; }
-    public string? ObjectId { get; set; }
-    public bool IsResolved { get; set; }
-}
-
-public class SaveBreakGlassRequest
-{
-    public List<string>? UserPrincipalNames { get; set; }
 }
