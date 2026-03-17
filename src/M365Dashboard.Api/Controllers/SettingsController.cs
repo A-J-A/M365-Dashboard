@@ -318,24 +318,14 @@ public class SettingsController : ControllerBase
         {
             var filePath = GetBreakGlassFilePath();
             if (!System.IO.File.Exists(filePath))
-                return Ok(new { accounts = new object[0], lastUpdated = (string?)null, lastModifiedBy = (string?)null });
+                return Ok(BuildBreakGlassResponse(new BreakGlassSettingsFile()));
 
             var json = System.IO.File.ReadAllText(filePath);
-            var data = JsonSerializer.Deserialize<BreakGlassSettingsFile>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            var data = JsonSerializer.Deserialize<BreakGlassSettingsFile>(json,
+                           new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
                        ?? new BreakGlassSettingsFile();
 
-            return Ok(new
-            {
-                accounts = data.UserPrincipalNames.Select(upn => new
-                {
-                    userPrincipalName = upn,
-                    displayName       = (string?)null,
-                    objectId          = (string?)null,
-                    isResolved        = false,
-                }),
-                lastUpdated    = data.LastUpdated,
-                lastModifiedBy = data.LastModifiedBy,
-            });
+            return Ok(BuildBreakGlassResponse(data));
         }
         catch (Exception ex)
         {
@@ -343,6 +333,20 @@ public class SettingsController : ControllerBase
             return StatusCode(500, new { error = "Failed to load break glass settings" });
         }
     }
+
+    private static object BuildBreakGlassResponse(BreakGlassSettingsFile data) =>
+        new
+        {
+            accounts = data.UserPrincipalNames.Select(upn => new BreakGlassAccountDto
+            {
+                UserPrincipalName = upn,
+                DisplayName       = null,
+                ObjectId          = null,
+                IsResolved        = false,
+            }).ToList(),
+            lastUpdated    = data.LastUpdated,
+            lastModifiedBy = data.LastModifiedBy,
+        };
 
     /// <summary>
     /// Save break glass accounts and resolve them against the directory
@@ -361,28 +365,28 @@ public class SettingsController : ControllerBase
                 .ToList();
 
             // Resolve each UPN against the directory
-            var resolvedAccounts = new List<object>();
+            var resolvedAccounts = new List<BreakGlassAccountDto>();
             foreach (var upn in upns)
             {
                 try
                 {
                     var resolved = await graphService.ResolveUserAsync(upn);
-                    resolvedAccounts.Add(new
+                    resolvedAccounts.Add(new BreakGlassAccountDto
                     {
-                        userPrincipalName = upn,
-                        displayName       = resolved?.DisplayName,
-                        objectId          = resolved?.ObjectId,
-                        isResolved        = resolved?.IsResolved ?? false,
+                        UserPrincipalName = upn,
+                        DisplayName       = resolved?.DisplayName,
+                        ObjectId          = resolved?.ObjectId,
+                        IsResolved        = resolved?.IsResolved ?? false,
                     });
                 }
                 catch
                 {
-                    resolvedAccounts.Add(new
+                    resolvedAccounts.Add(new BreakGlassAccountDto
                     {
-                        userPrincipalName = upn,
-                        displayName       = (string?)null,
-                        objectId          = (string?)null,
-                        isResolved        = false,
+                        UserPrincipalName = upn,
+                        DisplayName       = null,
+                        ObjectId          = null,
+                        IsResolved        = false,
                     });
                 }
             }
@@ -408,8 +412,8 @@ public class SettingsController : ControllerBase
             return Ok(new
             {
                 accounts       = resolvedAccounts,
-                lastUpdated    = fileData.LastUpdated,
-                lastModifiedBy = fileData.LastModifiedBy,
+                lastUpdated    = (string?)fileData.LastUpdated,
+                lastModifiedBy = (string?)fileData.LastModifiedBy,
             });
         }
         catch (Exception ex)
@@ -420,15 +424,23 @@ public class SettingsController : ControllerBase
     }
 }
 
-// DTO used only within this file
-internal class BreakGlassSettingsFile
+// Types used only by SettingsController break glass endpoints
+public class BreakGlassSettingsFile
 {
     public List<string> UserPrincipalNames { get; set; } = new();
     public string? LastUpdated { get; set; }
     public string? LastModifiedBy { get; set; }
 }
 
-internal class SaveBreakGlassRequest
+public class BreakGlassAccountDto
+{
+    public string UserPrincipalName { get; set; } = string.Empty;
+    public string? DisplayName { get; set; }
+    public string? ObjectId { get; set; }
+    public bool IsResolved { get; set; }
+}
+
+public class SaveBreakGlassRequest
 {
     public List<string>? UserPrincipalNames { get; set; }
 }
