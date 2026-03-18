@@ -99,6 +99,15 @@ const SignInsPage: React.FC = () => {
     statusFilter === 'failure' ? 'failure' : statusFilter === 'success' ? 'success' : 'all'
   );
 
+  // Active map filter (success/failure pill on map view)
+  const [mapFilter, setMapFilter] = useState<'all' | 'success' | 'failure'>('all');
+
+  // Toggle map filter — clicking the active filter deselects it
+  const handleMapFilterToggle = (filter: 'success' | 'failure') => {
+    setMapFilter(prev => prev === filter ? 'all' : filter);
+    setSelectedLocation(null);
+  };
+
   // Filter sign-ins based on status
   const filteredSignIns = useMemo(() => {
     if (statusFilterState === 'all') return allSignIns;
@@ -281,15 +290,32 @@ const SignInsPage: React.FC = () => {
     }
   }, [mapReady, azureMapsKey, viewMode]);
 
-  // Update map data
+  // Update map data (re-runs when data or filter changes)
   useEffect(() => {
     if (!dataSourceRef.current || !mapData) return;
     dataSourceRef.current.clear();
-    const features = mapData.locations.map((location) => 
-      new window.atlas.data.Feature(new window.atlas.data.Point([location.longitude, location.latitude]), { ...location })
-    );
+
+    const locations = mapData.locations.filter(loc => {
+      if (mapFilter === 'success') return loc.successCount > 0;
+      if (mapFilter === 'failure') return loc.failureCount > 0;
+      return true;
+    });
+
+    const features = locations.map((location) => {
+      // When filtered, show only the relevant count so bubble sizing is correct
+      const displayCount =
+        mapFilter === 'success' ? location.successCount
+        : mapFilter === 'failure' ? location.failureCount
+        : location.signInCount;
+
+      return new window.atlas.data.Feature(
+        new window.atlas.data.Point([location.longitude, location.latitude]),
+        { ...location, signInCount: displayCount }
+      );
+    });
+
     dataSourceRef.current.add(features);
-  }, [mapData]);
+  }, [mapData, mapFilter]);
 
   const timeRangeOptions = [
     { value: 24, label: 'Last 24 hours' },
@@ -351,7 +377,7 @@ const SignInsPage: React.FC = () => {
                 Map
               </button>
               <button
-                onClick={() => setViewMode('list')}
+                onClick={() => { setViewMode('list'); setMapFilter('all'); }}
                 className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                   viewMode === 'list' 
                     ? 'bg-white dark:bg-slate-600 text-slate-900 dark:text-white shadow-sm' 
@@ -405,8 +431,24 @@ const SignInsPage: React.FC = () => {
         {mapData && (
           <div className="mt-4 grid grid-cols-2 sm:grid-cols-5 gap-3">
             <StatCard icon={<PersonRegular className="w-4 h-4" />} label="Total Sign-ins" value={mapData.totalSignIns.toLocaleString()} />
-            <StatCard icon={<CheckmarkCircleRegular className="w-4 h-4 text-green-500" />} label="Successful" value={mapData.successfulSignIns.toLocaleString()} color="text-green-600" />
-            <StatCard icon={<DismissCircleRegular className="w-4 h-4 text-red-500" />} label="Failed" value={mapData.failedSignIns.toLocaleString()} color="text-red-600" />
+            <StatCard
+              icon={<CheckmarkCircleRegular className="w-4 h-4 text-green-500" />}
+              label="Successful"
+              value={mapData.successfulSignIns.toLocaleString()}
+              color="text-green-600"
+              onClick={viewMode === 'map' ? () => handleMapFilterToggle('success') : undefined}
+              active={mapFilter === 'success'}
+              activeRing="ring-green-400"
+            />
+            <StatCard
+              icon={<DismissCircleRegular className="w-4 h-4 text-red-500" />}
+              label="Failed"
+              value={mapData.failedSignIns.toLocaleString()}
+              color="text-red-600"
+              onClick={viewMode === 'map' ? () => handleMapFilterToggle('failure') : undefined}
+              active={mapFilter === 'failure'}
+              activeRing="ring-red-400"
+            />
             <StatCard icon={<PersonRegular className="w-4 h-4" />} label="Unique Users" value={mapData.uniqueUsers.toLocaleString()} />
             <StatCard icon={<LocationRegular className="w-4 h-4" />} label="Locations" value={mapData.uniqueLocations.toLocaleString()} />
           </div>
@@ -540,17 +582,40 @@ interface StatCardProps {
   label: string;
   value: string;
   color?: string;
+  onClick?: () => void;
+  active?: boolean;
+  activeRing?: string;
 }
 
-const StatCard: React.FC<StatCardProps> = ({ icon, label, value, color = 'text-slate-900 dark:text-white' }) => (
-  <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg px-3 py-2">
-    <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs">
-      {icon}
-      <span>{label}</span>
+const StatCard: React.FC<StatCardProps> = ({ icon, label, value, color = 'text-slate-900 dark:text-white', onClick, active, activeRing = 'ring-blue-400' }) => {
+  if (onClick) {
+    return (
+      <button
+        onClick={onClick}
+        className={`bg-slate-50 dark:bg-slate-700/50 rounded-lg px-3 py-2 text-left w-full transition-all ring-2 ${
+          active ? `${activeRing} bg-white dark:bg-slate-700` : 'ring-transparent hover:ring-slate-300 dark:hover:ring-slate-500'
+        }`}
+        title={active ? 'Click to clear filter' : 'Click to filter map'}
+      >
+        <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs">
+          {icon}
+          <span>{label}</span>
+          {active && <span className="ml-auto text-[10px] font-medium uppercase tracking-wide opacity-60">active</span>}
+        </div>
+        <p className={`text-lg font-semibold mt-0.5 ${color}`}>{value}</p>
+      </button>
+    );
+  }
+  return (
+    <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg px-3 py-2">
+      <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs">
+        {icon}
+        <span>{label}</span>
+      </div>
+      <p className={`text-lg font-semibold mt-0.5 ${color}`}>{value}</p>
     </div>
-    <p className={`text-lg font-semibold mt-0.5 ${color}`}>{value}</p>
-  </div>
-);
+  );
+};
 
 interface SignInCardProps {
   signIn: SignInDetail;
