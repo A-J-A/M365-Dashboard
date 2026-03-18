@@ -411,7 +411,7 @@ const SecurityPage: React.FC = () => {
           <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
             <h2 className="font-semibold text-slate-900 dark:text-white">Risky Users</h2>
             <a
-              href="https://entra.microsoft.com/#view/Microsoft_AAD_IAM/RiskyUsersV2Blade"
+              href="https://entra.microsoft.com/#view/Microsoft_AAD_IdentityProtection/RiskyUsers.ReactView"
               target="_blank"
               rel="noopener noreferrer"
               className="text-blue-600 hover:text-blue-700 text-sm flex items-center gap-1"
