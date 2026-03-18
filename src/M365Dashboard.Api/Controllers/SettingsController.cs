@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using M365Dashboard.Api.Models;
+using M365Dashboard.Api.Services;
 using System.Text.Json;
 
 namespace M365Dashboard.Api.Controllers;
@@ -12,15 +13,24 @@ public class SettingsController : ControllerBase
 {
     private readonly ILogger<SettingsController> _logger;
     private readonly IWebHostEnvironment _environment;
+    private readonly ITenantSettingsService _tenantSettingsService;
+    private readonly IConfiguration _configuration;
     private static readonly string SettingsFileName = "report-settings.json";
 
     public SettingsController(
         ILogger<SettingsController> logger,
-        IWebHostEnvironment environment)
+        IWebHostEnvironment environment,
+        ITenantSettingsService tenantSettingsService,
+        IConfiguration configuration)
     {
         _logger = logger;
         _environment = environment;
+        _tenantSettingsService = tenantSettingsService;
+        _configuration = configuration;
     }
+
+    private string GetTenantId() =>
+        _configuration["AzureAd:TenantId"] ?? "default";
 
     private string GetSettingsFilePath()
     {
@@ -295,68 +305,19 @@ public class SettingsController : ControllerBase
     }
 
     // -------------------------------------------------------------------------
-    // Break Glass Accounts
+    // Break Glass Accounts — stored in SQL via TenantSettingsService
     // -------------------------------------------------------------------------
 
-    private static readonly string BreakGlassFileName = "breakglass-settings.json";
-
-    private string GetBreakGlassFilePath()
-    {
-        var dataPath = Path.Combine(_environment.ContentRootPath, "App_Data");
-        if (!Directory.Exists(dataPath))
-            Directory.CreateDirectory(dataPath);
-        return Path.Combine(dataPath, BreakGlassFileName);
-    }
-
     /// <summary>
-    /// Get break glass account settings, resolving each UPN against the directory
+    /// Get break glass account settings from SQL, resolving each UPN against the directory
     /// </summary>
     [HttpGet("breakglass")]
-    public async Task<IActionResult> GetBreakGlassSettings(
-        [FromServices] M365Dashboard.Api.Services.IGraphService graphService)
+    public async Task<IActionResult> GetBreakGlassSettings()
     {
         try
         {
-            var filePath = GetBreakGlassFilePath();
-            if (!System.IO.File.Exists(filePath))
-                return Ok(new { accounts = new List<M365Dashboard.Api.Models.Dtos.BreakGlassAccountDto>(), lastUpdated = (string?)null, lastModifiedBy = (string?)null });
-
-            var json = System.IO.File.ReadAllText(filePath);
-            var data = JsonSerializer.Deserialize<BreakGlassSettingsFile>(json,
-                           new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-                       ?? new BreakGlassSettingsFile();
-
-            // Resolve each UPN against the directory so the UI shows Verified/Not Found correctly
-            var resolvedAccounts = new List<M365Dashboard.Api.Models.Dtos.BreakGlassAccountDto>();
-            foreach (var upn in data.UserPrincipalNames)
-            {
-                try
-                {
-                    var resolved = await graphService.ResolveUserAsync(upn);
-                    resolvedAccounts.Add(new M365Dashboard.Api.Models.Dtos.BreakGlassAccountDto(
-                        UserPrincipalName: upn,
-                        DisplayName: resolved?.DisplayName,
-                        ObjectId: resolved?.ObjectId,
-                        IsResolved: resolved?.IsResolved ?? false
-                    ));
-                }
-                catch
-                {
-                    resolvedAccounts.Add(new M365Dashboard.Api.Models.Dtos.BreakGlassAccountDto(
-                        UserPrincipalName: upn,
-                        DisplayName: null,
-                        ObjectId: null,
-                        IsResolved: false
-                    ));
-                }
-            }
-
-            return Ok(new
-            {
-                accounts       = resolvedAccounts,
-                lastUpdated    = (string?)data.LastUpdated,
-                lastModifiedBy = (string?)data.LastModifiedBy,
-            });
+            var result = await _tenantSettingsService.GetBreakGlassSettingsAsync(GetTenantId());
+            return Ok(result);
         }
         catch (Exception ex)
         {
@@ -366,70 +327,25 @@ public class SettingsController : ControllerBase
     }
 
     /// <summary>
-    /// Save break glass accounts and resolve them against the directory
+    /// Save break glass accounts to SQL
     /// </summary>
     [HttpPut("breakglass")]
     public async Task<IActionResult> SaveBreakGlassSettings(
-        [FromBody] M365Dashboard.Api.Models.Dtos.UpdateBreakGlassSettingsRequest request,
-        [FromServices] M365Dashboard.Api.Services.IGraphService graphService)
+        [FromBody] M365Dashboard.Api.Models.Dtos.UpdateBreakGlassSettingsRequest request)
     {
         try
         {
-            var upns = request.UserPrincipalNames
-                .Select(u => u.Trim())
-                .Where(u => !string.IsNullOrWhiteSpace(u))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            // Resolve each UPN against the directory
-            var resolvedAccounts = new List<M365Dashboard.Api.Models.Dtos.BreakGlassAccountDto>();
-            foreach (var upn in upns)
-            {
-                try
-                {
-                    var resolved = await graphService.ResolveUserAsync(upn);
-                    resolvedAccounts.Add(new M365Dashboard.Api.Models.Dtos.BreakGlassAccountDto(
-                        UserPrincipalName: upn,
-                        DisplayName: resolved?.DisplayName,
-                        ObjectId: resolved?.ObjectId,
-                        IsResolved: resolved?.IsResolved ?? false
-                    ));
-                }
-                catch
-                {
-                    resolvedAccounts.Add(new M365Dashboard.Api.Models.Dtos.BreakGlassAccountDto(
-                        UserPrincipalName: upn,
-                        DisplayName: null,
-                        ObjectId: null,
-                        IsResolved: false
-                    ));
-                }
-            }
-
-            // Persist
             var currentUser = User.FindFirst("preferred_username")?.Value
                            ?? User.FindFirst("upn")?.Value
                            ?? User.Identity?.Name
                            ?? "unknown";
 
-            var fileData = new BreakGlassSettingsFile
-            {
-                UserPrincipalNames = upns,
-                LastUpdated        = DateTime.UtcNow.ToString("o"),
-                LastModifiedBy     = currentUser,
-            };
+            var result = await _tenantSettingsService.UpdateBreakGlassSettingsAsync(
+                GetTenantId(),
+                request.UserPrincipalNames,
+                currentUser);
 
-            var filePath = GetBreakGlassFilePath();
-            System.IO.File.WriteAllText(filePath, JsonSerializer.Serialize(fileData, new JsonSerializerOptions { WriteIndented = true }));
-
-            _logger.LogInformation("Break glass accounts saved: {Count} accounts by {User}", upns.Count, currentUser);
-
-            return Ok(new
-            {
-                accounts       = resolvedAccounts,
-                lastUpdated    = (string?)fileData.LastUpdated,
-                lastModifiedBy = (string?)fileData.LastModifiedBy,
-            });
+            return Ok(result);
         }
         catch (Exception ex)
         {
@@ -437,12 +353,4 @@ public class SettingsController : ControllerBase
             return StatusCode(500, new { error = "Failed to save break glass accounts", message = ex.Message });
         }
     }
-}
-
-// File-local persistence model for break glass settings
-public class BreakGlassSettingsFile
-{
-    public List<string> UserPrincipalNames { get; set; } = new();
-    public string? LastUpdated { get; set; }
-    public string? LastModifiedBy { get; set; }
 }
