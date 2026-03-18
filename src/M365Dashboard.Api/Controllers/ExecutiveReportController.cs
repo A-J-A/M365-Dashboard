@@ -26,6 +26,7 @@ public class ExecutiveReportController : ControllerBase
     private readonly IWebHostEnvironment _environment;
     private readonly IOsVersionService _osVersionService;
     private readonly PdfReportGenerator? _pdfReportGenerator;
+    private readonly ITenantSettingsService _tenantSettingsService;
 
     public ExecutiveReportController(
         IGraphService graphService, 
@@ -35,6 +36,7 @@ public class ExecutiveReportController : ControllerBase
         IDomainSecurityService domainSecurityService,
         IWebHostEnvironment environment,
         IOsVersionService osVersionService,
+        ITenantSettingsService tenantSettingsService,
         PdfReportGenerator? pdfReportGenerator = null)
     {
         _graphService = graphService;
@@ -44,26 +46,22 @@ public class ExecutiveReportController : ControllerBase
         _domainSecurityService = domainSecurityService;
         _environment = environment;
         _osVersionService = osVersionService;
+        _tenantSettingsService = tenantSettingsService;
         _pdfReportGenerator = pdfReportGenerator;
     }
 
-    private ReportSettings LoadReportSettings()
+    private async Task<ReportSettings> LoadReportSettingsAsync()
     {
         try
         {
-            var filePath = Path.Combine(_environment.ContentRootPath, "App_Data", "report-settings.json");
-            if (System.IO.File.Exists(filePath))
-            {
-                var json = System.IO.File.ReadAllText(filePath);
-                return JsonSerializer.Deserialize<ReportSettings>(json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-                       ?? new ReportSettings();
-            }
+            var tenantId = _configuration["AzureAd:TenantId"] ?? "default";
+            return await _tenantSettingsService.GetReportSettingsAsync(tenantId);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not load report settings, using defaults");
+            return new ReportSettings();
         }
-        return new ReportSettings();
     }
 
     // Convert "#rrggbb" to "RRGGBB" (no hash, uppercase) for OpenXml Color elements

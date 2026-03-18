@@ -10,11 +10,15 @@ public interface ITenantSettingsService
 {
     Task<BreakGlassSettingsDto> GetBreakGlassSettingsAsync(string tenantId);
     Task<BreakGlassSettingsDto> UpdateBreakGlassSettingsAsync(string tenantId, List<string> userPrincipalNames, string modifiedBy);
+    Task<ReportSettings> GetReportSettingsAsync(string tenantId);
+    Task<ReportSettings> SaveReportSettingsAsync(string tenantId, ReportSettings settings);
+    Task<ReportSettings> UpdateReportLogoAsync(string tenantId, string? logoBase64, string? logoContentType);
 }
 
 public class TenantSettingsService : ITenantSettingsService
 {
-    private const string BreakGlassSettingKey = "BreakGlassAccounts";
+    private const string BreakGlassSettingKey  = "BreakGlassAccounts";
+    private const string ReportSettingsKey     = "ReportSettings";
     
     private readonly ApplicationDbContext _dbContext;
     private readonly IGraphService _graphService;
@@ -116,5 +120,60 @@ public class TenantSettingsService : ITenantSettingsService
             LastUpdated: setting.UpdatedAt,
             LastModifiedBy: setting.LastModifiedBy
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // Report Settings
+    // -------------------------------------------------------------------------
+
+    public async Task<ReportSettings> GetReportSettingsAsync(string tenantId)
+    {
+        var setting = await _dbContext.TenantSettings
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.SettingKey == ReportSettingsKey);
+
+        if (setting == null)
+            return new ReportSettings();
+
+        return JsonSerializer.Deserialize<ReportSettings>(setting.SettingValue,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            ?? new ReportSettings();
+    }
+
+    public async Task<ReportSettings> SaveReportSettingsAsync(string tenantId, ReportSettings settings)
+    {
+        settings.UpdatedAt = DateTime.UtcNow;
+        var json = JsonSerializer.Serialize(settings);
+
+        var setting = await _dbContext.TenantSettings
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId && s.SettingKey == ReportSettingsKey);
+
+        if (setting == null)
+        {
+            _dbContext.TenantSettings.Add(new TenantSettings
+            {
+                TenantId     = tenantId,
+                SettingKey   = ReportSettingsKey,
+                SettingValue = json,
+                Description  = "Report branding settings (company name, logo, colours)",
+                UpdatedAt    = DateTime.UtcNow,
+            });
+        }
+        else
+        {
+            setting.SettingValue = json;
+            setting.UpdatedAt    = DateTime.UtcNow;
+        }
+
+        await _dbContext.SaveChangesAsync();
+        _logger.LogInformation("Report settings saved for tenant {TenantId}", tenantId);
+        return settings;
+    }
+
+    public async Task<ReportSettings> UpdateReportLogoAsync(string tenantId, string? logoBase64, string? logoContentType)
+    {
+        var settings = await GetReportSettingsAsync(tenantId);
+        settings.LogoBase64      = logoBase64;
+        settings.LogoContentType = logoContentType;
+        return await SaveReportSettingsAsync(tenantId, settings);
     }
 }

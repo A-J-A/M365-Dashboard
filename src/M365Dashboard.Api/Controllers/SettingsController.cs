@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using M365Dashboard.Api.Models;
 using M365Dashboard.Api.Services;
-using System.Text.Json;
 
 namespace M365Dashboard.Api.Controllers;
 
@@ -12,19 +11,15 @@ namespace M365Dashboard.Api.Controllers;
 public class SettingsController : ControllerBase
 {
     private readonly ILogger<SettingsController> _logger;
-    private readonly IWebHostEnvironment _environment;
     private readonly ITenantSettingsService _tenantSettingsService;
     private readonly IConfiguration _configuration;
-    private static readonly string SettingsFileName = "report-settings.json";
 
     public SettingsController(
         ILogger<SettingsController> logger,
-        IWebHostEnvironment environment,
         ITenantSettingsService tenantSettingsService,
         IConfiguration configuration)
     {
         _logger = logger;
-        _environment = environment;
         _tenantSettingsService = tenantSettingsService;
         _configuration = configuration;
     }
@@ -32,38 +27,16 @@ public class SettingsController : ControllerBase
     private string GetTenantId() =>
         _configuration["AzureAd:TenantId"] ?? "default";
 
-    private string GetSettingsFilePath()
-    {
-        var dataPath = Path.Combine(_environment.ContentRootPath, "App_Data");
-        if (!Directory.Exists(dataPath))
-        {
-            Directory.CreateDirectory(dataPath);
-        }
-        return Path.Combine(dataPath, SettingsFileName);
-    }
-
     /// <summary>
     /// Get current report settings
     /// </summary>
     [HttpGet("report")]
-    public IActionResult GetReportSettings()
+    public async Task<IActionResult> GetReportSettings()
     {
         try
         {
-            var filePath = GetSettingsFilePath();
-            
-            if (!System.IO.File.Exists(filePath))
-            {
-                return Ok(new ReportSettings());
-            }
-
-            var json = System.IO.File.ReadAllText(filePath);
-            var settings = JsonSerializer.Deserialize<ReportSettings>(json, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
-
-            return Ok(settings ?? new ReportSettings());
+            var settings = await _tenantSettingsService.GetReportSettingsAsync(GetTenantId());
+            return Ok(settings);
         }
         catch (Exception ex)
         {
@@ -76,22 +49,12 @@ public class SettingsController : ControllerBase
     /// Save report settings
     /// </summary>
     [HttpPost("report")]
-    public IActionResult SaveReportSettings([FromBody] ReportSettings settings)
+    public async Task<IActionResult> SaveReportSettings([FromBody] ReportSettings settings)
     {
         try
         {
-            settings.UpdatedAt = DateTime.UtcNow;
-            
-            var filePath = GetSettingsFilePath();
-            var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
-            
-            System.IO.File.WriteAllText(filePath, json);
-            
-            _logger.LogInformation("Report settings saved successfully");
-            return Ok(settings);
+            var saved = await _tenantSettingsService.SaveReportSettingsAsync(GetTenantId(), settings);
+            return Ok(saved);
         }
         catch (Exception ex)
         {
@@ -109,63 +72,23 @@ public class SettingsController : ControllerBase
         try
         {
             if (file == null || file.Length == 0)
-            {
                 return BadRequest(new { error = "No file provided" });
-            }
 
-            // Validate file type
             var allowedTypes = new[] { "image/png", "image/jpeg", "image/gif", "image/svg+xml" };
             if (!allowedTypes.Contains(file.ContentType.ToLower()))
-            {
                 return BadRequest(new { error = "Invalid file type. Please upload PNG, JPEG, GIF, or SVG." });
-            }
 
-            // Validate file size (max 2MB)
             if (file.Length > 2 * 1024 * 1024)
-            {
                 return BadRequest(new { error = "File too large. Maximum size is 2MB." });
-            }
 
-            // Read file to base64
             using var memoryStream = new MemoryStream();
             await file.CopyToAsync(memoryStream);
             var base64 = Convert.ToBase64String(memoryStream.ToArray());
 
-            // Load existing settings
-            var filePath = GetSettingsFilePath();
-            ReportSettings settings;
-            
-            if (System.IO.File.Exists(filePath))
-            {
-                var json = System.IO.File.ReadAllText(filePath);
-                settings = JsonSerializer.Deserialize<ReportSettings>(json, new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                }) ?? new ReportSettings();
-            }
-            else
-            {
-                settings = new ReportSettings();
-            }
-
-            // Update logo
-            settings.LogoBase64 = base64;
-            settings.LogoContentType = file.ContentType;
-            settings.UpdatedAt = DateTime.UtcNow;
-
-            // Save settings
-            var updatedJson = JsonSerializer.Serialize(settings, new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
-            System.IO.File.WriteAllText(filePath, updatedJson);
+            await _tenantSettingsService.UpdateReportLogoAsync(GetTenantId(), base64, file.ContentType);
 
             _logger.LogInformation("Logo uploaded successfully");
-            return Ok(new { 
-                message = "Logo uploaded successfully",
-                logoBase64 = base64,
-                contentType = file.ContentType
-            });
+            return Ok(new { message = "Logo uploaded successfully", logoBase64 = base64, contentType = file.ContentType });
         }
         catch (Exception ex)
         {
@@ -178,33 +101,11 @@ public class SettingsController : ControllerBase
     /// Remove logo from reports
     /// </summary>
     [HttpDelete("report/logo")]
-    public IActionResult RemoveLogo()
+    public async Task<IActionResult> RemoveLogo()
     {
         try
         {
-            var filePath = GetSettingsFilePath();
-            
-            if (!System.IO.File.Exists(filePath))
-            {
-                return Ok(new { message = "No logo to remove" });
-            }
-
-            var json = System.IO.File.ReadAllText(filePath);
-            var settings = JsonSerializer.Deserialize<ReportSettings>(json, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            }) ?? new ReportSettings();
-
-            settings.LogoBase64 = null;
-            settings.LogoContentType = null;
-            settings.UpdatedAt = DateTime.UtcNow;
-
-            var updatedJson = JsonSerializer.Serialize(settings, new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
-            System.IO.File.WriteAllText(filePath, updatedJson);
-
+            await _tenantSettingsService.UpdateReportLogoAsync(GetTenantId(), null, null);
             _logger.LogInformation("Logo removed successfully");
             return Ok(new { message = "Logo removed successfully" });
         }
@@ -220,23 +121,17 @@ public class SettingsController : ControllerBase
     /// </summary>
     [HttpPost("report/logo/entra")]
     public async Task<IActionResult> ImportEntraBrandingLogo(
-        [FromServices] Microsoft.Graph.GraphServiceClient graphClient,
-        [FromServices] IConfiguration configuration)
+        [FromServices] Microsoft.Graph.GraphServiceClient graphClient)
     {
         try
         {
-            // Get the tenant/org ID
-            var tenantId = configuration["AzureAd:TenantId"];
-
-            // Fetch the banner logo stream from Entra branding
-            // Uses localizations/0 which is the default locale
             byte[]? logoBytes = null;
             string contentType = "image/png";
 
             try
             {
                 var orgs = await graphClient.Organization.GetAsync();
-                var orgId = orgs?.Value?.FirstOrDefault()?.Id ?? tenantId;
+                var orgId = orgs?.Value?.FirstOrDefault()?.Id ?? GetTenantId();
 
                 var logoStream = await graphClient.Organization[orgId]
                     .Branding.Localizations["0"]
@@ -249,7 +144,6 @@ public class SettingsController : ControllerBase
                     await logoStream.CopyToAsync(ms);
                     logoBytes = ms.ToArray();
 
-                    // Try to detect content type from magic bytes
                     if (logoBytes.Length >= 4)
                     {
                         if (logoBytes[0] == 0x89 && logoBytes[1] == 0x50) contentType = "image/png";
@@ -265,37 +159,13 @@ public class SettingsController : ControllerBase
             }
 
             if (logoBytes == null || logoBytes.Length == 0)
-            {
                 return NotFound(new { error = "No banner logo found in Entra branding", message = "Upload a banner logo in Entra admin centre under Company Branding." });
-            }
 
-            // Save it as the report logo
-            var filePath = GetSettingsFilePath();
-            ReportSettings settings;
-            if (System.IO.File.Exists(filePath))
-            {
-                var json = System.IO.File.ReadAllText(filePath);
-                settings = JsonSerializer.Deserialize<ReportSettings>(json) ?? new ReportSettings();
-            }
-            else
-            {
-                settings = new ReportSettings();
-            }
-
-            settings.LogoBase64 = Convert.ToBase64String(logoBytes);
-            settings.LogoContentType = contentType;
-            settings.UpdatedAt = DateTime.UtcNow;
-
-            System.IO.File.WriteAllText(filePath, JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true }));
+            var base64 = Convert.ToBase64String(logoBytes);
+            await _tenantSettingsService.UpdateReportLogoAsync(GetTenantId(), base64, contentType);
 
             _logger.LogInformation("Entra branding logo imported successfully ({Bytes} bytes, {Type})", logoBytes.Length, contentType);
-
-            return Ok(new
-            {
-                logoBase64 = settings.LogoBase64,
-                contentType = settings.LogoContentType,
-                message = "Entra branding logo imported successfully"
-            });
+            return Ok(new { logoBase64 = base64, contentType, message = "Entra branding logo imported successfully" });
         }
         catch (Exception ex)
         {
