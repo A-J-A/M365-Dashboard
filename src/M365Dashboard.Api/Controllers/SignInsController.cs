@@ -42,6 +42,7 @@ public class SignInsController : ControllerBase
                     "id", "createdDateTime", "userPrincipalName", "userDisplayName",
                     "ipAddress", "location", "status", "clientAppUsed",
                     "deviceDetail", "riskLevelDuringSignIn", "riskState",
+                    "riskEventTypes", "riskEventTypesV2",
                     "conditionalAccessStatus", "isInteractive"
                 };
                 config.QueryParameters.Orderby = new[] { "createdDateTime desc" };
@@ -95,8 +96,9 @@ public class SignInsController : ControllerBase
                     IsManaged: s.DeviceDetail?.IsManaged,
                     RiskLevel: s.RiskLevelDuringSignIn?.ToString(),
                     RiskState: s.RiskState?.ToString(),
-                    MfaRequired: null, // MFA detail not available in this query
-                    ConditionalAccessStatus: s.ConditionalAccessStatus?.ToString()
+                    MfaRequired: null,
+                    ConditionalAccessStatus: s.ConditionalAccessStatus?.ToString(),
+                    RiskEventTypes: s.RiskEventTypesV2?.Count > 0 ? s.RiskEventTypesV2 : s.RiskEventTypes?.Select(r => r.ToString()).ToList()
                 ))
                 .ToList();
 
@@ -207,7 +209,8 @@ public class SignInsController : ControllerBase
                 RiskLevel: s.RiskLevelDuringSignIn?.ToString(),
                 RiskState: s.RiskState?.ToString(),
                 MfaRequired: null,
-                ConditionalAccessStatus: s.ConditionalAccessStatus?.ToString()
+                ConditionalAccessStatus: s.ConditionalAccessStatus?.ToString(),
+                RiskEventTypes: s.RiskEventTypesV2?.Count > 0 ? s.RiskEventTypesV2 : s.RiskEventTypes?.Select(r => r.ToString()).ToList()
             )).ToList();
 
             return Ok(new
@@ -222,6 +225,59 @@ public class SignInsController : ControllerBase
         {
             _logger.LogError(ex, "Error fetching sign-ins list");
             return StatusCode(500, new { error = "Failed to fetch sign-in data", message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Get sign-ins flagged with anonymized IP (VPN/Proxy/Tor) risk event
+    /// </summary>
+    [HttpGet("vpn-proxy")]
+    public async Task<IActionResult> GetVpnProxySignIns([FromQuery] int hours = 24, [FromQuery] int take = 20)
+    {
+        try
+        {
+            _logger.LogInformation("Fetching VPN/proxy sign-ins, last {Hours} hours", hours);
+
+            var cutoffTime = DateTime.UtcNow.AddHours(-hours);
+
+            var signIns = await _graphClient.AuditLogs.SignIns.GetAsync(config =>
+            {
+                config.QueryParameters.Filter =
+                    $"createdDateTime ge {cutoffTime:yyyy-MM-ddTHH:mm:ssZ} and riskEventTypes_v2/any(r: r eq 'anonymizedIPAddress')";
+                config.QueryParameters.Top = take;
+                config.QueryParameters.Select = new[]
+                {
+                    "id", "createdDateTime", "userPrincipalName", "userDisplayName",
+                    "ipAddress", "location", "status", "clientAppUsed",
+                    "riskLevelDuringSignIn", "riskState", "riskEventTypes", "riskEventTypesV2"
+                };
+                config.QueryParameters.Orderby = new[] { "createdDateTime desc" };
+            });
+
+            var result = (signIns?.Value ?? new List<SignIn>()).Select(s => new
+            {
+                id                 = s.Id,
+                userPrincipalName  = s.UserPrincipalName ?? "Unknown",
+                displayName        = s.UserDisplayName,
+                createdDateTime    = s.CreatedDateTime?.DateTime,
+                ipAddress          = s.IpAddress,
+                city               = s.Location?.City,
+                countryOrRegion    = s.Location?.CountryOrRegion,
+                isSuccess          = s.Status?.ErrorCode == 0,
+                failureReason      = s.Status?.FailureReason,
+                clientAppUsed      = s.ClientAppUsed,
+                riskLevel          = s.RiskLevelDuringSignIn?.ToString(),
+                riskEventTypes     = s.RiskEventTypesV2?.Count > 0
+                                     ? s.RiskEventTypesV2
+                                     : s.RiskEventTypes?.Select(r => r.ToString()).ToList(),
+            }).ToList();
+
+            return Ok(new { signIns = result, totalCount = result.Count, hours, startDate = cutoffTime });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching VPN/proxy sign-ins");
+            return StatusCode(500, new { error = "Failed to fetch VPN/proxy sign-in data", message = ex.Message });
         }
     }
 

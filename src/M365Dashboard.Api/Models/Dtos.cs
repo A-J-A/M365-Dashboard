@@ -760,7 +760,8 @@ public record SignInDetailDto(
     string? RiskLevel,
     string? RiskState,
     bool? MfaRequired,
-    string? ConditionalAccessStatus
+    string? ConditionalAccessStatus,
+    List<string>? RiskEventTypes
 );
 
 public record SignInLocationDto(

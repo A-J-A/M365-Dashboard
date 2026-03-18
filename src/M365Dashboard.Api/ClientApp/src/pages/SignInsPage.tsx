@@ -42,6 +42,7 @@ interface SignInDetail {
   riskState?: string;
   mfaRequired?: boolean;
   conditionalAccessStatus?: string;
+  riskEventTypes?: string[];
 }
 
 interface SignInLocation {
@@ -615,6 +616,38 @@ const SignInsPage: React.FC = () => {
   );
 };
 
+// Derives a human-readable label from a riskEventType string
+const getRiskEventLabel = (type: string): { label: string; title: string } | null => {
+  const t = type.toLowerCase();
+  if (t.includes('anonymizedip') || t === 'anonymizedipaddress') return { label: 'VPN / Proxy', title: 'Sign-in from an anonymised IP — typically a VPN, proxy, or Tor exit node' };
+  if (t.includes('unfamiliarlocation') || t === 'unfamiliarfeatures') return { label: 'Unfamiliar location', title: 'Sign-in from an unfamiliar location' };
+  if (t.includes('malwareinfectedip') || t === 'malwareinfectedipaddress') return { label: 'Malware IP', title: 'Sign-in from an IP associated with malware' };
+  if (t.includes('leakedcredentials')) return { label: 'Leaked credentials', title: 'Credentials for this account have been found in a leak' };
+  if (t.includes('investigationthreatintelligence')) return { label: 'Threat intel', title: 'Sign-in flagged by Microsoft threat intelligence' };
+  if (t.includes('suspiciousbrowser')) return { label: 'Suspicious browser', title: 'Suspicious browser activity detected' };
+  if (t.includes('impossibletravel') || t === 'atypicaltravelactivity') return { label: 'Impossible travel', title: 'Sign-in location is inconsistent with recent activity' };
+  if (t !== 'none' && t !== '') return { label: type, title: type };
+  return null;
+};
+
+// Risk event badges for a sign-in
+const RiskBadges: React.FC<{ types?: string[]; compact?: boolean }> = ({ types, compact }) => {
+  if (!types || types.length === 0) return null;
+  const badges = types.map(getRiskEventLabel).filter(Boolean) as { label: string; title: string }[];
+  if (badges.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1 mt-1">
+      {badges.map((b, i) => (
+        <span key={i} title={b.title} className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium ${
+          compact ? 'text-[10px]' : 'text-xs'
+        } bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700`}>
+          ⚠ {b.label}
+        </span>
+      ))}
+    </div>
+  );
+};
+
 // Helper components
 interface StatCardProps {
   icon: React.ReactNode;
@@ -699,6 +732,7 @@ const SignInCard: React.FC<SignInCardProps> = ({ signIn, forceColor }) => {
           {signIn.failureReason}
         </div>
       )}
+      <RiskBadges types={signIn.riskEventTypes} compact />
     </div>
   </div>
   );
@@ -753,6 +787,12 @@ const SignInListRow: React.FC<SignInCardProps> = ({ signIn }) => (
         <p className="text-xs text-red-600 dark:text-red-400 truncate" title={signIn.failureReason}>
           {signIn.failureReason}
         </p>
+      </div>
+    )}
+    {/* Risk event badges */}
+    {signIn.riskEventTypes && signIn.riskEventTypes.length > 0 && (
+      <div className="hidden xl:block">
+        <RiskBadges types={signIn.riskEventTypes} compact />
       </div>
     )}
   </div>
