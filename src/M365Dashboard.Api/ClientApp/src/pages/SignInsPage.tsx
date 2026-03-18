@@ -438,7 +438,7 @@ const SignInsPage: React.FC = () => {
               color="text-green-600"
               onClick={viewMode === 'map' ? () => handleMapFilterToggle('success') : undefined}
               active={mapFilter === 'success'}
-              activeRing="ring-green-400"
+              activeRing="ring-2 ring-green-500"
             />
             <StatCard
               icon={<DismissCircleRegular className="w-4 h-4 text-red-500" />}
@@ -447,7 +447,7 @@ const SignInsPage: React.FC = () => {
               color="text-red-600"
               onClick={viewMode === 'map' ? () => handleMapFilterToggle('failure') : undefined}
               active={mapFilter === 'failure'}
-              activeRing="ring-red-400"
+              activeRing="ring-2 ring-red-500"
             />
             <StatCard icon={<PersonRegular className="w-4 h-4" />} label="Unique Users" value={mapData.uniqueUsers.toLocaleString()} />
             <StatCard icon={<LocationRegular className="w-4 h-4" />} label="Locations" value={mapData.uniqueLocations.toLocaleString()} />
@@ -592,8 +592,8 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, color = 'text-s
     return (
       <button
         onClick={onClick}
-        className={`bg-slate-50 dark:bg-slate-700/50 rounded-lg px-3 py-2 text-left w-full transition-all ring-2 ${
-          active ? `${activeRing} bg-white dark:bg-slate-700` : 'ring-transparent hover:ring-slate-300 dark:hover:ring-slate-500'
+        className={`bg-slate-50 dark:bg-slate-700/50 rounded-lg px-3 py-2 text-left w-full transition-all ${
+          active ? `${activeRing} bg-white dark:bg-slate-700` : 'ring-2 ring-transparent hover:ring-slate-300 dark:hover:ring-slate-500'
         }`}
         title={active ? 'Click to clear filter' : 'Click to filter map'}
       >
