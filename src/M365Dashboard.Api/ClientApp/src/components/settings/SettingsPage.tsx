@@ -742,7 +742,7 @@ export function SettingsPage() {
               <SettingsRow label="Auto-refresh Interval" description="How often to refresh dashboard data">
                 <Dropdown
                   selectedOptions={[`${settings?.refreshIntervalSeconds ?? 300}`]}
-                  value={{'60':'1 minute','120':'2 minutes','300':'5 minutes','600':'10 minutes','900':'15 minutes','0':'Manual only'}[`${settings?.refreshIntervalSeconds ?? 300}`] ?? '5 minutes'}
+                  value={({'60':'1 minute','120':'2 minutes','300':'5 minutes','600':'10 minutes','900':'15 minutes','0':'Manual only'} as Record<string,string>)[`${settings?.refreshIntervalSeconds ?? 300}`] ?? '5 minutes'}
                   onOptionSelect={(_, data) => handleRefreshIntervalChange(Number(data.optionValue))}
                   disabled={isSaving}
                 >
@@ -758,7 +758,7 @@ export function SettingsPage() {
               <SettingsRow label="Default Date Range" description="Default time period for reports">
                 <Dropdown
                   selectedOptions={[settings?.dateRangePreference ?? 'last30days']}
-                  value={{'last7days':'Last 7 days','last30days':'Last 30 days','last90days':'Last 90 days','thismonth':'This month','lastmonth':'Last month'}[settings?.dateRangePreference ?? 'last30days'] ?? 'Last 30 days'}
+                  value={({'last7days':'Last 7 days','last30days':'Last 30 days','last90days':'Last 90 days','thismonth':'This month','lastmonth':'Last month','custom':'Custom'} as Record<string,string>)[settings?.dateRangePreference ?? 'last30days'] ?? 'Last 30 days'}
                   onOptionSelect={(_, data) => handleDateRangeChange(data.optionValue as DateRangePreset)}
                   disabled={isSaving}
                 >
