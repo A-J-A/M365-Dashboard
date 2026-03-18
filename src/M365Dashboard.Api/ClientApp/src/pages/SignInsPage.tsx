@@ -257,7 +257,7 @@ const SignInsPage: React.FC = () => {
 
         const bubbleLayer = new window.atlas.layer.BubbleLayer(dataSource, null, {
           radius: ['interpolate', ['linear'], ['get', 'signInCount'], 1, 8, 10, 15, 50, 25, 100, 35, 500, 50],
-          color: ['case', ['==', ['get', 'failureCount'], 0], '#22c55e', ['>', ['get', 'failureCount'], ['get', 'successCount']], '#ef4444', '#f59e0b'],
+          color: ['get', 'displayColor'],
           strokeColor: 'white',
           strokeWidth: 2,
           opacity: 0.8,
@@ -308,9 +308,17 @@ const SignInsPage: React.FC = () => {
         : mapFilter === 'failure' ? location.failureCount
         : location.signInCount;
 
+      // Colour: filter overrides the mixed-result amber logic
+      const displayColor =
+        mapFilter === 'success' ? '#22c55e'
+        : mapFilter === 'failure' ? '#ef4444'
+        : location.failureCount === 0 ? '#22c55e'
+        : location.failureCount > location.successCount ? '#ef4444'
+        : '#f59e0b';
+
       return new window.atlas.data.Feature(
         new window.atlas.data.Point([location.longitude, location.latitude]),
-        { ...location, signInCount: displayCount }
+        { ...location, signInCount: displayCount, displayColor }
       );
     });
 
