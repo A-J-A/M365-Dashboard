@@ -309,23 +309,54 @@ public class SettingsController : ControllerBase
     }
 
     /// <summary>
-    /// Get break glass account settings
+    /// Get break glass account settings, resolving each UPN against the directory
     /// </summary>
     [HttpGet("breakglass")]
-    public IActionResult GetBreakGlassSettings()
+    public async Task<IActionResult> GetBreakGlassSettings(
+        [FromServices] M365Dashboard.Api.Services.IGraphService graphService)
     {
         try
         {
             var filePath = GetBreakGlassFilePath();
             if (!System.IO.File.Exists(filePath))
-                return Ok(BuildBreakGlassResponse(new BreakGlassSettingsFile()));
+                return Ok(new { accounts = new List<M365Dashboard.Api.Models.Dtos.BreakGlassAccountDto>(), lastUpdated = (string?)null, lastModifiedBy = (string?)null });
 
             var json = System.IO.File.ReadAllText(filePath);
             var data = JsonSerializer.Deserialize<BreakGlassSettingsFile>(json,
                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
                        ?? new BreakGlassSettingsFile();
 
-            return Ok(BuildBreakGlassResponse(data));
+            // Resolve each UPN against the directory so the UI shows Verified/Not Found correctly
+            var resolvedAccounts = new List<M365Dashboard.Api.Models.Dtos.BreakGlassAccountDto>();
+            foreach (var upn in data.UserPrincipalNames)
+            {
+                try
+                {
+                    var resolved = await graphService.ResolveUserAsync(upn);
+                    resolvedAccounts.Add(new M365Dashboard.Api.Models.Dtos.BreakGlassAccountDto(
+                        UserPrincipalName: upn,
+                        DisplayName: resolved?.DisplayName,
+                        ObjectId: resolved?.ObjectId,
+                        IsResolved: resolved?.IsResolved ?? false
+                    ));
+                }
+                catch
+                {
+                    resolvedAccounts.Add(new M365Dashboard.Api.Models.Dtos.BreakGlassAccountDto(
+                        UserPrincipalName: upn,
+                        DisplayName: null,
+                        ObjectId: null,
+                        IsResolved: false
+                    ));
+                }
+            }
+
+            return Ok(new
+            {
+                accounts       = resolvedAccounts,
+                lastUpdated    = (string?)data.LastUpdated,
+                lastModifiedBy = (string?)data.LastModifiedBy,
+            });
         }
         catch (Exception ex)
         {
@@ -333,19 +364,6 @@ public class SettingsController : ControllerBase
             return StatusCode(500, new { error = "Failed to load break glass settings" });
         }
     }
-
-    private static object BuildBreakGlassResponse(BreakGlassSettingsFile data) =>
-        new
-        {
-            accounts = data.UserPrincipalNames.Select(upn => new M365Dashboard.Api.Models.Dtos.BreakGlassAccountDto(
-                UserPrincipalName: upn,
-                DisplayName: null,
-                ObjectId: null,
-                IsResolved: false
-            )).ToList(),
-            lastUpdated    = data.LastUpdated,
-            lastModifiedBy = data.LastModifiedBy,
-        };
 
     /// <summary>
     /// Save break glass accounts and resolve them against the directory
