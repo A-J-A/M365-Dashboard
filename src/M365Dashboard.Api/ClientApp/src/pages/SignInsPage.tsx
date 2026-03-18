@@ -518,13 +518,25 @@ const SignInsPage: React.FC = () => {
                 {selectedLocation ? (
                   <div className="p-4">
                     <div className="flex items-center justify-between mb-4">
-                      <p className="text-sm text-slate-500 dark:text-slate-400">{selectedLocation.signInCount} sign-ins</p>
-                      <button onClick={() => setSelectedLocation(null)} className="text-xs text-blue-600 hover:underline">View all</button>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">
+                        {mapFilter === 'failure' ? selectedLocation.failureCount
+                          : mapFilter === 'success' ? selectedLocation.successCount
+                          : selectedLocation.signInCount} sign-ins
+                      </p>
+                      <button onClick={() => setSelectedLocation(null)} className="text-xs text-blue-600 hover:underline">Back</button>
                     </div>
                     <div className="space-y-2">
-                      {selectedLocation.signIns
-                        .filter(s => mapFilter === 'failure' ? !s.isSuccess : mapFilter === 'success' ? s.isSuccess : true)
-                        .map((signIn) => <SignInCard key={signIn.id} signIn={signIn} forceColor={mapFilter !== 'all' ? mapFilter : undefined} />)}
+                      {/* Use allSignIns (full list) filtered by city — the location.signIns is capped at 10 */}
+                      {(allSignIns.length > 0
+                        ? allSignIns.filter(s =>
+                            s.city === selectedLocation.city &&
+                            s.countryOrRegion === selectedLocation.countryOrRegion &&
+                            (mapFilter === 'failure' ? !s.isSuccess : mapFilter === 'success' ? s.isSuccess : true)
+                          )
+                        : selectedLocation.signIns.filter(s =>
+                            mapFilter === 'failure' ? !s.isSuccess : mapFilter === 'success' ? s.isSuccess : true
+                          )
+                      ).map((signIn) => <SignInCard key={signIn.id} signIn={signIn} forceColor={mapFilter !== 'all' ? mapFilter : undefined} />)}
                     </div>
                   </div>
                 ) : mapData?.locations ? (
