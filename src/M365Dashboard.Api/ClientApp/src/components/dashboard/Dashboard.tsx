@@ -81,6 +81,19 @@ interface RiskySignIn {
     clientAppUsed: string;
 }
 
+interface VpnSignIn {
+    id: string;
+    userPrincipalName: string;
+    displayName: string | null;
+    createdDateTime: string | null;
+    ipAddress: string | null;
+    city: string | null;
+    countryOrRegion: string | null;
+    isSuccess: boolean;
+    clientAppUsed: string | null;
+    riskLevel: string | null;
+}
+
 interface ApplePushCertificate {
     isConfigured: boolean;
     appleIdentifier?: string;
@@ -110,6 +123,8 @@ export function Dashboard() {
     const [riskyUsers, setRiskyUsers] = useState<RiskyUser[]>([]);
     const [riskySignIns, setRiskySignIns] = useState<RiskySignIn[]>([]);
     const [applePushCert, setApplePushCert] = useState<ApplePushCertificate | null>(null);
+    const [vpnSignIns, setVpnSignIns] = useState<VpnSignIn[]>([]);
+    const [vpnSignInsLoading, setVpnSignInsLoading] = useState(true);
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 60000);
@@ -192,6 +207,25 @@ export function Dashboard() {
         }
     }, [getAccessToken]);
 
+    // Fetch VPN/proxy sign-ins
+    const fetchVpnSignIns = useCallback(async () => {
+        try {
+            setVpnSignInsLoading(true);
+            const token = await getAccessToken();
+            const response = await fetch('/api/signins/vpn-proxy?hours=24&take=10', {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (response.ok) {
+                const data = await response.json();
+                setVpnSignIns(data.signIns ?? []);
+            }
+        } catch (error) {
+            console.error('Failed to fetch VPN/proxy sign-ins:', error);
+        } finally {
+            setVpnSignInsLoading(false);
+        }
+    }, [getAccessToken]);
+
     // Fetch Apple Push certificate status
     const fetchApplePushCert = useCallback(async () => {
         try {
@@ -214,7 +248,8 @@ export function Dashboard() {
         fetchRiskyUsers();
         fetchRiskySignIns();
         fetchApplePushCert();
-    }, [fetchUserStats, fetchSecurityStats, fetchRiskyUsers, fetchRiskySignIns, fetchApplePushCert]);
+        fetchVpnSignIns();
+    }, [fetchUserStats, fetchSecurityStats, fetchRiskyUsers, fetchRiskySignIns, fetchApplePushCert, fetchVpnSignIns]);
 
     // Generate alerts based on data
     useEffect(() => {
@@ -295,6 +330,7 @@ export function Dashboard() {
         fetchSecurityStats();
         fetchRiskyUsers();
         fetchRiskySignIns();
+        fetchVpnSignIns();
     };
 
     if (settingsLoading) {
@@ -481,8 +517,8 @@ export function Dashboard() {
                 </Card>
             </div>
 
-            {/* Risky Users and Sign-ins Tables */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Risky Users, Sign-ins and VPN */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 {/* Risky Users */}
                 <Card className="p-5">
                     <div className="flex items-center justify-between mb-4">
@@ -565,6 +601,55 @@ export function Dashboard() {
                         <div className="flex flex-col items-center justify-center py-8 text-gray-500 dark:text-gray-400">
                             <Checkmark24Regular className="w-8 h-8 text-green-500 mb-2" />
                             <p className="text-sm">No risky sign-ins in the last 24 hours</p>
+                        </div>
+                    )}
+                </Card>
+
+                {/* VPN / Proxy Sign-ins */}
+                <Card className="p-5">
+                    <div className="flex items-center justify-between mb-4">
+                        <div className="flex items-center gap-2">
+                            <div className="p-2 bg-purple-50 dark:bg-purple-900/30 rounded-lg">
+                                <Eye24Regular className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                            </div>
+                            <Text weight="semibold">VPN / Proxy Sign-ins (24h)</Text>
+                        </div>
+                        <Link to="/signins" className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1">
+                            View All <ArrowRight24Regular className="w-4 h-4" />
+                        </Link>
+                    </div>
+                    {vpnSignInsLoading ? (
+                        <div className="flex justify-center py-4">
+                            <Spinner size="small" />
+                        </div>
+                    ) : vpnSignIns.length > 0 ? (
+                        <div className="space-y-2">
+                            {vpnSignIns.map((signIn) => (
+                                <div key={signIn.id} className="flex items-center justify-between p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                            {signIn.displayName || signIn.userPrincipalName}
+                                        </p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                            {[signIn.city, signIn.countryOrRegion].filter(Boolean).join(', ') || signIn.ipAddress || 'Unknown location'}
+                                            {signIn.createdDateTime ? ` • ${new Date(signIn.createdDateTime).toLocaleTimeString()}` : ''}
+                                        </p>
+                                    </div>
+                                    <Badge
+                                        appearance="tint"
+                                        color={signIn.isSuccess ? 'warning' : 'danger'}
+                                        size="small"
+                                    >
+                                        {signIn.isSuccess ? 'Success' : 'Failed'}
+                                    </Badge>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center py-8 text-gray-500 dark:text-gray-400">
+                            <Checkmark24Regular className="w-8 h-8 text-green-500 mb-2" />
+                            <p className="text-sm">No VPN/proxy sign-ins detected</p>
+                            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Requires Entra ID P2</p>
                         </div>
                     )}
                 </Card>
