@@ -675,12 +675,30 @@ const SignInCard: React.FC<SignInCardProps> = ({ signIn, forceColor }) => {
     </div>
     <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 space-y-1">
       <div className="flex items-center gap-1">
-        <ClockRegular className="w-3 h-3" />
-        {signIn.createdDateTime ? new Date(signIn.createdDateTime).toLocaleString() : 'N/A'}
+        <ClockRegular className="w-3 h-3 flex-shrink-0" />
+        <span>{signIn.createdDateTime ? new Date(signIn.createdDateTime).toLocaleString() : 'N/A'}</span>
       </div>
-      {signIn.clientAppUsed && <div>{signIn.clientAppUsed}</div>}
-      {signIn.ipAddress && <div>IP: {signIn.ipAddress}</div>}
-      {isRed && signIn.failureReason && <div className="text-red-600 dark:text-red-400 mt-1">{signIn.failureReason}</div>}
+      {(signIn.city || signIn.countryOrRegion) && (
+        <div className="flex items-center gap-1">
+          <LocationRegular className="w-3 h-3 flex-shrink-0" />
+          <span>{[signIn.city, signIn.countryOrRegion].filter(Boolean).join(', ')}</span>
+        </div>
+      )}
+      {signIn.ipAddress && (
+        <div className="flex items-center gap-1">
+          <GlobeRegular className="w-3 h-3 flex-shrink-0" />
+          <span>IP: {signIn.ipAddress}</span>
+        </div>
+      )}
+      {signIn.clientAppUsed && <div className="truncate">{signIn.clientAppUsed}</div>}
+      {(signIn.browser || signIn.operatingSystem) && (
+        <div className="truncate">{[signIn.browser, signIn.operatingSystem].filter(Boolean).join(' · ')}</div>
+      )}
+      {isRed && signIn.failureReason && (
+        <div className="text-red-600 dark:text-red-400 pt-1 border-t border-red-200 dark:border-red-800 mt-1">
+          {signIn.failureReason}
+        </div>
+      )}
     </div>
   </div>
   );
