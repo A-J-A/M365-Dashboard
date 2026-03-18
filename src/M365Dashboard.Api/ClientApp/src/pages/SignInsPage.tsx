@@ -489,13 +489,25 @@ const SignInsPage: React.FC = () => {
           </div>
 
           {/* Side Panel */}
-          <div className="w-80 border-l border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex flex-col overflow-hidden">
+          <div className={`w-80 border-l flex flex-col overflow-hidden ${
+            mapFilter === 'failure' ? 'border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30'
+            : mapFilter === 'success' ? 'border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/30'
+            : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+          }`}>
             <button
               onClick={() => setShowSignInList(!showSignInList)}
-              className="flex items-center justify-between px-4 py-3 border-b border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50"
+              className={`flex items-center justify-between px-4 py-3 border-b ${
+                mapFilter === 'failure' ? 'border-red-200 dark:border-red-900 hover:bg-red-100 dark:hover:bg-red-900/30'
+                : mapFilter === 'success' ? 'border-green-200 dark:border-green-900 hover:bg-green-100 dark:hover:bg-green-900/30'
+                : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+              }`}
             >
               <span className="font-medium text-slate-900 dark:text-white">
-                {selectedLocation ? `${selectedLocation.city}, ${selectedLocation.countryOrRegion}` : 'Recent Sign-ins'}
+                {selectedLocation ? `${selectedLocation.city}, ${selectedLocation.countryOrRegion}` : (
+                  mapFilter === 'failure' ? 'Failed Sign-ins'
+                  : mapFilter === 'success' ? 'Successful Sign-ins'
+                  : 'Recent Sign-ins'
+                )}
               </span>
               {showSignInList ? <ChevronUpRegular className="w-5 h-5" /> : <ChevronDownRegular className="w-5 h-5" />}
             </button>
@@ -509,26 +521,45 @@ const SignInsPage: React.FC = () => {
                       <button onClick={() => setSelectedLocation(null)} className="text-xs text-blue-600 hover:underline">View all</button>
                     </div>
                     <div className="space-y-2">
-                      {selectedLocation.signIns.map((signIn) => <SignInCard key={signIn.id} signIn={signIn} />)}
+                      {selectedLocation.signIns
+                        .filter(s => mapFilter === 'failure' ? !s.isSuccess : mapFilter === 'success' ? s.isSuccess : true)
+                        .map((signIn) => <SignInCard key={signIn.id} signIn={signIn} forceColor={mapFilter !== 'all' ? mapFilter : undefined} />)}
                     </div>
                   </div>
                 ) : mapData?.locations ? (
-                  <div className="divide-y divide-slate-100 dark:divide-slate-700">
-                    {mapData.locations.slice(0, 20).map((location, idx) => (
-                      <button key={idx} onClick={() => setSelectedLocation(location)} className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700/50 text-left">
-                        <div>
-                          <p className="font-medium text-slate-900 dark:text-white text-sm">{location.city}</p>
-                          <p className="text-xs text-slate-500 dark:text-slate-400">{location.countryOrRegion}</p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-medium text-slate-900 dark:text-white">{location.signInCount}</p>
-                          <div className="flex items-center gap-2 text-xs">
-                            <span className="text-green-600">{location.successCount}</span>
-                            <span className="text-red-600">{location.failureCount}</span>
+                  <div className={`divide-y ${
+                    mapFilter === 'failure' ? 'divide-red-100 dark:divide-red-900/50'
+                    : mapFilter === 'success' ? 'divide-green-100 dark:divide-green-900/50'
+                    : 'divide-slate-100 dark:divide-slate-700'
+                  }`}>
+                    {mapData.locations
+                      .filter(loc => mapFilter === 'failure' ? loc.failureCount > 0 : mapFilter === 'success' ? loc.successCount > 0 : true)
+                      .slice(0, 20)
+                      .map((location, idx) => (
+                        <button key={idx} onClick={() => setSelectedLocation(location)} className={`w-full px-4 py-3 flex items-center justify-between text-left ${
+                          mapFilter === 'failure' ? 'hover:bg-red-100 dark:hover:bg-red-900/30'
+                          : mapFilter === 'success' ? 'hover:bg-green-100 dark:hover:bg-green-900/30'
+                          : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                        }`}>
+                          <div>
+                            <p className="font-medium text-slate-900 dark:text-white text-sm">{location.city}</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400">{location.countryOrRegion}</p>
                           </div>
-                        </div>
-                      </button>
-                    ))}
+                          <div className="text-right">
+                            <p className={`text-sm font-medium ${
+                              mapFilter === 'failure' ? 'text-red-600' : mapFilter === 'success' ? 'text-green-600' : 'text-slate-900 dark:text-white'
+                            }`}>
+                              {mapFilter === 'failure' ? location.failureCount : mapFilter === 'success' ? location.successCount : location.signInCount}
+                            </p>
+                            {mapFilter === 'all' && (
+                              <div className="flex items-center gap-2 text-xs">
+                                <span className="text-green-600">{location.successCount}</span>
+                                <span className="text-red-600">{location.failureCount}</span>
+                              </div>
+                            )}
+                          </div>
+                        </button>
+                      ))}
                   </div>
                 ) : (
                   <div className="p-4 text-center text-slate-500 dark:text-slate-400">No sign-in data available</div>
@@ -627,16 +658,20 @@ const StatCard: React.FC<StatCardProps> = ({ icon, label, value, color = 'text-s
 
 interface SignInCardProps {
   signIn: SignInDetail;
+  forceColor?: 'success' | 'failure';
 }
 
-const SignInCard: React.FC<SignInCardProps> = ({ signIn }) => (
-  <div className={`p-3 rounded-lg border ${signIn.isSuccess ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'}`}>
+const SignInCard: React.FC<SignInCardProps> = ({ signIn, forceColor }) => {
+  const isRed = forceColor === 'failure' || (!forceColor && !signIn.isSuccess);
+  const isGreen = forceColor === 'success' || (!forceColor && signIn.isSuccess);
+  return (
+  <div className={`p-3 rounded-lg border ${isGreen ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'}`}>
     <div className="flex items-start justify-between">
       <div className="min-w-0 flex-1">
         <p className="font-medium text-slate-900 dark:text-white text-sm truncate">{signIn.displayName || signIn.userPrincipalName}</p>
         <p className="text-xs text-slate-500 dark:text-slate-400 truncate">{signIn.userPrincipalName}</p>
       </div>
-      {signIn.isSuccess ? <CheckmarkCircleRegular className="w-5 h-5 text-green-500 flex-shrink-0" /> : <DismissCircleRegular className="w-5 h-5 text-red-500 flex-shrink-0" />}
+      {isGreen ? <CheckmarkCircleRegular className="w-5 h-5 text-green-500 flex-shrink-0" /> : <DismissCircleRegular className="w-5 h-5 text-red-500 flex-shrink-0" />}
     </div>
     <div className="mt-2 text-xs text-slate-500 dark:text-slate-400 space-y-1">
       <div className="flex items-center gap-1">
@@ -645,10 +680,11 @@ const SignInCard: React.FC<SignInCardProps> = ({ signIn }) => (
       </div>
       {signIn.clientAppUsed && <div>{signIn.clientAppUsed}</div>}
       {signIn.ipAddress && <div>IP: {signIn.ipAddress}</div>}
-      {!signIn.isSuccess && signIn.failureReason && <div className="text-red-600 dark:text-red-400 mt-1">{signIn.failureReason}</div>}
+      {isRed && signIn.failureReason && <div className="text-red-600 dark:text-red-400 mt-1">{signIn.failureReason}</div>}
     </div>
   </div>
-);
+  );
+};
 
 const SignInListRow: React.FC<SignInCardProps> = ({ signIn }) => (
   <div className="px-4 py-3 flex items-center gap-4 hover:bg-slate-50 dark:hover:bg-slate-700/50">
