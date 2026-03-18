@@ -408,7 +408,7 @@ public class ExecutiveReportController : ControllerBase
     {
         try
         {
-            var reportSettings = LoadReportSettings();
+            var reportSettings = await LoadReportSettingsAsync();
 
             // Get report data
             var dataResult = await GetReportData(month, year);
@@ -452,7 +452,7 @@ public class ExecutiveReportController : ControllerBase
     {
         try
         {
-            var reportSettings = LoadReportSettings();
+            var reportSettings = await LoadReportSettingsAsync();
 
             // Get report data
             var dataResult = await GetReportData(month, year);
