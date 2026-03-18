@@ -42,7 +42,7 @@ public class SignInsController : ControllerBase
                     "id", "createdDateTime", "userPrincipalName", "userDisplayName",
                     "ipAddress", "location", "status", "clientAppUsed",
                     "deviceDetail", "riskLevelDuringSignIn", "riskState",
-                    "riskEventTypes", "riskEventTypesV2",
+                    "riskEventTypes",
                     "conditionalAccessStatus", "isInteractive"
                 };
                 config.QueryParameters.Orderby = new[] { "createdDateTime desc" };
@@ -114,8 +114,8 @@ public class SignInsController : ControllerBase
                     Country = s.CountryOrRegion ?? "Unknown"
                 })
                 .Select(g => new SignInLocationDto(
-                    Latitude: g.Key.Lat,
-                    Longitude: g.Key.Lon,
+                    Latitude: (double)g.Key.Lat,
+                    Longitude: (double)g.Key.Lon,
                     City: g.Key.City,
                     State: g.First().State,
                     CountryOrRegion: g.Key.Country,
@@ -249,7 +249,7 @@ public class SignInsController : ControllerBase
                 {
                     "id", "createdDateTime", "userPrincipalName", "userDisplayName",
                     "ipAddress", "location", "status", "clientAppUsed",
-                    "riskLevelDuringSignIn", "riskState", "riskEventTypes", "riskEventTypesV2"
+                    "riskLevelDuringSignIn", "riskState", "riskEventTypes"
                 };
                 config.QueryParameters.Orderby = new[] { "createdDateTime desc" };
             });

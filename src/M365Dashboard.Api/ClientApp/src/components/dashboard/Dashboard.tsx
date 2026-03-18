@@ -179,7 +179,7 @@ export function Dashboard() {
     const fetchRiskyUsers = useCallback(async () => {
         try {
             const token = await getAccessToken();
-            const response = await fetch('/api/security/risky-users', {
+            const response = await fetch('/api/security/riskyusers', {
                 headers: { Authorization: `Bearer ${token}` },
             });
             if (response.ok) {
@@ -195,7 +195,7 @@ export function Dashboard() {
     const fetchRiskySignIns = useCallback(async () => {
         try {
             const token = await getAccessToken();
-            const response = await fetch('/api/security/risky-signins?hours=24', {
+            const response = await fetch('/api/security/riskysignins?hours=24', {
                 headers: { Authorization: `Bearer ${token}` },
             });
             if (response.ok) {
