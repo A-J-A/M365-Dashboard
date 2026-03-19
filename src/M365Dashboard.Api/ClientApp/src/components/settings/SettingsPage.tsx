@@ -1513,7 +1513,9 @@ export function SettingsPage() {
                     <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                       <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Installed version</p>
                       <p className="text-lg font-bold text-gray-900 dark:text-white font-mono">
-                        {updateStatus.currentVersion}
+                        {updateStatus.currentVersion.startsWith('dev-')
+                          ? `dev-${updateStatus.currentVersion.slice(4, 11)}`
+                          : updateStatus.currentVersion}
                       </p>
                     </div>
                     <div className={`p-4 rounded-lg ${
@@ -1617,8 +1619,8 @@ export function SettingsPage() {
                     </div>
                   )}
 
-                  {/* One-click update not configured note */}
-                  {!updateStatus.updateConfigured && (
+                  {/* One-click update not configured note — only relevant when there's actually something to update */}
+                  {!updateStatus.updateConfigured && !updateStatus.noReleasesYet && (
                     <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600">
                       <p className="text-xs text-gray-600 dark:text-gray-400">
                         <strong>One-click update not configured.</strong>{' '}
