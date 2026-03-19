@@ -34,6 +34,7 @@ import {
   Shield24Regular,
   Server24Regular,
   Options24Regular,
+  ArrowDownload24Regular,
   Delete16Regular,
   DocumentRegular,
   SaveRegular,
@@ -100,6 +101,17 @@ interface BreakGlassSettings {
   lastModifiedBy: string | null;
 }
 
+interface UpdateStatus {
+  currentVersion: string;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  releaseNotes: string | null;
+  releaseUrl: string | null;
+  publishedAt: string | null;
+  error: string | null;
+  updateConfigured: boolean;
+}
+
 type SettingsTab = 'general' | 'security' | 'system' | 'reports';
 
 export function SettingsPage() {
@@ -116,6 +128,10 @@ export function SettingsPage() {
   const [skuMappingStatus, setSkuMappingStatus] = useState<SkuMappingStatus | null>(null);
   const [isLoadingSkuStatus, setIsLoadingSkuStatus] = useState(false);
   const [isRefreshingSkuMappings, setIsRefreshingSkuMappings] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [isApplyingUpdate, setIsApplyingUpdate] = useState(false);
+  const [updateMessage, setUpdateMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [breakGlassSettings, setBreakGlassSettings] = useState<BreakGlassSettings | null>(null);
   const [isLoadingBreakGlass, setIsLoadingBreakGlass] = useState(false);
   const [hasLoadedBreakGlass, setHasLoadedBreakGlass] = useState(false);
@@ -249,6 +265,49 @@ export function SettingsPage() {
       showToast('Failed to refresh SKU mappings', 'error');
     } finally {
       setIsRefreshingSkuMappings(false);
+    }
+  };
+
+  const checkForUpdates = useCallback(async () => {
+    setIsCheckingUpdate(true);
+    try {
+      const token = await getAccessToken();
+      const response = await fetch('/api/update/check', {
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+      if (response.ok) {
+        setUpdateStatus(await response.json());
+      }
+    } catch (error) {
+      console.error('Failed to check for updates:', error);
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  }, [getAccessToken]);
+
+  const applyUpdate = async (version: string) => {
+    if (!confirm(`Apply update to ${version}? The dashboard will restart and be unavailable for about 60 seconds.`)) return;
+    setIsApplyingUpdate(true);
+    setUpdateMessage(null);
+    try {
+      const token = await getAccessToken();
+      const response = await fetch('/api/update/apply', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setUpdateMessage({ type: 'success', text: data.message ?? `Update to ${version} initiated. The page will reload in 90 seconds.` });
+        // Reload after 90s to pick up the new version
+        setTimeout(() => window.location.reload(), 90000);
+      } else {
+        setUpdateMessage({ type: 'error', text: data.error ?? 'Failed to apply update' });
+      }
+    } catch (error) {
+      setUpdateMessage({ type: 'error', text: 'Failed to apply update' });
+    } finally {
+      setIsApplyingUpdate(false);
     }
   };
 
@@ -565,6 +624,7 @@ export function SettingsPage() {
     } else if (selectedTab === 'system') {
       loadExternalServices();
       loadSkuMappingStatus();
+      checkForUpdates();
     } else if (selectedTab === 'reports' && !hasLoadedReport) {
       loadReportSettings();
     }
@@ -1406,6 +1466,159 @@ export function SettingsPage() {
               ) : (
                 <p className="text-gray-500 dark:text-gray-400 text-center py-4">
                   Unable to load system status
+                </p>
+              )}
+            </SettingsSection>
+
+            {/* Application Updates Section */}
+            <SettingsSection
+              icon={ArrowDownload24Regular}
+              title="Application Updates"
+              description="Check for and apply new releases from GitHub"
+              headerAction={
+                <Button
+                  appearance="subtle"
+                  icon={<ArrowSync24Regular />}
+                  onClick={checkForUpdates}
+                  disabled={isCheckingUpdate}
+                  size="small"
+                >
+                  {isCheckingUpdate ? 'Checking...' : 'Check Now'}
+                </Button>
+              }
+            >
+              {/* Result / progress message */}
+              {updateMessage && (
+                <div className={`p-3 rounded-lg flex items-center gap-3 text-sm ${
+                  updateMessage.type === 'success'
+                    ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 text-green-800 dark:text-green-200'
+                    : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 text-red-800 dark:text-red-200'
+                }`}>
+                  {updateMessage.type === 'success'
+                    ? <CheckmarkCircleFilled className="w-5 h-5 flex-shrink-0" />
+                    : <DismissCircleFilled className="w-5 h-5 flex-shrink-0" />}
+                  <span>{updateMessage.text}</span>
+                </div>
+              )}
+
+              {isCheckingUpdate && !updateStatus ? (
+                <div className="flex items-center justify-center py-6">
+                  <Spinner size="medium" label="Checking for updates..." />
+                </div>
+              ) : updateStatus ? (
+                <div className="space-y-4">
+                  {/* Version row */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Installed version</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-white font-mono">
+                        {updateStatus.currentVersion}
+                      </p>
+                    </div>
+                    <div className={`p-4 rounded-lg ${
+                      updateStatus.updateAvailable
+                        ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700'
+                        : 'bg-green-50 dark:bg-green-900/20'
+                    }`}>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Latest release</p>
+                      <p className={`text-lg font-bold font-mono ${
+                        updateStatus.updateAvailable
+                          ? 'text-blue-700 dark:text-blue-300'
+                          : 'text-green-700 dark:text-green-300'
+                      }`}>
+                        {updateStatus.latestVersion ?? '—'}
+                      </p>
+                      {updateStatus.publishedAt && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          {new Date(updateStatus.publishedAt).toLocaleDateString()}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Status banner */}
+                  {updateStatus.error ? (
+                    <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-amber-800 dark:text-amber-200">
+                      ⚠ {updateStatus.error}
+                    </div>
+                  ) : updateStatus.updateAvailable ? (
+                    <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-blue-800 dark:text-blue-200 mb-1">
+                            Update available — {updateStatus.latestVersion}
+                          </p>
+                          {updateStatus.releaseNotes && (
+                            <p className="text-sm text-blue-700 dark:text-blue-300 line-clamp-3 whitespace-pre-line">
+                              {updateStatus.releaseNotes.slice(0, 300)}{updateStatus.releaseNotes.length > 300 ? '…' : ''}
+                            </p>
+                          )}
+                          {updateStatus.releaseUrl && (
+                            <a
+                              href={updateStatus.releaseUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline mt-2"
+                            >
+                              Full release notes <Open16Regular className="w-3 h-3" />
+                            </a>
+                          )}
+                        </div>
+                        <div className="flex-shrink-0">
+                          {updateStatus.updateConfigured ? (
+                            <Button
+                              appearance="primary"
+                              icon={isApplyingUpdate ? <Spinner size="tiny" /> : <ArrowDownload24Regular />}
+                              onClick={() => updateStatus.latestVersion && applyUpdate(updateStatus.latestVersion)}
+                              disabled={isApplyingUpdate}
+                            >
+                              {isApplyingUpdate ? 'Updating…' : `Update to ${updateStatus.latestVersion}`}
+                            </Button>
+                          ) : (
+                            <div className="text-right">
+                              <a
+                                href={updateStatus.releaseUrl ?? 'https://github.com/Alex-C1/m365-dashboard/releases'}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                <Button appearance="primary" icon={<Open16Regular />}>
+                                  View on GitHub
+                                </Button>
+                              </a>
+                              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-[180px]">
+                                One-click update requires Managed Identity configuration
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg flex items-center gap-3">
+                      <CheckmarkCircleFilled className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" />
+                      <p className="text-sm text-green-800 dark:text-green-200">
+                        You are running the latest version.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* One-click update not configured note */}
+                  {!updateStatus.updateConfigured && (
+                    <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg border border-gray-200 dark:border-gray-600">
+                      <p className="text-xs text-gray-600 dark:text-gray-400">
+                        <strong>One-click update not configured.</strong>{' '}
+                        To enable in-app updates, set <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">ContainerApp:SubscriptionId</code>,{' '}
+                        <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">ContainerApp:ResourceGroup</code>, and{' '}
+                        <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">ContainerApp:Name</code> in your app configuration,
+                        and assign Contributor role to the Container App's Managed Identity.
+                        Alternatively, run <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">Update-M365Dashboard.ps1</code> from the scripts folder.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
+                  Click "Check Now" to check for available updates.
                 </p>
               )}
             </SettingsSection>

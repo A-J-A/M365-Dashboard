@@ -1,7 +1,229 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Azure.Identity;
+using Azure.Core;
+using System.Text;
+using System.Text.Json;
 
 namespace M365Dashboard.Api.Controllers;
+
+[ApiController]
+[Route("api/update")]
+[Authorize]
+public class UpdateController : ControllerBase
+{
+    private readonly IConfiguration _configuration;
+    private readonly ILogger<UpdateController> _logger;
+    private readonly IHttpClientFactory _httpClientFactory;
+
+    private static readonly string VersionFilePath = "/app/version.txt";
+    private const string FallbackVersion = "unknown";
+
+    public UpdateController(
+        IConfiguration configuration,
+        ILogger<UpdateController> logger,
+        IHttpClientFactory httpClientFactory)
+    {
+        _configuration = configuration;
+        _logger = logger;
+        _httpClientFactory = httpClientFactory;
+    }
+
+    [HttpGet("check")]
+    public async Task<IActionResult> CheckForUpdates()
+    {
+        var ghcrRepo = _configuration["ContainerApp:GhcrRepo"] ?? "Alex-C1/m365-dashboard";
+        var currentVersion = GetCurrentVersion();
+
+        try
+        {
+            var client = _httpClientFactory.CreateClient();
+            client.DefaultRequestHeaders.Add("User-Agent", "M365Dashboard-UpdateCheck/1.0");
+            client.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
+
+            var response = await client.GetAsync(
+                $"https://api.github.com/repos/{ghcrRepo}/releases/latest");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                return Ok(new
+                {
+                    currentVersion,
+                    latestVersion    = (string?)null,
+                    updateAvailable  = false,
+                    releaseNotes     = (string?)null,
+                    releaseUrl       = (string?)null,
+                    publishedAt      = (string?)null,
+                    error            = $"GitHub API returned {(int)response.StatusCode}",
+                    updateConfigured = IsUpdateConfigured(),
+                });
+            }
+
+            var json    = await response.Content.ReadAsStringAsync();
+            var release = JsonDocument.Parse(json).RootElement;
+
+            var latestVersion = release.GetProperty("tag_name").GetString() ?? "unknown";
+            var releaseNotes  = release.GetProperty("body").GetString();
+            var releaseUrl    = release.GetProperty("html_url").GetString();
+            var publishedAt   = release.GetProperty("published_at").GetString();
+            var updateAvailable = IsNewerVersion(latestVersion, currentVersion);
+
+            return Ok(new
+            {
+                currentVersion,
+                latestVersion,
+                updateAvailable,
+                releaseNotes,
+                releaseUrl,
+                publishedAt,
+                error            = (string?)null,
+                updateConfigured = IsUpdateConfigured(),
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to check for updates from GitHub");
+            return Ok(new
+            {
+                currentVersion,
+                latestVersion    = (string?)null,
+                updateAvailable  = false,
+                releaseNotes     = (string?)null,
+                releaseUrl       = (string?)null,
+                publishedAt      = (string?)null,
+                error            = "Could not reach GitHub. Check your internet connection.",
+                updateConfigured = IsUpdateConfigured(),
+            });
+        }
+    }
+
+    [HttpPost("apply")]
+    [Authorize(Policy = "RequireAdminRole")]
+    public async Task<IActionResult> ApplyUpdate([FromBody] ApplyUpdateRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Version))
+            return BadRequest(new { error = "Version is required" });
+
+        var subscriptionId = _configuration["ContainerApp:SubscriptionId"];
+        var resourceGroup  = _configuration["ContainerApp:ResourceGroup"];
+        var appName        = _configuration["ContainerApp:Name"];
+        var ghcrRepo       = _configuration["ContainerApp:GhcrRepo"] ?? "Alex-C1/m365-dashboard";
+
+        if (string.IsNullOrEmpty(subscriptionId) || string.IsNullOrEmpty(resourceGroup) || string.IsNullOrEmpty(appName))
+            return BadRequest(new { error = "Container App update is not configured. Set ContainerApp:SubscriptionId, ContainerApp:ResourceGroup and ContainerApp:Name in configuration." });
+
+        var imageName   = $"ghcr.io/{ghcrRepo.ToLowerInvariant()}:{request.Version}";
+        var requestedBy = User.FindFirst("preferred_username")?.Value
+                       ?? User.FindFirst("upn")?.Value
+                       ?? User.Identity?.Name ?? "unknown";
+
+        _logger.LogInformation("Update requested by {User}: applying image {Image}", requestedBy, imageName);
+
+        try
+        {
+            var credential   = new DefaultAzureCredential();
+            var tokenContext = new TokenRequestContext(new[] { "https://management.azure.com/.default" });
+            var token        = await credential.GetTokenAsync(tokenContext);
+
+            var mgmtClient = _httpClientFactory.CreateClient();
+            mgmtClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {token.Token}");
+
+            var appUrl = $"https://management.azure.com/subscriptions/{subscriptionId}" +
+                         $"/resourceGroups/{resourceGroup}" +
+                         $"/providers/Microsoft.App/containerApps/{appName}" +
+                         $"?api-version=2023-05-01";
+
+            var getResponse = await mgmtClient.GetAsync(appUrl);
+            if (!getResponse.IsSuccessStatusCode)
+            {
+                var err = await getResponse.Content.ReadAsStringAsync();
+                return StatusCode(500, new { error = "Could not read current Container App configuration", detail = err });
+            }
+
+            var appJson = await getResponse.Content.ReadAsStringAsync();
+            var appRoot = JsonDocument.Parse(appJson).RootElement;
+
+            var containerName = appRoot
+                .GetProperty("properties")
+                .GetProperty("template")
+                .GetProperty("containers")[0]
+                .GetProperty("name").GetString();
+
+            var patchBody = new
+            {
+                properties = new
+                {
+                    template = new
+                    {
+                        containers = new[] { new { name = containerName, image = imageName } }
+                    }
+                }
+            };
+
+            token = await credential.GetTokenAsync(tokenContext);
+            mgmtClient.DefaultRequestHeaders.Remove("Authorization");
+            mgmtClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {token.Token}");
+
+            var patchContent  = new StringContent(JsonSerializer.Serialize(patchBody), Encoding.UTF8, "application/json");
+            var patchResponse = await mgmtClient.PatchAsync(appUrl, patchContent);
+
+            if (patchResponse.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Container App update initiated: {Image} by {User}", imageName, requestedBy);
+                return Ok(new
+                {
+                    message   = $"Update to {request.Version} initiated. The app will restart in 30–60 seconds.",
+                    image     = imageName,
+                    appliedBy = requestedBy,
+                    appliedAt = DateTime.UtcNow,
+                });
+            }
+
+            var errBody = await patchResponse.Content.ReadAsStringAsync();
+            _logger.LogError("Container App PATCH failed ({Status}): {Body}", patchResponse.StatusCode, errBody);
+            return StatusCode(500, new { error = "Failed to update Container App", detail = errBody });
+        }
+        catch (CredentialUnavailableException)
+        {
+            return StatusCode(503, new
+            {
+                error = "Managed Identity is not available. Ensure this Container App has a system-assigned Managed Identity with Contributor role on the resource group."
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error applying update");
+            return StatusCode(500, new { error = "Unexpected error applying update", detail = ex.Message });
+        }
+    }
+
+    private static string GetCurrentVersion()
+    {
+        try { if (System.IO.File.Exists(VersionFilePath)) return System.IO.File.ReadAllText(VersionFilePath).Trim(); }
+        catch { /* ignore */ }
+        return FallbackVersion;
+    }
+
+    private bool IsUpdateConfigured() =>
+        !string.IsNullOrEmpty(_configuration["ContainerApp:SubscriptionId"]) &&
+        !string.IsNullOrEmpty(_configuration["ContainerApp:ResourceGroup"]) &&
+        !string.IsNullOrEmpty(_configuration["ContainerApp:Name"]);
+
+    private static bool IsNewerVersion(string latest, string current)
+    {
+        static System.Version? Parse(string v)
+        {
+            v = v.TrimStart('v');
+            return System.Version.TryParse(v, out var ver) ? ver : null;
+        }
+        var l = Parse(latest);
+        var c = Parse(current);
+        if (l == null || c == null) return latest != current && current == FallbackVersion;
+        return l > c;
+    }
+}
+
+public record ApplyUpdateRequest(string Version);
 
 [ApiController]
 [Route("api/[controller]")]

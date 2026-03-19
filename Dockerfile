@@ -21,6 +21,10 @@ COPY src/M365Dashboard.Api/ ./
 # Skip SPA build in dotnet publish - frontend is built separately
 RUN dotnet publish -c Release -o /app/publish -p:SpaRoot= -p:SkipBuildWebpack=true
 
+# Write version file - populated by the release workflow via BUILD_VERSION arg
+ARG BUILD_VERSION=unknown
+RUN echo "${BUILD_VERSION}" > /app/publish/version.txt
+
 # Runtime stage
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
