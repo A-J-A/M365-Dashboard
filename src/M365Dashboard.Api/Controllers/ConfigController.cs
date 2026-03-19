@@ -44,6 +44,23 @@ public class UpdateController : ControllerBase
             var response = await client.GetAsync(
                 $"https://api.github.com/repos/{ghcrRepo}/releases/latest");
 
+            // 404 = no releases published yet (normal for a new repo)
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                return Ok(new
+                {
+                    currentVersion,
+                    latestVersion    = (string?)null,
+                    updateAvailable  = false,
+                    releaseNotes     = (string?)null,
+                    releaseUrl       = $"https://github.com/{ghcrRepo}/releases",
+                    publishedAt      = (string?)null,
+                    error            = (string?)null,
+                    noReleasesYet    = true,
+                    updateConfigured = IsUpdateConfigured(),
+                });
+            }
+
             if (!response.IsSuccessStatusCode)
             {
                 return Ok(new

@@ -109,6 +109,7 @@ interface UpdateStatus {
   releaseUrl: string | null;
   publishedAt: string | null;
   error: string | null;
+  noReleasesYet?: boolean;
   updateConfigured: boolean;
 }
 
@@ -1592,6 +1593,20 @@ export function SettingsPage() {
                           )}
                         </div>
                       </div>
+                    </div>
+                  ) : updateStatus.noReleasesYet ? (
+                    <div className="p-3 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-lg flex items-center justify-between gap-3">
+                      <p className="text-sm text-slate-600 dark:text-slate-400">
+                        No releases have been published yet. When a release is created on GitHub it will appear here.
+                      </p>
+                      <a
+                        href="https://github.com/Alex-C1/m365-dashboard/releases/new"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-shrink-0 inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                      >
+                        Create release <Open16Regular className="w-3 h-3" />
+                      </a>
                     </div>
                   ) : (
                     <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg flex items-center gap-3">
