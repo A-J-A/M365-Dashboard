@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Graph;
+using Azure.Identity;
 using M365Dashboard.Api.Models.Dtos;
 
 namespace M365Dashboard.Api.Controllers;
