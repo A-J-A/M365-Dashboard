@@ -11,12 +11,23 @@ namespace M365Dashboard.Api.Controllers;
 public class PermissionsController : ControllerBase
 {
     private readonly GraphServiceClient _graphClient;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<PermissionsController> _logger;
 
-    public PermissionsController(GraphServiceClient graphClient, ILogger<PermissionsController> logger)
+    public PermissionsController(GraphServiceClient graphClient, IConfiguration configuration, ILogger<PermissionsController> logger)
     {
         _graphClient = graphClient;
+        _configuration = configuration;
         _logger = logger;
+    }
+
+    // Centralised credential helper — never re-reads the secret from IConfiguration in action methods
+    private ClientSecretCredential GetAppCredential()
+    {
+        var tenantId     = _configuration["AzureAd:TenantId"]     ?? throw new InvalidOperationException("AzureAd:TenantId not configured");
+        var clientId     = _configuration["AzureAd:ClientId"]     ?? throw new InvalidOperationException("AzureAd:ClientId not configured");
+        var clientSecret = _configuration["AzureAd:ClientSecret"] ?? throw new InvalidOperationException("AzureAd:ClientSecret not configured");
+        return new ClientSecretCredential(tenantId, clientId, clientSecret);
     }
 
     /// <summary>
@@ -310,13 +321,7 @@ public class PermissionsController : ControllerBase
     {
         try
         {
-            // Use beta endpoint for attack simulation
-            var config = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
-            var tenantId = config["AzureAd:TenantId"];
-            var clientId = config["AzureAd:ClientId"];
-            var clientSecret = config["AzureAd:ClientSecret"];
-            
-            var credential = new Azure.Identity.ClientSecretCredential(tenantId, clientId, clientSecret);
+            var credential = GetAppCredential();
             var betaClient = new GraphServiceClient(credential, new[] { "https://graph.microsoft.com/.default" }, "https://graph.microsoft.com/beta");
             
             var requestInfo = new Microsoft.Kiota.Abstractions.RequestInformation
@@ -341,12 +346,7 @@ public class PermissionsController : ControllerBase
     {
         try
         {
-            var config = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
-            var tenantId = config["AzureAd:TenantId"];
-            var clientId = config["AzureAd:ClientId"];
-            var clientSecret = config["AzureAd:ClientSecret"];
-            
-            var credential = new Azure.Identity.ClientSecretCredential(tenantId, clientId, clientSecret);
+            var credential = GetAppCredential();
             var scopes = new[] { "https://api.securitycenter.microsoft.com/.default" };
             var token = await credential.GetTokenAsync(new Azure.Core.TokenRequestContext(scopes));
             
@@ -367,12 +367,7 @@ public class PermissionsController : ControllerBase
     {
         try
         {
-            var config = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
-            var tenantId = config["AzureAd:TenantId"];
-            var clientId = config["AzureAd:ClientId"];
-            var clientSecret = config["AzureAd:ClientSecret"];
-            
-            var credential = new Azure.Identity.ClientSecretCredential(tenantId, clientId, clientSecret);
+            var credential = GetAppCredential();
             var scopes = new[] { "https://api.securitycenter.microsoft.com/.default" };
             var token = await credential.GetTokenAsync(new Azure.Core.TokenRequestContext(scopes));
             
@@ -393,12 +388,7 @@ public class PermissionsController : ControllerBase
     {
         try
         {
-            var config = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
-            var tenantId = config["AzureAd:TenantId"];
-            var clientId = config["AzureAd:ClientId"];
-            var clientSecret = config["AzureAd:ClientSecret"];
-            
-            var credential = new Azure.Identity.ClientSecretCredential(tenantId, clientId, clientSecret);
+            var credential = GetAppCredential();
             var scopes = new[] { "https://api.securitycenter.microsoft.com/.default" };
             var token = await credential.GetTokenAsync(new Azure.Core.TokenRequestContext(scopes));
             
@@ -419,12 +409,8 @@ public class PermissionsController : ControllerBase
     {
         try
         {
-            var config = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
-            var tenantId = config["AzureAd:TenantId"];
-            var clientId = config["AzureAd:ClientId"];
-            var clientSecret = config["AzureAd:ClientSecret"];
-            
-            var credential = new Azure.Identity.ClientSecretCredential(tenantId, clientId, clientSecret);
+            var credential = GetAppCredential();
+            var tenantId = _configuration["AzureAd:TenantId"]!;
             // Exchange Online uses outlook.office365.com scope
             var scopes = new[] { "https://outlook.office365.com/.default" };
             var token = await credential.GetTokenAsync(new Azure.Core.TokenRequestContext(scopes));
@@ -470,10 +456,8 @@ public class PermissionsController : ControllerBase
         string? errorMessage = null;
         string appDisplayName = "your app registration";
 
-        var config = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
-        var tenantId = config["AzureAd:TenantId"];
-        var clientId = config["AzureAd:ClientId"];
-        var clientSecret = config["AzureAd:ClientSecret"];
+        var tenantId = _configuration["AzureAd:TenantId"]!;
+        var clientId = _configuration["AzureAd:ClientId"]!;
 
         // Resolve app display name for fix instructions
         try
@@ -491,7 +475,7 @@ public class PermissionsController : ControllerBase
         // Live cmdlet probe — sole source of truth
         try
         {
-            var credential = new Azure.Identity.ClientSecretCredential(tenantId, clientId, clientSecret);
+            var credential = GetAppCredential();
             var token = await credential.GetTokenAsync(
                 new Azure.Core.TokenRequestContext(new[] { "https://outlook.office365.com/.default" }));
 
@@ -548,8 +532,7 @@ public class PermissionsController : ControllerBase
         
         try
         {
-            var config = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
-            var clientId = config["AzureAd:ClientId"];
+            var clientId = _configuration["AzureAd:ClientId"];
             
             // Get the service principal for this app
             var servicePrincipals = await _graphClient.ServicePrincipals.GetAsync(config =>

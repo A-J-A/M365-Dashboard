@@ -48,7 +48,8 @@ builder.Services.Configure<JwtBearerOptions>(JwtBearerDefaults.AuthenticationSch
     {
         OnAuthenticationFailed = context =>
         {
-            Log.Error(context.Exception, "Authentication failed: {Error}", context.Exception.Message);
+            // Log at debug to avoid leaking stack traces in production logs
+            Log.Debug(context.Exception, "Authentication failed: {Error}", context.Exception.Message);
             return Task.CompletedTask;
         },
         OnTokenValidated = context =>
@@ -158,10 +159,14 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
     });
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen(c =>
+// Swagger only in development - never expose API schema in production
+if (builder.Environment.IsDevelopment())
 {
-    c.SwaggerDoc("v1", new() { Title = "M365 Dashboard API", Version = "v1" });
-});
+    builder.Services.AddSwaggerGen(c =>
+    {
+        c.SwaggerDoc("v1", new() { Title = "M365 Dashboard API", Version = "v1" });
+    });
+}
 
 var app = builder.Build();
 
@@ -179,6 +184,21 @@ else
 }
 
 app.UseHttpsRedirection();
+
+// Security headers
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Content-Type-Options"]    = "nosniff";
+    context.Response.Headers["X-Frame-Options"]           = "DENY";
+    context.Response.Headers["X-XSS-Protection"]         = "1; mode=block";
+    context.Response.Headers["Referrer-Policy"]          = "strict-origin-when-cross-origin";
+    context.Response.Headers["Permissions-Policy"]       = "geolocation=(), camera=(), microphone=()";
+    context.Response.Headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
+    var csp = app.Configuration["Security:ContentSecurityPolicy"];
+    if (!string.IsNullOrEmpty(csp))
+        context.Response.Headers["Content-Security-Policy"] = csp;
+    await next();
+});
 
 app.UseSerilogRequestLogging();
 

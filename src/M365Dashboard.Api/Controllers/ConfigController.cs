@@ -265,7 +265,6 @@ public class ConfigController : ControllerBase
     /// Download setup script for external services
     /// </summary>
     [HttpGet("setup-script/{service}")]
-    [AllowAnonymous]
     public IActionResult GetSetupScript(string service)
     {
         if (service.ToLower() != "azure-maps")
