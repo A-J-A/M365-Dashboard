@@ -145,6 +145,50 @@ public class ExchangeController : ControllerBase
     }
 
     /// <summary>
+    /// Get all mailboxes that a user has been granted access to
+    /// </summary>
+    [HttpGet("mailbox-access/by-user")]
+    public async Task<IActionResult> GetMailboxAccessForUser([FromQuery] string email)
+    {
+        if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
+            return BadRequest(new { error = "A valid email address is required" });
+
+        try
+        {
+            _logger.LogInformation("Checking mailbox access for user: {Email}", email);
+            var result = await _exchangeService.GetMailboxAccessForUserAsync(email.Trim().ToLower());
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking mailbox access for {Email}", email);
+            return StatusCode(500, new { error = "Failed to check mailbox access", message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Get all delegates that have been granted access to a specific mailbox
+    /// </summary>
+    [HttpGet("mailbox-access/delegates")]
+    public async Task<IActionResult> GetMailboxDelegates([FromQuery] string email)
+    {
+        if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
+            return BadRequest(new { error = "A valid email address is required" });
+
+        try
+        {
+            _logger.LogInformation("Checking delegates for mailbox: {Email}", email);
+            var result = await _exchangeService.GetMailboxDelegatesAsync(email.Trim().ToLower());
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error checking delegates for {Email}", email);
+            return StatusCode(500, new { error = "Failed to check mailbox delegates", message = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Get inbox rules with forwarding actions (via Exchange PowerShell)
     /// </summary>
     [HttpGet("inbox-rules-forwarding")]

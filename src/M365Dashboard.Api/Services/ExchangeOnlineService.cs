@@ -15,6 +15,8 @@ public interface IExchangeOnlineService
     Task<object> DebugGetRecipientsAsync();
     Task<MailboxForwardingResultDto> GetMailboxesWithForwardingAsync(int take = 500);
     Task<InboxRuleForwardingResultDto> GetInboxRulesWithForwardingAsync(int take = 100);
+    Task<MailboxAccessResultDto> GetMailboxAccessForUserAsync(string userEmail);
+    Task<MailboxAccessResultDto> GetMailboxDelegatesAsync(string mailboxEmail);
 }
 
 public class ExchangeOnlineService : IExchangeOnlineService
@@ -817,6 +819,398 @@ public class ExchangeOnlineService : IExchangeOnlineService
 
         return recipient;
     }
+
+    /// <summary>
+    /// Returns all mailboxes that the given user has been granted access to.
+    /// Checks Full Access (Get-MailboxPermission) and Send As (Get-RecipientPermission)
+    /// across all mailboxes in the tenant.
+    /// </summary>
+    public async Task<MailboxAccessResultDto> GetMailboxAccessForUserAsync(string userEmail)
+    {
+        var tenantId = _configuration["AzureAd:TenantId"]!;
+        var token = await GetExchangeTokenAsync();
+
+        using var httpClient = _httpClientFactory.CreateClient();
+        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var requestUrl = $"https://outlook.office365.com/adminapi/beta/{tenantId}/InvokeCommand";
+
+        // ── 1. Full Access permissions ─────────────────────────────────────────
+        // Get-MailboxPermission -Identity <each mailbox> is too slow at scale.
+        // Instead enumerate all mailboxes and filter client-side, OR use:
+        // Get-MailboxPermission on each mailbox is O(n) — instead search all
+        // mailbox permissions for the trustee = userEmail.
+        // Exchange REST does not support a direct "who does this user have access to"
+        // query, so we page Get-Mailbox and then batch-check.
+        // For MSP use the simpler approach: Get all mailboxes, then for each check
+        // permissions — but that's too slow. Use the supported approach:
+        // Get-MailboxPermission -Identity ALL and filter server-side via OData-ish where.
+        // The most practical approach via REST API: run Get-Mailbox (all), then
+        // Get-EXOMailboxPermission which supports -User parameter to find all grants.
+
+        var fullAccessMailboxes = new List<MailboxAccessEntryDto>();
+        var sendAsMailboxes     = new List<MailboxAccessEntryDto>();
+        var sendOnBehalfMailboxes = new List<MailboxAccessEntryDto>();
+
+        // Get all user mailboxes first (needed for both queries)
+        var allMailboxes = await GetAllMailboxesAsync(httpClient, requestUrl);
+        _logger.LogInformation("Checking {Count} mailboxes for access by {User}", allMailboxes.Count, userEmail);
+
+        foreach (var mailbox in allMailboxes)
+        {
+            var mbxEmail = mailbox.PrimarySmtpAddress;
+            if (string.IsNullOrEmpty(mbxEmail)) continue;
+
+            // Skip the user's own mailbox
+            if (mbxEmail.Equals(userEmail, StringComparison.OrdinalIgnoreCase)) continue;
+
+            try
+            {
+                // Full Access
+                var permBody = new
+                {
+                    CmdletInput = new
+                    {
+                        CmdletName = "Get-MailboxPermission",
+                        Parameters = new Dictionary<string, object>
+                        {
+                            ["Identity"] = mbxEmail,
+                            ["User"]     = userEmail
+                        }
+                    }
+                };
+
+                var permResponse = await httpClient.PostAsync(requestUrl,
+                    new StringContent(JsonSerializer.Serialize(permBody), Encoding.UTF8, "application/json"));
+
+                if (permResponse.IsSuccessStatusCode)
+                {
+                    var permJson = await permResponse.Content.ReadAsStringAsync();
+                    var permDoc  = JsonDocument.Parse(permJson);
+                    var perms    = permDoc.RootElement.GetProperty("value");
+
+                    foreach (var perm in perms.EnumerateArray())
+                    {
+                        var rights = perm.TryGetProperty("AccessRights", out var ar)
+                            ? string.Join(", ", ar.EnumerateArray().Select(x => x.GetString() ?? ""))
+                            : "";
+
+                        var isDenied = perm.TryGetProperty("Deny", out var deny) && deny.GetBoolean();
+                        if (isDenied) continue;
+
+                        if (rights.Contains("FullAccess", StringComparison.OrdinalIgnoreCase))
+                        {
+                            fullAccessMailboxes.Add(new MailboxAccessEntryDto(
+                                MailboxEmail:       mbxEmail,
+                                MailboxDisplayName: mailbox.DisplayName,
+                                MailboxType:        mailbox.RecipientTypeDetails ?? "UserMailbox",
+                                Permission:         "Full Access",
+                                GrantedTo:          userEmail,
+                                IsInherited:        perm.TryGetProperty("IsInherited", out var inh) && inh.GetBoolean()
+                            ));
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Full access check failed for {Mailbox}", mbxEmail);
+            }
+
+            try
+            {
+                // Send As
+                var saBody = new
+                {
+                    CmdletInput = new
+                    {
+                        CmdletName = "Get-RecipientPermission",
+                        Parameters = new Dictionary<string, object>
+                        {
+                            ["Identity"] = mbxEmail,
+                            ["Trustee"]  = userEmail
+                        }
+                    }
+                };
+
+                var saResponse = await httpClient.PostAsync(requestUrl,
+                    new StringContent(JsonSerializer.Serialize(saBody), Encoding.UTF8, "application/json"));
+
+                if (saResponse.IsSuccessStatusCode)
+                {
+                    var saJson = await saResponse.Content.ReadAsStringAsync();
+                    var saDoc  = JsonDocument.Parse(saJson);
+                    var grants = saDoc.RootElement.GetProperty("value");
+
+                    foreach (var grant in grants.EnumerateArray())
+                    {
+                        var rights = grant.TryGetProperty("AccessRights", out var ar)
+                            ? string.Join(", ", ar.EnumerateArray().Select(x => x.GetString() ?? ""))
+                            : "";
+
+                        if (rights.Contains("SendAs", StringComparison.OrdinalIgnoreCase))
+                        {
+                            sendAsMailboxes.Add(new MailboxAccessEntryDto(
+                                MailboxEmail:       mbxEmail,
+                                MailboxDisplayName: mailbox.DisplayName,
+                                MailboxType:        mailbox.RecipientTypeDetails ?? "UserMailbox",
+                                Permission:         "Send As",
+                                GrantedTo:          userEmail,
+                                IsInherited:        false
+                            ));
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Send As check failed for {Mailbox}", mbxEmail);
+            }
+
+            // Send on Behalf — stored on the mailbox itself
+            try
+            {
+                if (mailbox.GrantSendOnBehalfTo != null &&
+                    mailbox.GrantSendOnBehalfTo.Any(g => g.Contains(userEmail.Split('@')[0], StringComparison.OrdinalIgnoreCase)))
+                {
+                    sendOnBehalfMailboxes.Add(new MailboxAccessEntryDto(
+                        MailboxEmail:       mbxEmail,
+                        MailboxDisplayName: mailbox.DisplayName,
+                        MailboxType:        mailbox.RecipientTypeDetails ?? "UserMailbox",
+                        Permission:         "Send on Behalf",
+                        GrantedTo:          userEmail,
+                        IsInherited:        false
+                    ));
+                }
+            }
+            catch { /* best-effort */ }
+        }
+
+        var all = fullAccessMailboxes
+            .Concat(sendAsMailboxes)
+            .Concat(sendOnBehalfMailboxes)
+            .ToList();
+
+        return new MailboxAccessResultDto(
+            SubjectEmail:         userEmail,
+            QueryType:            "AccessByUser",
+            FullAccessMailboxes:  fullAccessMailboxes,
+            SendAsMailboxes:      sendAsMailboxes,
+            SendOnBehalfMailboxes: sendOnBehalfMailboxes,
+            TotalCount:           all.Count,
+            MailboxesChecked:     allMailboxes.Count,
+            LastUpdated:          DateTime.UtcNow
+        );
+    }
+
+    /// <summary>
+    /// Returns all users/groups that have been granted access to the given mailbox.
+    /// </summary>
+    public async Task<MailboxAccessResultDto> GetMailboxDelegatesAsync(string mailboxEmail)
+    {
+        var tenantId = _configuration["AzureAd:TenantId"]!;
+        var token = await GetExchangeTokenAsync();
+
+        using var httpClient = _httpClientFactory.CreateClient();
+        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var requestUrl = $"https://outlook.office365.com/adminapi/beta/{tenantId}/InvokeCommand";
+
+        var fullAccessEntries  = new List<MailboxAccessEntryDto>();
+        var sendAsEntries      = new List<MailboxAccessEntryDto>();
+        var sendOnBehalfEntries = new List<MailboxAccessEntryDto>();
+
+        // ── Full Access ────────────────────────────────────────────────────────
+        try
+        {
+            var permDoc = await InvokeExchangeCommandAsync("Get-MailboxPermission",
+                new Dictionary<string, object> { ["Identity"] = mailboxEmail });
+
+            if (permDoc != null)
+            {
+                foreach (var perm in permDoc.RootElement.GetProperty("value").EnumerateArray())
+                {
+                    var user     = perm.TryGetProperty("User", out var u) ? u.GetString() ?? "" : "";
+                    var isDenied = perm.TryGetProperty("Deny", out var deny) && deny.GetBoolean();
+                    var isInherited = perm.TryGetProperty("IsInherited", out var inh) && inh.GetBoolean();
+                    var rights   = perm.TryGetProperty("AccessRights", out var ar)
+                        ? string.Join(", ", ar.EnumerateArray().Select(x => x.GetString() ?? ""))
+                        : "";
+
+                    // Skip system/inherited NT AUTHORITY entries and denies
+                    if (isDenied) continue;
+                    if (user.StartsWith("NT AUTHORITY", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!rights.Contains("FullAccess", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    fullAccessEntries.Add(new MailboxAccessEntryDto(
+                        MailboxEmail:       mailboxEmail,
+                        MailboxDisplayName: mailboxEmail,
+                        MailboxType:        "UserMailbox",
+                        Permission:         "Full Access",
+                        GrantedTo:          user,
+                        IsInherited:        isInherited
+                    ));
+                }
+            }
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "Get-MailboxPermission failed for {Mailbox}", mailboxEmail); }
+
+        // ── Send As ────────────────────────────────────────────────────────────
+        try
+        {
+            var saDoc = await InvokeExchangeCommandAsync("Get-RecipientPermission",
+                new Dictionary<string, object> { ["Identity"] = mailboxEmail });
+
+            if (saDoc != null)
+            {
+                foreach (var grant in saDoc.RootElement.GetProperty("value").EnumerateArray())
+                {
+                    var trustee = grant.TryGetProperty("Trustee", out var t) ? t.GetString() ?? "" : "";
+                    var rights  = grant.TryGetProperty("AccessRights", out var ar)
+                        ? string.Join(", ", ar.EnumerateArray().Select(x => x.GetString() ?? ""))
+                        : "";
+
+                    if (trustee.StartsWith("NT AUTHORITY", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!rights.Contains("SendAs", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    sendAsEntries.Add(new MailboxAccessEntryDto(
+                        MailboxEmail:       mailboxEmail,
+                        MailboxDisplayName: mailboxEmail,
+                        MailboxType:        "UserMailbox",
+                        Permission:         "Send As",
+                        GrantedTo:          trustee,
+                        IsInherited:        false
+                    ));
+                }
+            }
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "Get-RecipientPermission failed for {Mailbox}", mailboxEmail); }
+
+        // ── Send on Behalf ─────────────────────────────────────────────────────
+        try
+        {
+            var mbxDoc = await InvokeExchangeCommandAsync("Get-Mailbox",
+                new Dictionary<string, object> { ["Identity"] = mailboxEmail });
+
+            if (mbxDoc != null)
+            {
+                var mbxArr = mbxDoc.RootElement.GetProperty("value");
+                if (mbxArr.GetArrayLength() > 0)
+                {
+                    var mbx = mbxArr[0];
+                    if (mbx.TryGetProperty("GrantSendOnBehalfTo", out var sob))
+                    {
+                        foreach (var entry in sob.EnumerateArray())
+                        {
+                            var delegate_ = entry.GetString() ?? "";
+                            if (string.IsNullOrEmpty(delegate_)) continue;
+
+                            sendOnBehalfEntries.Add(new MailboxAccessEntryDto(
+                                MailboxEmail:       mailboxEmail,
+                                MailboxDisplayName: mailboxEmail,
+                                MailboxType:        "UserMailbox",
+                                Permission:         "Send on Behalf",
+                                GrantedTo:          delegate_,
+                                IsInherited:        false
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "Get-Mailbox GrantSendOnBehalfTo failed for {Mailbox}", mailboxEmail); }
+
+        var all = fullAccessEntries.Concat(sendAsEntries).Concat(sendOnBehalfEntries).ToList();
+
+        return new MailboxAccessResultDto(
+            SubjectEmail:          mailboxEmail,
+            QueryType:             "DelegatesOnMailbox",
+            FullAccessMailboxes:   fullAccessEntries,
+            SendAsMailboxes:       sendAsEntries,
+            SendOnBehalfMailboxes: sendOnBehalfEntries,
+            TotalCount:            all.Count,
+            MailboxesChecked:      1,
+            LastUpdated:           DateTime.UtcNow
+        );
+    }
+
+    // Helper: fetch all mailboxes (used by GetMailboxAccessForUserAsync)
+    private record MailboxSummary(
+        string? DisplayName,
+        string? PrimarySmtpAddress,
+        string? RecipientTypeDetails,
+        List<string>? GrantSendOnBehalfTo);
+
+    private async Task<List<MailboxSummary>> GetAllMailboxesAsync(HttpClient httpClient, string requestUrl)
+    {
+        var mailboxes = new List<MailboxSummary>();
+        var page = 0;
+        const int pageSize = 100;
+        string? skipToken = null;
+
+        while (true)
+        {
+            var parameters = new Dictionary<string, object>
+            {
+                ["ResultSize"] = pageSize.ToString()
+            };
+            if (skipToken != null)
+                parameters["SkipToken"] = skipToken;
+
+            var body = new
+            {
+                CmdletInput = new
+                {
+                    CmdletName = "Get-Mailbox",
+                    Parameters = parameters
+                }
+            };
+
+            var response = await httpClient.PostAsync(requestUrl,
+                new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"));
+
+            if (!response.IsSuccessStatusCode) break;
+
+            var json = await response.Content.ReadAsStringAsync();
+            var doc  = JsonDocument.Parse(json);
+            var arr  = doc.RootElement.GetProperty("value");
+
+            foreach (var mbx in arr.EnumerateArray())
+            {
+                var sob = new List<string>();
+                if (mbx.TryGetProperty("GrantSendOnBehalfTo", out var sobArr))
+                    sob = sobArr.EnumerateArray().Select(x => x.GetString() ?? "").ToList();
+
+                mailboxes.Add(new MailboxSummary(
+                    DisplayName:          mbx.TryGetProperty("DisplayName",         out var dn) ? dn.GetString() : null,
+                    PrimarySmtpAddress:   mbx.TryGetProperty("PrimarySmtpAddress",  out var ps) ? ps.GetString() : null,
+                    RecipientTypeDetails: mbx.TryGetProperty("RecipientTypeDetails", out var rt) ? rt.GetString() : null,
+                    GrantSendOnBehalfTo:  sob
+                ));
+            }
+
+            // Check for OdataNextLink / SkipToken for pagination
+            if (doc.RootElement.TryGetProperty("@odata.nextLink", out var next))
+            {
+                var nextVal = next.GetString();
+                if (!string.IsNullOrEmpty(nextVal))
+                {
+                    // Extract skiptoken parameter
+                    var uri = new Uri(nextVal);
+                    var qs  = System.Web.HttpUtility.ParseQueryString(uri.Query);
+                    skipToken = qs["$skiptoken"] ?? qs["skipToken"];
+                    if (skipToken == null) break;
+                    page++;
+                    if (page > 20) break; // cap at 2000 mailboxes
+                    continue;
+                }
+            }
+
+            break; // No more pages
+        }
+
+        return mailboxes;
+    }
 }
 
 // DTOs for Exchange Distribution Lists
@@ -913,5 +1307,26 @@ public record InboxRuleForwardingResultDto(
     int ExternalForwardingCount,
     int InternalForwardingCount,
     List<string> TenantDomains,
+    DateTime LastUpdated
+);
+
+// DTOs for Mailbox Access / Delegation
+public record MailboxAccessEntryDto(
+    string MailboxEmail,
+    string? MailboxDisplayName,
+    string MailboxType,
+    string Permission,       // "Full Access" | "Send As" | "Send on Behalf"
+    string GrantedTo,        // UPN or display name of the delegate
+    bool IsInherited
+);
+
+public record MailboxAccessResultDto(
+    string SubjectEmail,
+    string QueryType,        // "AccessByUser" | "DelegatesOnMailbox"
+    List<MailboxAccessEntryDto> FullAccessMailboxes,
+    List<MailboxAccessEntryDto> SendAsMailboxes,
+    List<MailboxAccessEntryDto> SendOnBehalfMailboxes,
+    int TotalCount,
+    int MailboxesChecked,
     DateTime LastUpdated
 );

@@ -116,6 +116,13 @@ export function Layout({ children }: LayoutProps) {
       section: 'main'
     },
     { 
+      to: '/mailbox-access', 
+      icon: MailInbox24Regular, 
+      iconFilled: MailInbox24Filled, 
+      label: 'Mailbox Access',
+      section: 'main'
+    },
+    { 
       to: '/security', 
       icon: ShieldCheckmark24Regular, 
       iconFilled: ShieldCheckmark24Filled, 
