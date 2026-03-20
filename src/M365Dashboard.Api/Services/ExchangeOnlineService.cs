@@ -793,6 +793,38 @@ public class ExchangeOnlineService : IExchangeOnlineService
         }
     }
 
+    /// <summary>
+    /// Exchange REST API returns AccessRights as either:
+    ///   - Array of strings: ["FullAccess", "ReadPermission"]
+    ///   - Array of objects: [{"Value": "FullAccess"}, ...]
+    /// This helper handles both formats.
+    /// </summary>
+    private static string ParseAccessRights(JsonElement accessRightsElement)
+    {
+        if (accessRightsElement.ValueKind != JsonValueKind.Array)
+            return "";
+
+        var rights = new List<string>();
+        foreach (var item in accessRightsElement.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.String)
+            {
+                rights.Add(item.GetString() ?? "");
+            }
+            else if (item.ValueKind == JsonValueKind.Object)
+            {
+                // Try common property names: Value, value, AccessRight
+                if (item.TryGetProperty("Value", out var v) && v.ValueKind == JsonValueKind.String)
+                    rights.Add(v.GetString() ?? "");
+                else if (item.TryGetProperty("value", out var v2) && v2.ValueKind == JsonValueKind.String)
+                    rights.Add(v2.GetString() ?? "");
+                else if (item.TryGetProperty("AccessRight", out var v3) && v3.ValueKind == JsonValueKind.String)
+                    rights.Add(v3.GetString() ?? "");
+            }
+        }
+        return string.Join(", ", rights);
+    }
+
     private static string ExtractEmailFromRecipient(string recipient)
     {
         // Exchange returns recipients in format like "User Name [SMTP:user@domain.com]" or just "user@domain.com"
@@ -866,7 +898,8 @@ public class ExchangeOnlineService : IExchangeOnlineService
 
             try
             {
-                // Full Access
+                // Full Access — get all permissions on this mailbox and filter client-side
+                // (the -User parameter is unreliable via the REST API)
                 var permBody = new
                 {
                     CmdletInput = new
@@ -874,8 +907,7 @@ public class ExchangeOnlineService : IExchangeOnlineService
                         CmdletName = "Get-MailboxPermission",
                         Parameters = new Dictionary<string, object>
                         {
-                            ["Identity"] = mbxEmail,
-                            ["User"]     = userEmail
+                            ["Identity"] = mbxEmail
                         }
                     }
                 };
@@ -891,11 +923,28 @@ public class ExchangeOnlineService : IExchangeOnlineService
 
                     foreach (var perm in perms.EnumerateArray())
                     {
-                        var rights = perm.TryGetProperty("AccessRights", out var ar)
-                            ? string.Join(", ", ar.EnumerateArray().Select(x => x.GetString() ?? ""))
-                            : "";
+                        // User field may be a string or an object {RawIdentity: "...", DisplayName: "..."}
+                        var userField = "";
+                        if (perm.TryGetProperty("User", out var userProp))
+                        {
+                            if (userProp.ValueKind == JsonValueKind.String)
+                                userField = userProp.GetString() ?? "";
+                            else if (userProp.ValueKind == JsonValueKind.Object)
+                            {
+                                userField = userProp.TryGetProperty("RawIdentity", out var ri) ? ri.GetString() ?? ""
+                                          : userProp.TryGetProperty("Value",       out var v)  ? v.GetString()  ?? ""
+                                          : userProp.TryGetProperty("DisplayName", out var dn) ? dn.GetString() ?? ""
+                                          : "";
+                            }
+                        }
 
-                        var isDenied = perm.TryGetProperty("Deny", out var deny) && deny.GetBoolean();
+                        // Skip if not the user we're looking for
+                        if (!userField.Contains(userEmail, StringComparison.OrdinalIgnoreCase) &&
+                            !userField.Contains(userEmail.Split('@')[0], StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        var rights   = perm.TryGetProperty("AccessRights", out var ar) ? ParseAccessRights(ar) : "";
+                        var isDenied = perm.TryGetProperty("Deny",         out var deny) && deny.GetBoolean();
                         if (isDenied) continue;
 
                         if (rights.Contains("FullAccess", StringComparison.OrdinalIgnoreCase))
@@ -944,9 +993,23 @@ public class ExchangeOnlineService : IExchangeOnlineService
 
                     foreach (var grant in grants.EnumerateArray())
                     {
+                        // Trustee may be string or object
+                        var trusteeField = "";
+                        if (grant.TryGetProperty("Trustee", out var trusteeProp))
+                        {
+                            if (trusteeProp.ValueKind == JsonValueKind.String)
+                                trusteeField = trusteeProp.GetString() ?? "";
+                            else if (trusteeProp.ValueKind == JsonValueKind.Object)
+                                trusteeField = trusteeProp.TryGetProperty("RawIdentity", out var ri) ? ri.GetString() ?? ""
+                                             : trusteeProp.TryGetProperty("Value", out var v) ? v.GetString() ?? "" : "";
+                        }
+
+                        if (!trusteeField.Contains(userEmail, StringComparison.OrdinalIgnoreCase) &&
+                            !trusteeField.Contains(userEmail.Split('@')[0], StringComparison.OrdinalIgnoreCase))
+                            continue;
+
                         var rights = grant.TryGetProperty("AccessRights", out var ar)
-                            ? string.Join(", ", ar.EnumerateArray().Select(x => x.GetString() ?? ""))
-                            : "";
+                            ? ParseAccessRights(ar) : "";
 
                         if (rights.Contains("SendAs", StringComparison.OrdinalIgnoreCase))
                         {
@@ -1030,14 +1093,22 @@ public class ExchangeOnlineService : IExchangeOnlineService
             {
                 foreach (var perm in permDoc.RootElement.GetProperty("value").EnumerateArray())
                 {
-                    var user     = perm.TryGetProperty("User", out var u) ? u.GetString() ?? "" : "";
-                    var isDenied = perm.TryGetProperty("Deny", out var deny) && deny.GetBoolean();
-                    var isInherited = perm.TryGetProperty("IsInherited", out var inh) && inh.GetBoolean();
-                    var rights   = perm.TryGetProperty("AccessRights", out var ar)
-                        ? string.Join(", ", ar.EnumerateArray().Select(x => x.GetString() ?? ""))
-                        : "";
+                    // User field may be string or object
+                    var user = "";
+                    if (perm.TryGetProperty("User", out var userProp2))
+                    {
+                        if (userProp2.ValueKind == JsonValueKind.String)
+                            user = userProp2.GetString() ?? "";
+                        else if (userProp2.ValueKind == JsonValueKind.Object)
+                            user = userProp2.TryGetProperty("RawIdentity", out var ri) ? ri.GetString() ?? ""
+                                 : userProp2.TryGetProperty("Value", out var v) ? v.GetString() ?? ""
+                                 : userProp2.TryGetProperty("DisplayName", out var dn) ? dn.GetString() ?? "" : "";
+                    }
 
-                    // Skip system/inherited NT AUTHORITY entries and denies
+                    var isDenied    = perm.TryGetProperty("Deny",        out var deny) && deny.GetBoolean();
+                    var isInherited = perm.TryGetProperty("IsInherited", out var inh)  && inh.GetBoolean();
+                    var rights      = perm.TryGetProperty("AccessRights", out var ar) ? ParseAccessRights(ar) : "";
+
                     if (isDenied) continue;
                     if (user.StartsWith("NT AUTHORITY", StringComparison.OrdinalIgnoreCase)) continue;
                     if (!rights.Contains("FullAccess", StringComparison.OrdinalIgnoreCase)) continue;
@@ -1065,10 +1136,18 @@ public class ExchangeOnlineService : IExchangeOnlineService
             {
                 foreach (var grant in saDoc.RootElement.GetProperty("value").EnumerateArray())
                 {
-                    var trustee = grant.TryGetProperty("Trustee", out var t) ? t.GetString() ?? "" : "";
+                    var trustee = "";
+                    if (grant.TryGetProperty("Trustee", out var trusteeProp2))
+                    {
+                        if (trusteeProp2.ValueKind == JsonValueKind.String)
+                            trustee = trusteeProp2.GetString() ?? "";
+                        else if (trusteeProp2.ValueKind == JsonValueKind.Object)
+                            trustee = trusteeProp2.TryGetProperty("RawIdentity", out var ri) ? ri.GetString() ?? ""
+                                    : trusteeProp2.TryGetProperty("Value", out var v) ? v.GetString() ?? "" : "";
+                    }
+
                     var rights  = grant.TryGetProperty("AccessRights", out var ar)
-                        ? string.Join(", ", ar.EnumerateArray().Select(x => x.GetString() ?? ""))
-                        : "";
+                        ? ParseAccessRights(ar) : "";
 
                     if (trustee.StartsWith("NT AUTHORITY", StringComparison.OrdinalIgnoreCase)) continue;
                     if (!rights.Contains("SendAs", StringComparison.OrdinalIgnoreCase)) continue;
