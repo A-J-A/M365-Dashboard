@@ -17,6 +17,7 @@ public interface IExchangeOnlineService
     Task<InboxRuleForwardingResultDto> GetInboxRulesWithForwardingAsync(int take = 100);
     Task<MailboxAccessResultDto> GetMailboxAccessForUserAsync(string userEmail);
     Task<MailboxAccessResultDto> GetMailboxDelegatesAsync(string mailboxEmail);
+    Task<object> DebugMailboxPermissionsAsync(string mailbox);
 }
 
 public class ExchangeOnlineService : IExchangeOnlineService
@@ -850,6 +851,29 @@ public class ExchangeOnlineService : IExchangeOnlineService
         }
 
         return recipient;
+    }
+
+    public async Task<object> DebugMailboxPermissionsAsync(string mailbox)
+    {
+        // Returns the raw Exchange API response so we can inspect the exact JSON structure
+        var doc = await InvokeExchangeCommandAsync("Get-MailboxPermission",
+            new Dictionary<string, object> { ["Identity"] = mailbox });
+
+        if (doc == null) return new { error = "No response" };
+
+        // Return the raw value array as-is so the caller can inspect every field
+        var rawEntries = new List<Dictionary<string, object?>>();
+        foreach (var entry in doc.RootElement.GetProperty("value").EnumerateArray())
+        {
+            var dict = new Dictionary<string, object?>();
+            foreach (var prop in entry.EnumerateObject())
+            {
+                dict[prop.Name] = prop.Value.ToString();
+            }
+            rawEntries.Add(dict);
+        }
+
+        return new { mailbox, rawPermissionCount = rawEntries.Count, rawPermissions = rawEntries };
     }
 
     /// <summary>

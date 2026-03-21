@@ -39,6 +39,23 @@ public class ExchangeController : ControllerBase
     }
 
     /// <summary>
+    /// Debug: Show raw Get-MailboxPermission response for a specific mailbox
+    /// </summary>
+    [HttpGet("debug/mailbox-permissions")]
+    public async Task<IActionResult> DebugMailboxPermissions([FromQuery] string mailbox)
+    {
+        try
+        {
+            var result = await _exchangeService.DebugMailboxPermissionsAsync(mailbox);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            return Ok(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Test Exchange connection
     /// </summary>
     [HttpGet("test")]
