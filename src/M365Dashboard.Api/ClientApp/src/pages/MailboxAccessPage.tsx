@@ -177,6 +177,29 @@ const MailboxAccessPage: React.FC = () => {
   const [error, setError]         = useState<string | null>(null);
   const inputRef                  = useRef<HTMLInputElement>(null);
 
+  const [debugResult, setDebugResult] = useState<string | null>(null);
+  const [debugLoading, setDebugLoading] = useState(false);
+
+  const handleDebug = async () => {
+    const trimmed = email.trim();
+    if (!trimmed || !trimmed.includes('@')) return;
+    setDebugLoading(true);
+    setDebugResult(null);
+    try {
+      const token = await getAccessToken();
+      const response = await fetch(
+        `/api/exchange/debug/mailbox-permissions?mailbox=${encodeURIComponent(trimmed)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const data = await response.json();
+      setDebugResult(JSON.stringify(data, null, 2));
+    } catch (err) {
+      setDebugResult(String(err));
+    } finally {
+      setDebugLoading(false);
+    }
+  };
+
   const handleSearch = async () => {
     const trimmed = email.trim();
     if (!trimmed || !trimmed.includes('@')) {
@@ -317,6 +340,30 @@ const MailboxAccessPage: React.FC = () => {
               : 'Returns all users and groups with Full Access, Send As, or Send on Behalf permissions on the specified mailbox. Usually completes within a few seconds.'}
           </span>
         </div>
+
+        {/* Debug panel — enter a mailbox you know has permissions and click Debug */}
+        <details className="text-xs">
+          <summary className="cursor-pointer text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 select-none">
+            🔧 Debug: inspect raw Exchange API response for one mailbox
+          </summary>
+          <div className="mt-2 space-y-2">
+            <p className="text-slate-500 dark:text-slate-400">
+              Enter a mailbox address above that you know has delegates, then click Debug to see the raw JSON Exchange returns.
+            </p>
+            <button
+              onClick={handleDebug}
+              disabled={debugLoading || !email.trim()}
+              className="px-3 py-1.5 bg-slate-600 hover:bg-slate-700 disabled:opacity-50 text-white rounded text-xs"
+            >
+              {debugLoading ? 'Loading…' : 'Debug: Get-MailboxPermission'}
+            </button>
+            {debugResult && (
+              <pre className="mt-2 p-3 bg-slate-900 text-green-400 rounded text-[11px] overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap break-all">
+                {debugResult}
+              </pre>
+            )}
+          </div>
+        </details>
       </div>
 
       {/* Error */}
