@@ -795,13 +795,31 @@ public class ExchangeOnlineService : IExchangeOnlineService
     }
 
     /// <summary>
-    /// Exchange REST API returns AccessRights as either:
-    ///   - Array of strings: ["FullAccess", "ReadPermission"]
-    ///   - Array of objects: [{"Value": "FullAccess"}, ...]
-    /// This helper handles both formats.
+    /// <summary>
+    /// Exchange REST API returns AccessRights in multiple possible formats:
+    ///   1. A JSON string containing a serialised array: "[\"FullAccess, ReadPermission\"]" 
+    ///   2. A real JSON array of strings: ["FullAccess", "ReadPermission"]
+    ///   3. A real JSON array of objects: [{"Value": "FullAccess"}, ...]
+    ///   4. A plain string: "FullAccess"
+    /// This helper handles all formats and returns a normalised comma-separated string.
     /// </summary>
     private static string ParseAccessRights(JsonElement accessRightsElement)
     {
+        // Format 1: pre-serialised string like "[\"FullAccess, ReadPermission\"]" or "FullAccess"
+        if (accessRightsElement.ValueKind == JsonValueKind.String)
+        {
+            var raw = accessRightsElement.GetString() ?? "";
+            // Strip surrounding [ ] and quotes if it looks like a serialised array
+            raw = raw.Trim();
+            if (raw.StartsWith("[") && raw.EndsWith("]"))
+            {
+                raw = raw.TrimStart('[').TrimEnd(']');
+                // Remove embedded quotes and split on comma
+                raw = raw.Replace("\"", "").Replace("'", "");
+            }
+            return raw.Trim();
+        }
+
         if (accessRightsElement.ValueKind != JsonValueKind.Array)
             return "";
 
@@ -814,7 +832,6 @@ public class ExchangeOnlineService : IExchangeOnlineService
             }
             else if (item.ValueKind == JsonValueKind.Object)
             {
-                // Try common property names: Value, value, AccessRight
                 if (item.TryGetProperty("Value", out var v) && v.ValueKind == JsonValueKind.String)
                     rights.Add(v.GetString() ?? "");
                 else if (item.TryGetProperty("value", out var v2) && v2.ValueKind == JsonValueKind.String)
