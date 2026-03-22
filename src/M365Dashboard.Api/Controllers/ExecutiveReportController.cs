@@ -2176,10 +2176,45 @@ public class ExecutiveReportController : ControllerBase
             table.Append(row);
     }
 
+    private static List<ReportQuote> PickRandomQuotesForHtml(ReportSettings settings, int count)
+    {
+        var pool = settings.Quotes
+            .Where(q => q.Enabled &&
+                        !string.IsNullOrWhiteSpace(q.BigNumber) &&
+                        !string.IsNullOrWhiteSpace(q.Line1))
+            .ToList();
+
+        if (pool.Count == 0)
+            pool = ReportSettings.DefaultQuotes();
+
+        if (pool.Count <= count)
+            return pool;
+
+        var rng = new Random();
+        for (int i = pool.Count - 1; i > 0; i--)
+        {
+            int j = rng.Next(i + 1);
+            (pool[i], pool[j]) = (pool[j], pool[i]);
+        }
+
+        return pool.Take(count).ToList();
+    }
+
+    private static string RenderHtmlInfoGraphic(ReportQuote q, string primaryColor, string accentColor) =>
+        $@"
+    <div class='infographic page-break'>
+        <div class='big-number'>{q.BigNumber}</div>
+        <div class='line1'>{q.Line1}</div>
+        <div class='line2'>{q.Line2}</div>
+        <div class='source'>{q.Source}</div>
+    </div>";
+
     private string GenerateHtmlReport(ExecutiveReportData data, ReportSettings settings)
     {
         var primaryColor = settings.PrimaryColor?.TrimStart('#') ?? "1E3A5F";
         var accentColor = settings.AccentColor?.TrimStart('#') ?? "E07C3A";
+        var showQuoteInfoGraphics = settings.ShowInfoGraphics && settings.ShowQuotes;
+        var selectedQuotes = showQuoteInfoGraphics ? PickRandomQuotesForHtml(settings, 3) : new List<ReportQuote>();
         
         return $@"
 <!DOCTYPE html>
@@ -2327,14 +2362,7 @@ public class ExecutiveReportController : ControllerBase
         <p class='intro'>The aim of this review is to provide a clear and actionable understanding of your current security posture within Microsoft 365, helping to mitigate potential risks, safeguard sensitive data, and ensure compliance with leading security benchmarks.</p>
     </div>
     
-    {(settings.ShowInfoGraphics ? $@"
-    <!-- Infographic 1 -->
-    <div class='infographic page-break'>
-        <div class='big-number'>99%</div>
-        <div class='line1'>of identity-based attacks can be blocked</div>
-        <div class='line2'>by phishing-resistant MFA</div>
-        <div class='source'>Source: Microsoft Digital Defense Report 2025</div>
-    </div>" : "")}
+    {(showQuoteInfoGraphics && selectedQuotes.Count > 0 ? RenderHtmlInfoGraphic(selectedQuotes[0], primaryColor, accentColor) : "")}
     
     <!-- Security Metrics -->
     <div class='content page-break'>
@@ -2462,14 +2490,7 @@ public class ExecutiveReportController : ControllerBase
 
     </div>
     
-    {(settings.ShowInfoGraphics ? $@"
-    <!-- Infographic 2 -->
-    <div class='infographic page-break'>
-        <div class='big-number'>97%</div>
-        <div class='line1'>of identity attacks are password attacks</div>
-        <div class='line2'>with identity-based attacks up 32% in 2025</div>
-        <div class='source'>Source: Microsoft Digital Defense Report 2025</div>
-    </div>" : "")}
+    {(showQuoteInfoGraphics && selectedQuotes.Count > 1 ? RenderHtmlInfoGraphic(selectedQuotes[1], primaryColor, accentColor) : "")}
     
     <div class='content page-break'>
     {GenerateUserSignInTable(data.UserSignInDetails)}
@@ -2477,14 +2498,7 @@ public class ExecutiveReportController : ControllerBase
     {GenerateDeletedUsersTable(data.DeletedUsersInPeriod)}
     </div>
     
-    {(settings.ShowInfoGraphics ? $@"
-    <!-- Infographic 3 -->
-    <div class='infographic page-break'>
-        <div class='big-number'>80%</div>
-        <div class='line1'>of cyber incidents investigated by Microsoft</div>
-        <div class='line2'>involved attackers attempting to steal data</div>
-        <div class='source'>Source: Microsoft Digital Defense Report 2025</div>
-    </div>" : "")}
+    {(showQuoteInfoGraphics && selectedQuotes.Count > 2 ? RenderHtmlInfoGraphic(selectedQuotes[2], primaryColor, accentColor) : "")}
     
     <div class='content page-break'>
     {GenerateDomainSecuritySection(data.DomainSecuritySummary, data.DomainSecurityResults)}
