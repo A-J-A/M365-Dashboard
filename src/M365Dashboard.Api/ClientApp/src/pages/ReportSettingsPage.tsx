@@ -9,7 +9,7 @@ import {
   ArrowSyncRegular,
   ColorRegular,
   DocumentRegular,
-  QuoteRegular,
+  ChatRegular,
   AddRegular,
   EditRegular,
 } from '@fluentui/react-icons';
@@ -462,7 +462,7 @@ const ReportSettingsPage: React.FC = () => {
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-              <QuoteRegular className="w-5 h-5" />
+              <ChatRegular className="w-5 h-5" />
               Quote Pool
             </h2>
             <div className="flex items-center gap-3">
@@ -611,7 +611,7 @@ const ReportSettingsPage: React.FC = () => {
           </div>
 
           <div className="mt-4 flex items-start gap-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/50 rounded-lg px-3 py-2.5">
-            <QuoteRegular className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <ChatRegular className="w-4 h-4 flex-shrink-0 mt-0.5" />
             <span>3 quotes are picked at random from the enabled pool each time a report is generated, so monthly reports won't always show the same statistics. Uncheck a quote to exclude it without deleting it.</span>
           </div>
         </div>
