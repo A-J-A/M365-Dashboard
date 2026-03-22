@@ -843,6 +843,24 @@ public class ExchangeOnlineService : IExchangeOnlineService
         return string.Join(", ", rights);
     }
 
+    /// <summary>
+    /// Exchange REST API returns booleans as JSON strings ("True"/"False") not real booleans.
+    /// </summary>
+    private static bool ParseBool(JsonElement element)
+    {
+        if (element.ValueKind == JsonValueKind.True)  return true;
+        if (element.ValueKind == JsonValueKind.False) return false;
+        if (element.ValueKind == JsonValueKind.String)
+            return element.GetString()?.Equals("True", StringComparison.OrdinalIgnoreCase) ?? false;
+        return false;
+    }
+
+    private static bool TryParseBool(JsonElement parent, string propertyName)
+    {
+        if (!parent.TryGetProperty(propertyName, out var prop)) return false;
+        return ParseBool(prop);
+    }
+
     private static string ExtractEmailFromRecipient(string recipient)
     {
         // Exchange returns recipients in format like "User Name [SMTP:user@domain.com]" or just "user@domain.com"
@@ -985,8 +1003,7 @@ public class ExchangeOnlineService : IExchangeOnlineService
                             continue;
 
                         var rights   = perm.TryGetProperty("AccessRights", out var ar) ? ParseAccessRights(ar) : "";
-                        var isDenied = perm.TryGetProperty("Deny",         out var deny) && deny.GetBoolean();
-                        if (isDenied) continue;
+                        if (TryParseBool(perm, "Deny")) continue;
 
                         if (rights.Contains("FullAccess", StringComparison.OrdinalIgnoreCase))
                         {
@@ -996,7 +1013,7 @@ public class ExchangeOnlineService : IExchangeOnlineService
                                 MailboxType:        mailbox.RecipientTypeDetails ?? "UserMailbox",
                                 Permission:         "Full Access",
                                 GrantedTo:          userEmail,
-                                IsInherited:        perm.TryGetProperty("IsInherited", out var inh) && inh.GetBoolean()
+                                IsInherited:        TryParseBool(perm, "IsInherited")
                             ));
                         }
                     }
@@ -1146,8 +1163,8 @@ public class ExchangeOnlineService : IExchangeOnlineService
                                  : userProp2.TryGetProperty("DisplayName", out var dn) ? dn.GetString() ?? "" : "";
                     }
 
-                    var isDenied    = perm.TryGetProperty("Deny",        out var deny) && deny.GetBoolean();
-                    var isInherited = perm.TryGetProperty("IsInherited", out var inh)  && inh.GetBoolean();
+                    var isDenied    = TryParseBool(perm, "Deny");
+                    var isInherited = TryParseBool(perm, "IsInherited");
                     var rights      = perm.TryGetProperty("AccessRights", out var ar) ? ParseAccessRights(ar) : "";
 
                     if (isDenied) continue;
