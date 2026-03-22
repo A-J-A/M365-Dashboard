@@ -16,6 +16,11 @@ import {
   InfoRegular,
   ArrowDownloadRegular,
   FilterRegular,
+  PersonRegular,
+  LockOpenRegular,
+  PeopleRegular,
+  SearchRegular,
+  ArrowSwapRegular,
 } from '@fluentui/react-icons';
 import { useAppContext } from '../contexts/AppContext';
 
@@ -133,7 +138,7 @@ interface ExchangeMailboxForwardingResult {
   lastUpdated: string;
 }
 
-type ViewMode = 'traffic' | 'storage' | 'forwarding' | 'mailboxFwd';
+type ViewMode = 'traffic' | 'storage' | 'forwarding' | 'mailboxFwd' | 'access';
 type ForwardingFilter = 'all' | 'external' | 'internal';
 
 const MailflowPage: React.FC = () => {
@@ -150,6 +155,42 @@ const MailflowPage: React.FC = () => {
   const [period, setPeriod] = useState(7);
   const [forwardingFilter, setForwardingFilter] = useState<ForwardingFilter>('all');
   const [exchangeForwardingFilter, setExchangeForwardingFilter] = useState<ForwardingFilter>('all');
+
+  // Mailbox Access state
+  type AccessQueryMode = 'by-user' | 'delegates';
+  type MailboxAccessEntry = {
+    mailboxEmail: string; mailboxDisplayName: string | null; mailboxType: string;
+    permission: string; grantedTo: string; isInherited: boolean;
+  };
+  type MailboxAccessResult = {
+    subjectEmail: string; queryType: string;
+    fullAccessMailboxes: MailboxAccessEntry[];
+    sendAsMailboxes: MailboxAccessEntry[];
+    sendOnBehalfMailboxes: MailboxAccessEntry[];
+    totalCount: number; mailboxesChecked: number; lastUpdated: string;
+  };
+  const [accessEmail, setAccessEmail] = useState('');
+  const [accessMode, setAccessMode] = useState<AccessQueryMode>('by-user');
+  const [accessLoading, setAccessLoading] = useState(false);
+  const [accessResult, setAccessResult] = useState<MailboxAccessResult | null>(null);
+  const [accessError, setAccessError] = useState<string | null>(null);
+
+  const handleAccessSearch = async () => {
+    const trimmed = accessEmail.trim();
+    if (!trimmed || !trimmed.includes('@')) { setAccessError('Please enter a valid email address.'); return; }
+    setAccessLoading(true); setAccessResult(null); setAccessError(null);
+    try {
+      const token = await getAccessToken();
+      const endpoint = accessMode === 'by-user'
+        ? `/api/exchange/mailbox-access/by-user?email=${encodeURIComponent(trimmed)}`
+        : `/api/exchange/mailbox-access/delegates?email=${encodeURIComponent(trimmed)}`;
+      const response = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } });
+      if (!response.ok) { const d = await response.json().catch(() => ({})); throw new Error(d.message ?? d.error ?? `HTTP ${response.status}`); }
+      setAccessResult(await response.json());
+    } catch (err) {
+      setAccessError(err instanceof Error ? err.message : 'An unexpected error occurred.');
+    } finally { setAccessLoading(false); }
+  };
 
   useEffect(() => {
     fetchSummary();
@@ -461,6 +502,12 @@ const MailflowPage: React.FC = () => {
               className={`px-3 py-1.5 text-sm ${viewMode === 'mailboxFwd' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}
             >
               Mailbox Fwd
+            </button>
+            <button
+              onClick={() => setViewMode('access')}
+              className={`px-3 py-1.5 text-sm ${viewMode === 'access' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300'}`}
+            >
+              Access
             </button>
           </div>
           <a
@@ -1223,6 +1270,169 @@ const MailflowPage: React.FC = () => {
               <span>Last updated: {new Date(exchangeForwardingData.lastUpdated).toLocaleString()}</span>
             </div>
           )}
+        </div>
+      ) : viewMode === 'access' ? (
+        /* Mailbox Access Lookup */
+        <div className="space-y-4">
+          {/* Search card */}
+          <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-5 space-y-4">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Mailbox Access Lookup</h2>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">Find which mailboxes a user can access, or who has access to a specific mailbox.</p>
+            </div>
+
+            {/* Mode toggle */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex rounded-lg overflow-hidden border border-slate-200 dark:border-slate-600 text-sm">
+                <button
+                  onClick={() => { setAccessMode('by-user'); setAccessResult(null); setAccessError(null); }}
+                  className={`px-4 py-2 flex items-center gap-2 transition-colors ${
+                    accessMode === 'by-user' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <PersonRegular className="w-4 h-4" />
+                  What can this user access?
+                </button>
+                <button
+                  onClick={() => { setAccessMode('delegates'); setAccessResult(null); setAccessError(null); }}
+                  className={`px-4 py-2 flex items-center gap-2 transition-colors border-l border-slate-200 dark:border-slate-600 ${
+                    accessMode === 'delegates' ? 'bg-blue-600 text-white' : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <MailInboxRegular className="w-4 h-4" />
+                  Who has access to this mailbox?
+                </button>
+              </div>
+              <button
+                onClick={() => { setAccessMode(m => m === 'by-user' ? 'delegates' : 'by-user'); setAccessResult(null); setAccessError(null); }}
+                title="Swap mode"
+                className="p-2 rounded-lg border border-slate-200 dark:border-slate-600 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+              >
+                <ArrowSwapRegular className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Email input */}
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <PersonRegular className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <input
+                  type="email"
+                  value={accessEmail}
+                  onChange={e => { setAccessEmail(e.target.value); setAccessError(null); }}
+                  onKeyDown={e => e.key === 'Enter' && handleAccessSearch()}
+                  placeholder={accessMode === 'by-user' ? 'user@contoso.com' : 'sharedmailbox@contoso.com'}
+                  className="w-full pl-9 pr-4 py-2.5 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-blue-500 text-sm"
+                  disabled={accessLoading}
+                />
+              </div>
+              <button
+                onClick={handleAccessSearch}
+                disabled={accessLoading || !accessEmail.trim()}
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg flex items-center gap-2 text-sm font-medium transition-colors"
+              >
+                {accessLoading ? <span className="animate-spin">⟳</span> : <SearchRegular className="w-4 h-4" />}
+                {accessLoading ? 'Searching…' : 'Search'}
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {accessMode === 'by-user'
+                ? 'Scans all mailboxes for Full Access, Send As, and Send on Behalf grants. May take 30–90 seconds on larger tenants.'
+                : 'Returns all delegates with any permission on the specified mailbox. Usually completes in a few seconds.'}
+            </p>
+          </div>
+
+          {/* Error */}
+          {accessError && (
+            <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-sm text-red-700 dark:text-red-300 flex items-center gap-3">
+              <WarningRegular className="w-5 h-5 flex-shrink-0" />
+              {accessError}
+            </div>
+          )}
+
+          {/* Loading */}
+          {accessLoading && (
+            <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-10 flex flex-col items-center gap-3">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+              <p className="text-sm text-slate-500">{accessMode === 'by-user' ? 'Scanning all mailboxes… this may take a moment.' : 'Fetching delegates…'}</p>
+            </div>
+          )}
+
+          {/* Results */}
+          {accessResult && !accessLoading && (() => {
+            const total = accessResult.fullAccessMailboxes.length + accessResult.sendAsMailboxes.length + accessResult.sendOnBehalfMailboxes.length;
+            const PermBadge = ({ p }: { p: string }) => (
+              p === 'Full Access'
+                ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300"><LockOpenRegular className="w-3 h-3" />Full Access</span>
+                : p === 'Send As'
+                ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300"><SendRegular className="w-3 h-3" />Send As</span>
+                : <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300"><PeopleRegular className="w-3 h-3" />Send on Behalf</span>
+            );
+            const ResultTable = ({ entries, label }: { entries: typeof accessResult.fullAccessMailboxes; label: string }) => (
+              <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+                  <h3 className="font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+                    {label === 'Full Access' && <LockOpenRegular className="w-4 h-4 text-blue-500" />}
+                    {label === 'Send As' && <SendRegular className="w-4 h-4 text-purple-500" />}
+                    {label === 'Send on Behalf' && <PeopleRegular className="w-4 h-4 text-amber-500" />}
+                    {label}
+                  </h3>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                    entries.length > 0 ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300' : 'bg-slate-100 dark:bg-slate-700 text-slate-500'
+                  }`}>{entries.length}</span>
+                </div>
+                {entries.length === 0 ? (
+                  <p className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">None found.</p>
+                ) : (
+                  <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700 text-sm">
+                    <thead className="bg-slate-50 dark:bg-slate-700/50">
+                      <tr>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase">{accessMode === 'by-user' ? 'Mailbox' : 'Granted To'}</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase">Type</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase">Permission</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-100 dark:divide-slate-700">
+                      {entries.map((e, i) => (
+                        <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                          <td className="px-4 py-3">
+                            <p className="font-medium text-slate-900 dark:text-white">{accessMode === 'by-user' ? (e.mailboxDisplayName || e.mailboxEmail) : e.grantedTo}</p>
+                            {accessMode === 'by-user' && <p className="text-xs text-slate-400">{e.mailboxEmail}</p>}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-slate-500">{e.mailboxType.replace('Mailbox', '').trim() || e.mailboxType}</td>
+                          <td className="px-4 py-3"><PermBadge p={e.permission} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            );
+            return (
+              <div className="space-y-4">
+                {/* Summary */}
+                <div className={`rounded-lg border px-4 py-3 flex items-center justify-between flex-wrap gap-3 ${
+                  total > 0 ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                }`}>
+                  <div>
+                    <p className={`font-semibold text-sm ${total > 0 ? 'text-blue-800 dark:text-blue-200' : 'text-green-800 dark:text-green-200'}`}>
+                      {accessMode === 'by-user'
+                        ? total > 0 ? `${accessResult.subjectEmail} has access to ${total} mailbox${total !== 1 ? 'es' : ''}` : `${accessResult.subjectEmail} has no delegated access to other mailboxes`
+                        : total > 0 ? `${total} delegate${total !== 1 ? 's have' : ' has'} access to this mailbox` : 'No delegates found for this mailbox'}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {accessMode === 'by-user' ? `${accessResult.mailboxesChecked.toLocaleString()} mailboxes scanned` : 'Full Access, Send As, Send on Behalf checked'}
+                      {' · '}{new Date(accessResult.lastUpdated).toLocaleTimeString()}
+                    </p>
+                  </div>
+                </div>
+                <ResultTable entries={accessResult.fullAccessMailboxes} label="Full Access" />
+                <ResultTable entries={accessResult.sendAsMailboxes} label="Send As" />
+                <ResultTable entries={accessResult.sendOnBehalfMailboxes} label="Send on Behalf" />
+              </div>
+            );
+          })()}
         </div>
       ) : null}
     </div>

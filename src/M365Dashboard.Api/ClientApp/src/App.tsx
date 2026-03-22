@@ -29,7 +29,6 @@ import CisBenchmarkPage from './pages/CisBenchmarkPage';
 import SecurityAssessmentPage from './pages/SecurityAssessmentPage';
 
 import DefenderForOfficePage from './pages/DefenderForOfficePage';
-import MailboxAccessPage from './pages/MailboxAccessPage';
 
 function AuthenticatedApp() {
   return (
@@ -58,7 +57,6 @@ function AuthenticatedApp() {
             <Route path="/cis-benchmark" element={<CisBenchmarkPage />} />
             <Route path="/security-assessment" element={<SecurityAssessmentPage />} />
             <Route path="/defender-office" element={<DefenderForOfficePage />} />
-            <Route path="/mailbox-access" element={<MailboxAccessPage />} />
             <Route path="/settings/reports" element={<Navigate to="/settings" replace />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
