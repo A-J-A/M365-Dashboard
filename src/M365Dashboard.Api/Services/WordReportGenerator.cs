@@ -69,10 +69,12 @@ public class WordReportGenerator
             AddExecutiveSummary(body, data);
             AddPageBreak(body);
             
-            // === INFOGRAPHIC: Security Stats (if enabled) ===
-            if (_settings.ShowInfoGraphics)
+            // === INFOGRAPHIC: Pick 3 random quotes from settings pool ===
+            var selectedQuotes = PickRandomQuotes(_settings, 3);
+
+            if (_settings.ShowInfoGraphics && _settings.ShowQuotes && selectedQuotes.Count > 0)
             {
-                AddInfoGraphicPage(body, "99%", "of breaches could be mitigated", "with strong passwords and MFA", "Source: Microsoft Security Report");
+                AddInfoGraphicPage(body, selectedQuotes[0].BigNumber, selectedQuotes[0].Line1, selectedQuotes[0].Line2, selectedQuotes[0].Source);
                 AddPageBreak(body);
             }
             
@@ -106,11 +108,11 @@ public class WordReportGenerator
                 AddUserAccountsSection(body, data);
             }
             
-            // === INFOGRAPHIC: Phishing Stats (if enabled) ===
-            if (_settings.ShowInfoGraphics)
+            // === INFOGRAPHIC: Second quote (if enabled) ===
+            if (_settings.ShowInfoGraphics && _settings.ShowQuotes && selectedQuotes.Count > 1)
             {
                 AddPageBreak(body);
-                AddInfoGraphicPage(body, "84%", "of businesses fell victim", "to phishing attacks in 2024", "Source: Cyber Security Breaches Survey");
+                AddInfoGraphicPage(body, selectedQuotes[1].BigNumber, selectedQuotes[1].Line1, selectedQuotes[1].Line2, selectedQuotes[1].Source);
             }
             
             // === DEVICE DETAILS ===
@@ -139,11 +141,11 @@ public class WordReportGenerator
                 AddMailboxDetailsSection(body, data);
             }
             
-            // === INFOGRAPHIC: Credentials Stats (if enabled) ===
-            if (_settings.ShowInfoGraphics)
+            // === INFOGRAPHIC: Third quote (if enabled) ===
+            if (_settings.ShowInfoGraphics && _settings.ShowQuotes && selectedQuotes.Count > 2)
             {
                 AddPageBreak(body);
-                AddInfoGraphicPage(body, "31%", "of all breaches over the past", "10 years involved stolen credentials", "Source: Verizon DBIR");
+                AddInfoGraphicPage(body, selectedQuotes[2].BigNumber, selectedQuotes[2].Line1, selectedQuotes[2].Line2, selectedQuotes[2].Source);
             }
             
             // === DOMAIN SECURITY ===
@@ -1260,6 +1262,39 @@ public class WordReportGenerator
         body.Append(new Paragraph(new Run(new Break() { Type = BreakValues.Page })));
     }
     
+    #endregion
+
+    #region Quote Helpers
+
+    /// <summary>
+    /// Selects <paramref name="count"/> quotes at random from the enabled quotes in settings.
+    /// Falls back to the built-in defaults if the settings pool is empty.
+    /// </summary>
+    private static List<ReportQuote> PickRandomQuotes(ReportSettings settings, int count)
+    {
+        var pool = settings.Quotes
+            .Where(q => q.Enabled &&
+                        !string.IsNullOrWhiteSpace(q.BigNumber) &&
+                        !string.IsNullOrWhiteSpace(q.Line1))
+            .ToList();
+
+        if (pool.Count == 0)
+            pool = ReportSettings.DefaultQuotes();
+
+        if (pool.Count <= count)
+            return pool;
+
+        // Fisher-Yates shuffle, take first <count>
+        var rng = new Random();
+        for (int i = pool.Count - 1; i > 0; i--)
+        {
+            int j = rng.Next(i + 1);
+            (pool[i], pool[j]) = (pool[j], pool[i]);
+        }
+
+        return pool.Take(count).ToList();
+    }
+
     #endregion
 
     #region Color Helpers

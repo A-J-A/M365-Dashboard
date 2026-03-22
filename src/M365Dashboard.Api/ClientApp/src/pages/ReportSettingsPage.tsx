@@ -9,8 +9,19 @@ import {
   ArrowSyncRegular,
   ColorRegular,
   DocumentRegular,
+  QuoteRegular,
+  AddRegular,
+  EditRegular,
 } from '@fluentui/react-icons';
 import { useAppContext } from '../contexts/AppContext';
+
+interface ReportQuote {
+  bigNumber: string;
+  line1: string;
+  line2: string;
+  source: string;
+  enabled: boolean;
+}
 
 interface ReportSettings {
   companyName: string;
@@ -20,12 +31,30 @@ interface ReportSettings {
   primaryColor: string;
   accentColor: string;
   showInfoGraphics: boolean;
+  showQuotes: boolean;
   footerText: string | null;
   updatedAt: string;
+  quotes: ReportQuote[];
 }
+
+const DEFAULT_QUOTES: ReportQuote[] = [
+  { bigNumber: '99%',  line1: 'of breaches could be mitigated',       line2: 'with strong passwords and MFA',              source: 'Source: Microsoft Security Report',        enabled: true },
+  { bigNumber: '84%',  line1: 'of businesses fell victim',             line2: 'to phishing attacks in 2024',                source: 'Source: Cyber Security Breaches Survey',   enabled: true },
+  { bigNumber: '31%',  line1: 'of all breaches over the past',         line2: '10 years involved stolen credentials',      source: 'Source: Verizon DBIR',                     enabled: true },
+  { bigNumber: '300%', line1: 'increase in reported cyber incidents',  line2: 'since the start of remote working',         source: 'Source: NCSC Annual Review',               enabled: true },
+  { bigNumber: '4.5M', line1: 'average cost of a data breach in 2023', line2: 'a record high for the 13th consecutive year', source: 'Source: IBM Cost of a Data Breach Report', enabled: true },
+  { bigNumber: '11s',  line1: 'a business falls victim to ransomware', line2: 'every 11 seconds globally',                 source: 'Source: Cybersecurity Ventures',           enabled: true },
+  { bigNumber: '74%',  line1: 'of all breaches include',               line2: 'a human element',                          source: 'Source: Verizon DBIR 2023',                enabled: true },
+  { bigNumber: '85%',  line1: 'of organisations have experienced',     line2: 'at least one cloud data breach',            source: 'Source: Thales Cloud Security Study',      enabled: true },
+  { bigNumber: '50%',  line1: 'of SMBs have suffered a cyberattack',  line2: 'and 60% close within 6 months',             source: 'Source: SCORE.org',                        enabled: true },
+  { bigNumber: '98%',  line1: 'of cyberattacks can be prevented',      line2: 'by implementing basic cyber hygiene',       source: 'Source: Microsoft Digital Defence Report', enabled: true },
+];
 
 const ReportSettingsPage: React.FC = () => {
   const { getAccessToken } = useAppContext();
+  const [editingQuoteIndex, setEditingQuoteIndex] = useState<number | null>(null);
+  const [editingQuote, setEditingQuote] = useState<ReportQuote | null>(null);
+
   const [settings, setSettings] = useState<ReportSettings>({
     companyName: 'M365 Dashboard',
     reportTitle: 'Microsoft 365 Security Assessment',
@@ -34,8 +63,10 @@ const ReportSettingsPage: React.FC = () => {
     primaryColor: '#0078d4',
     accentColor: '#e07c3a',
     showInfoGraphics: true,
+    showQuotes: true,
     footerText: null,
     updatedAt: new Date().toISOString(),
+    quotes: DEFAULT_QUOTES,
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -56,6 +87,10 @@ const ReportSettingsPage: React.FC = () => {
 
       if (response.ok) {
         const data = await response.json();
+        // Backfill quotes if not yet in DB (first load after upgrade)
+        if (!data.quotes || data.quotes.length === 0) {
+          data.quotes = DEFAULT_QUOTES;
+        }
         setSettings(data);
       }
     } catch (err) {
@@ -398,24 +433,187 @@ const ReportSettingsPage: React.FC = () => {
 
         {/* Options */}
         <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm p-6">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
-            Report Options
-          </h2>
-          
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={settings.showInfoGraphics}
-              onChange={(e) => setSettings(prev => ({ ...prev, showInfoGraphics: e.target.checked }))}
-              className="w-5 h-5 rounded border-slate-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500"
-            />
-            <div>
-              <span className="text-slate-900 dark:text-white font-medium">Include Infographic Pages</span>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                Show statistics and quotes between report sections (recommended for client-facing reports)
-              </p>
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Report Options</h2>
+          <div className="space-y-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" checked={settings.showInfoGraphics}
+                onChange={(e) => setSettings(prev => ({ ...prev, showInfoGraphics: e.target.checked }))}
+                className="w-5 h-5 rounded border-slate-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500" />
+              <div>
+                <span className="text-slate-900 dark:text-white font-medium">Include Infographic Pages</span>
+                <p className="text-sm text-slate-500 dark:text-slate-400">Show full-page statistic cards between report sections</p>
+              </div>
+            </label>
+            {settings.showInfoGraphics && (
+              <label className="flex items-center gap-3 cursor-pointer ml-8">
+                <input type="checkbox" checked={settings.showQuotes}
+                  onChange={(e) => setSettings(prev => ({ ...prev, showQuotes: e.target.checked }))}
+                  className="w-5 h-5 rounded border-slate-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500" />
+                <div>
+                  <span className="text-slate-900 dark:text-white font-medium">Include Quote Statistics</span>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">3 quotes are randomly selected from the pool below each time a report is generated</p>
+                </div>
+              </label>
+            )}
+          </div>
+        </div>
+
+        {/* Quotes Pool */}
+        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+              <QuoteRegular className="w-5 h-5" />
+              Quote Pool
+            </h2>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {settings.quotes.filter(q => q.enabled).length} enabled · 3 selected randomly per report
+              </span>
+              <button
+                onClick={() => { setEditingQuoteIndex(-1); setEditingQuote({ bigNumber: '', line1: '', line2: '', source: '', enabled: true }); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <AddRegular className="w-4 h-4" /> Add Quote
+              </button>
             </div>
-          </label>
+          </div>
+
+          <div className="space-y-2">
+            {settings.quotes.map((quote, idx) => (
+              <div key={idx} className={`border rounded-lg p-3 transition-colors ${
+                quote.enabled
+                  ? 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'
+                  : 'border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 opacity-60'
+              }`}>
+                {editingQuoteIndex === idx ? (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Big Number / Stat</label>
+                        <input type="text" value={editingQuote?.bigNumber ?? ''} placeholder="e.g. 99%"
+                          onChange={e => setEditingQuote(q => q ? { ...q, bigNumber: e.target.value } : q)}
+                          className="w-full mt-0.5 px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Source</label>
+                        <input type="text" value={editingQuote?.source ?? ''} placeholder="e.g. Source: Microsoft"
+                          onChange={e => setEditingQuote(q => q ? { ...q, source: e.target.value } : q)}
+                          className="w-full mt-0.5 px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Line 1</label>
+                      <input type="text" value={editingQuote?.line1 ?? ''} placeholder="e.g. of breaches could be mitigated"
+                        onChange={e => setEditingQuote(q => q ? { ...q, line1: e.target.value } : q)}
+                        className="w-full mt-0.5 px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Line 2</label>
+                      <input type="text" value={editingQuote?.line2 ?? ''} placeholder="e.g. with strong passwords and MFA"
+                        onChange={e => setEditingQuote(q => q ? { ...q, line2: e.target.value } : q)}
+                        className="w-full mt-0.5 px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <button onClick={() => {
+                        if (editingQuote) {
+                          const updated = [...settings.quotes];
+                          updated[idx] = editingQuote;
+                          setSettings(prev => ({ ...prev, quotes: updated }));
+                        }
+                        setEditingQuoteIndex(null); setEditingQuote(null);
+                      }} className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">Save</button>
+                      <button onClick={() => { setEditingQuoteIndex(null); setEditingQuote(null); }}
+                        className="px-3 py-1.5 text-sm bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded hover:bg-slate-200 dark:hover:bg-slate-600">Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-3">
+                    <input type="checkbox" checked={quote.enabled}
+                      onChange={e => {
+                        const updated = [...settings.quotes];
+                        updated[idx] = { ...updated[idx], enabled: e.target.checked };
+                        setSettings(prev => ({ ...prev, quotes: updated }));
+                      }}
+                      className="mt-1 w-4 h-4 rounded border-slate-300 text-blue-600 cursor-pointer" />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline gap-2 flex-wrap">
+                        <span className="text-base font-bold text-blue-600 dark:text-blue-400 font-mono">{quote.bigNumber}</span>
+                        <span className="text-sm text-slate-700 dark:text-slate-300">{quote.line1} {quote.line2}</span>
+                      </div>
+                      <p className="text-xs text-slate-400 dark:text-slate-500 italic mt-0.5">{quote.source}</p>
+                    </div>
+                    <div className="flex gap-1 flex-shrink-0">
+                      <button
+                        onClick={() => { setEditingQuoteIndex(idx); setEditingQuote({ ...quote }); }}
+                        className="p-1.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded transition-colors"
+                        title="Edit"
+                      >
+                        <EditRegular className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => {
+                          const updated = settings.quotes.filter((_, i) => i !== idx);
+                          setSettings(prev => ({ ...prev, quotes: updated }));
+                        }}
+                        className="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 rounded transition-colors"
+                        title="Delete"
+                      >
+                        <DeleteRegular className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {/* New quote inline form */}
+            {editingQuoteIndex === -1 && editingQuote && (
+              <div className="border-2 border-blue-300 dark:border-blue-700 border-dashed rounded-lg p-3 space-y-2">
+                <p className="text-sm font-medium text-blue-600 dark:text-blue-400">New Quote</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Big Number / Stat</label>
+                    <input type="text" value={editingQuote.bigNumber} placeholder="e.g. 99%"
+                      onChange={e => setEditingQuote(q => q ? { ...q, bigNumber: e.target.value } : q)}
+                      className="w-full mt-0.5 px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Source</label>
+                    <input type="text" value={editingQuote.source} placeholder="e.g. Source: Microsoft"
+                      onChange={e => setEditingQuote(q => q ? { ...q, source: e.target.value } : q)}
+                      className="w-full mt-0.5 px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Line 1</label>
+                  <input type="text" value={editingQuote.line1} placeholder="e.g. of breaches could be mitigated"
+                    onChange={e => setEditingQuote(q => q ? { ...q, line1: e.target.value } : q)}
+                    className="w-full mt-0.5 px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-600 dark:text-slate-400">Line 2</label>
+                  <input type="text" value={editingQuote.line2} placeholder="e.g. with strong passwords and MFA"
+                    onChange={e => setEditingQuote(q => q ? { ...q, line2: e.target.value } : q)}
+                    className="w-full mt-0.5 px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white" />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button onClick={() => {
+                    if (editingQuote && editingQuote.bigNumber && editingQuote.line1) {
+                      setSettings(prev => ({ ...prev, quotes: [...prev.quotes, { ...editingQuote, enabled: true }] }));
+                    }
+                    setEditingQuoteIndex(null); setEditingQuote(null);
+                  }} className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700">Add</button>
+                  <button onClick={() => { setEditingQuoteIndex(null); setEditingQuote(null); }}
+                    className="px-3 py-1.5 text-sm bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded hover:bg-slate-200 dark:hover:bg-slate-600">Cancel</button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-4 flex items-start gap-2 text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-700/50 rounded-lg px-3 py-2.5">
+            <QuoteRegular className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span>3 quotes are picked at random from the enabled pool each time a report is generated, so monthly reports won't always show the same statistics. Uncheck a quote to exclude it without deleting it.</span>
+          </div>
         </div>
 
         {/* Preview */}
