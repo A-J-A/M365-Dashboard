@@ -2183,38 +2183,26 @@ public class ExecutiveReportController : ControllerBase
                         !string.IsNullOrWhiteSpace(q.BigNumber) &&
                         !string.IsNullOrWhiteSpace(q.Line1))
             .ToList();
-
-        if (pool.Count == 0)
-            pool = ReportSettings.DefaultQuotes();
-
-        if (pool.Count <= count)
-            return pool;
-
+        if (pool.Count == 0) pool = ReportSettings.DefaultQuotes();
+        if (pool.Count <= count) return pool;
         var rng = new Random();
         for (int i = pool.Count - 1; i > 0; i--)
         {
             int j = rng.Next(i + 1);
             (pool[i], pool[j]) = (pool[j], pool[i]);
         }
-
         return pool.Take(count).ToList();
     }
 
-    private static string RenderHtmlInfoGraphic(ReportQuote q, string primaryColor, string accentColor) =>
-        $@"
-    <div class='infographic page-break'>
-        <div class='big-number'>{q.BigNumber}</div>
-        <div class='line1'>{q.Line1}</div>
-        <div class='line2'>{q.Line2}</div>
-        <div class='source'>{q.Source}</div>
-    </div>";
+    private static string RenderHtmlInfoGraphic(ReportQuote q) =>
+        $"<div class='infographic page-break'><div class='big-number'>{q.BigNumber}</div><div class='line1'>{q.Line1}</div><div class='line2'>{q.Line2}</div><div class='source'>{q.Source}</div></div>";
 
     private string GenerateHtmlReport(ExecutiveReportData data, ReportSettings settings)
     {
         var primaryColor = settings.PrimaryColor?.TrimStart('#') ?? "1E3A5F";
         var accentColor = settings.AccentColor?.TrimStart('#') ?? "E07C3A";
-        var showQuoteInfoGraphics = settings.ShowInfoGraphics && settings.ShowQuotes;
-        var selectedQuotes = showQuoteInfoGraphics ? PickRandomQuotesForHtml(settings, 3) : new List<ReportQuote>();
+        var showQuotes = settings.ShowInfoGraphics && settings.ShowQuotes;
+        var quotes = showQuotes ? PickRandomQuotesForHtml(settings, 3) : new List<ReportQuote>();
         
         return $@"
 <!DOCTYPE html>
@@ -2362,7 +2350,7 @@ public class ExecutiveReportController : ControllerBase
         <p class='intro'>The aim of this review is to provide a clear and actionable understanding of your current security posture within Microsoft 365, helping to mitigate potential risks, safeguard sensitive data, and ensure compliance with leading security benchmarks.</p>
     </div>
     
-    {(showQuoteInfoGraphics && selectedQuotes.Count > 0 ? RenderHtmlInfoGraphic(selectedQuotes[0], primaryColor, accentColor) : "")}
+    {(showQuotes && quotes.Count > 0 ? RenderHtmlInfoGraphic(quotes[0]) : "")}
     
     <!-- Security Metrics -->
     <div class='content page-break'>
@@ -2490,7 +2478,7 @@ public class ExecutiveReportController : ControllerBase
 
     </div>
     
-    {(showQuoteInfoGraphics && selectedQuotes.Count > 1 ? RenderHtmlInfoGraphic(selectedQuotes[1], primaryColor, accentColor) : "")}
+    {(showQuotes && quotes.Count > 1 ? RenderHtmlInfoGraphic(quotes[1]) : "")}
     
     <div class='content page-break'>
     {GenerateUserSignInTable(data.UserSignInDetails)}
@@ -2498,7 +2486,7 @@ public class ExecutiveReportController : ControllerBase
     {GenerateDeletedUsersTable(data.DeletedUsersInPeriod)}
     </div>
     
-    {(showQuoteInfoGraphics && selectedQuotes.Count > 2 ? RenderHtmlInfoGraphic(selectedQuotes[2], primaryColor, accentColor) : "")}
+    {(showQuotes && quotes.Count > 2 ? RenderHtmlInfoGraphic(quotes[2]) : "")}
     
     <div class='content page-break'>
     {GenerateDomainSecuritySection(data.DomainSecuritySummary, data.DomainSecurityResults)}
