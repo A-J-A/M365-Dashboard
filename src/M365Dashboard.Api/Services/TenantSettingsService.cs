@@ -134,9 +134,15 @@ public class TenantSettingsService : ITenantSettingsService
         if (setting == null)
             return new ReportSettings();
 
-        return JsonSerializer.Deserialize<ReportSettings>(setting.SettingValue,
+        var result = JsonSerializer.Deserialize<ReportSettings>(setting.SettingValue,
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
             ?? new ReportSettings();
+
+        // Backfill new fields that may be missing from older saved settings
+        if (result.Quotes == null || result.Quotes.Count == 0)
+            result.Quotes = ReportSettings.DefaultQuotes();
+
+        return result;
     }
 
     public async Task<ReportSettings> SaveReportSettingsAsync(string tenantId, ReportSettings settings)
