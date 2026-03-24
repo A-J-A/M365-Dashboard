@@ -27,6 +27,7 @@ public class ExecutiveReportController : ControllerBase
     private readonly IOsVersionService _osVersionService;
     private readonly PdfReportGenerator? _pdfReportGenerator;
     private readonly ITenantSettingsService _tenantSettingsService;
+    private readonly WordReportGenerator _wordReportGenerator;
 
     public ExecutiveReportController(
         IGraphService graphService, 
@@ -37,6 +38,7 @@ public class ExecutiveReportController : ControllerBase
         IWebHostEnvironment environment,
         IOsVersionService osVersionService,
         ITenantSettingsService tenantSettingsService,
+        WordReportGenerator wordReportGenerator,
         PdfReportGenerator? pdfReportGenerator = null)
     {
         _graphService = graphService;
@@ -47,6 +49,7 @@ public class ExecutiveReportController : ControllerBase
         _environment = environment;
         _osVersionService = osVersionService;
         _tenantSettingsService = tenantSettingsService;
+        _wordReportGenerator = wordReportGenerator;
         _pdfReportGenerator = pdfReportGenerator;
     }
 
@@ -432,8 +435,8 @@ public class ExecutiveReportController : ControllerBase
                 }
             }
             
-            // Fall back to Word document
-            var documentBytes = await GenerateWordDocument(reportData, reportSettings);
+            // Fall back to Word document (WordReportGenerator supports quotes/infographics)
+            var documentBytes = _wordReportGenerator.GenerateReport(reportData, reportSettings);
             var fileName = $"{reportSettings.CompanyName.Replace(" ", "_")}_M365_Report_{reportData.ReportMonth.Replace(" ", "_")}.docx";
             return File(documentBytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", fileName);
         }

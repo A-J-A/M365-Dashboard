@@ -117,6 +117,7 @@ builder.Services.AddScoped<ICisBenchmarkService, CisBenchmarkService>();
 builder.Services.AddScoped<ISecurityAssessmentService, SecurityAssessmentService>();
 builder.Services.AddScoped<IDefenderForOfficeService, DefenderForOfficeService>();
 builder.Services.AddSingleton<IOsVersionService, OsVersionService>();
+builder.Services.AddScoped<WordReportGenerator>();
 
 // Try to register PDF generator (only works on supported platforms: win-x64, linux-x64, linux-arm64, osx-x64, osx-arm64)
 try
