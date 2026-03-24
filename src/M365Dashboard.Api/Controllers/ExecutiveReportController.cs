@@ -1484,7 +1484,7 @@ public class ExecutiveReportController : ControllerBase
             if (data.DomainSecurityResults?.Any() == true)
             {
                 AddHeading(body, $"Domain Security Details ({data.DomainSecurityResults.Count} domains)", 2);
-                var domainTable = CreateTable(body, new[] { "Domain", "MX", "SPF", "DMARC", "DKIM", "MTA-STS", "Score", "Grade" });
+                var domainTable = CreateTable(body, new[] { "Domain", "MX", "SPF", "DMARC", "DKIM", "MTA-STS" });
                 foreach (var domain in data.DomainSecurityResults.OrderByDescending(d => d.SecurityScore))
                 {
                     AddTableRow(domainTable, new[] {
@@ -1493,9 +1493,7 @@ public class ExecutiveReportController : ControllerBase
                         domain.HasSpf ? (domain.SpfPolicy == "-all" ? "✓ Hard" : "~ Soft") : "✗",
                         domain.HasDmarc ? domain.DmarcPolicy ?? "-" : "✗",
                         domain.HasDkim ? "✓" : "✗",
-                        domain.HasMtaSts ? "✓" : "✗",
-                        $"{domain.SecurityScore}",
-                        domain.SecurityGrade
+                        domain.HasMtaSts ? "✓" : "✗"
                     });
                 }
                 
@@ -2622,7 +2620,7 @@ public class ExecutiveReportController : ControllerBase
             sb.AppendLine("<div class='section'>");
             sb.AppendLine($"<h2>Domain Security Details ({results.Count} domains)</h2>");
             sb.AppendLine("<table>");
-            sb.AppendLine("<tr><th>Domain</th><th>MX</th><th>SPF</th><th>DMARC</th><th>DKIM</th><th>MTA-STS</th><th>Score</th><th>Grade</th></tr>");
+            sb.AppendLine("<tr><th>Domain</th><th>MX</th><th>SPF</th><th>DMARC</th><th>DKIM</th><th>MTA-STS</th></tr>");
             
             foreach (var domain in results.OrderByDescending(d => d.SecurityScore))
             {
@@ -2634,8 +2632,6 @@ public class ExecutiveReportController : ControllerBase
                 sb.AppendLine($"<td>{(domain.HasDmarc ? domain.DmarcPolicy : "✗")}</td>");
                 sb.AppendLine($"<td>{(domain.HasDkim ? "✓" : "✗")}</td>");
                 sb.AppendLine($"<td>{(domain.HasMtaSts ? "✓" : "✗")}</td>");
-                sb.AppendLine($"<td>{domain.SecurityScore}</td>");
-                sb.AppendLine($"<td class='{gradeClass}'>{domain.SecurityGrade}</td>");
                 sb.AppendLine("</tr>");
             }
             

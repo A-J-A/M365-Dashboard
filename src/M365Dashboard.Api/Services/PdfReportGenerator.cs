@@ -355,10 +355,10 @@ public class PdfReportGenerator : IDocument
             {
                 t.ColumnsDefinition(c =>
                 {
-                    c.RelativeColumn(3); c.RelativeColumn(0.7f); c.RelativeColumn(0.7f);
-                    c.RelativeColumn(1); c.RelativeColumn(0.7f); c.RelativeColumn(0.7f); c.RelativeColumn(0.7f);
+                    c.RelativeColumn(3); c.RelativeColumn(1); c.RelativeColumn(1);
+                    c.RelativeColumn(1.5f); c.RelativeColumn(1);
                 });
-                foreach (var h in new[] { "Domain", "MX", "SPF", "DMARC", "DKIM", "Score", "Grade" })
+                foreach (var h in new[] { "Domain", "MX", "SPF", "DMARC", "DKIM" })
                     t.Cell().Background(LightGray).Border(1).BorderColor(BorderCol)
                         .Padding(5).Text(h).FontSize(8).Bold();
                 foreach (var d in _data.DomainSecurityResults.OrderByDescending(x => x.SecurityScore).Take(20))
@@ -370,10 +370,6 @@ public class PdfReportGenerator : IDocument
                         .Text(d.HasDmarc ? (d.DmarcPolicy ?? "✓") : "✗").FontSize(8)
                         .FontColor(d.HasDmarc ? Compliant : Crit);
                     Tick(t, d.HasDkim);
-                    t.Cell().Border(1).BorderColor(BorderCol).Padding(5).Text($"{d.SecurityScore}").FontSize(8);
-                    t.Cell().Border(1).BorderColor(BorderCol).Padding(5)
-                        .Text(d.SecurityGrade).FontSize(8).Bold()
-                        .FontColor(d.SecurityGrade is "A" or "B" ? Compliant : d.SecurityGrade == "C" ? Warn : Crit);
                 }
             });
         }

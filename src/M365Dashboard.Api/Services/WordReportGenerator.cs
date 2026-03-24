@@ -927,7 +927,7 @@ public class WordReportGenerator
             AddEmptyParagraph(body, 1);
             AddBodyText(body, "Domain Security Details:");
             
-            var detailHeaders = new[] { "Domain", "MX", "SPF", "DMARC", "DKIM", "Score", "Grade" };
+            var detailHeaders = new[] { "Domain", "MX", "SPF", "DMARC", "DKIM" };
             var detailRows = data.DomainSecurityResults
                 .OrderByDescending(d => d.SecurityScore)
                 .Select(d => new[]
@@ -936,12 +936,10 @@ public class WordReportGenerator
                     d.HasMx ? "✓" : "✗",
                     d.HasSpf ? "✓" : "✗",
                     d.HasDmarc ? d.DmarcPolicy ?? "✓" : "✗",
-                    d.HasDkim ? "✓" : "✗",
-                    $"{d.SecurityScore}",
-                    d.SecurityGrade
+                    d.HasDkim ? "✓" : "✗"
                 }).ToList();
             
-            AddDetailTable(body, detailHeaders, detailRows, gradeColumn: 6);
+            AddDetailTable(body, detailHeaders, detailRows);
         }
     }
     
