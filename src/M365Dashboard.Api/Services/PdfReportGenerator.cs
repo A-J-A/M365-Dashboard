@@ -7,7 +7,8 @@ using M365Dashboard.Api.Controllers;
 namespace M365Dashboard.Api.Services;
 
 /// <summary>
-/// Professional PDF report generator matching the Cloud1st PDF design
+/// PDF report generator.
+/// Each section is a separate container.Page() call to avoid QuestPDF conflicting size-constraint errors.
 /// </summary>
 public class PdfReportGenerator : IDocument
 {
@@ -15,862 +16,415 @@ public class PdfReportGenerator : IDocument
     private ReportSettings _settings = null!;
     private byte[]? _logoBytes;
     private List<ReportQuote> _selectedQuotes = new();
-    
-    // Branding colors (matching the PDF example)
-    private string _primaryColor = "#1E3A5F";  // Dark navy blue
-    private string _accentColor = "#E07C3A";   // Orange
-    private const string CompliantColor = "#107C6C";  // Teal
-    private const string NonCompliantColor = "#6B7280"; // Gray
-    private const string WarningColor = "#F59E0B";  // Amber
-    private const string CriticalColor = "#DC2626"; // Red
-    private const string TextColor = "#374151";
-    private const string LightGray = "#F9FAFB";
-    private const string BorderColor = "#E5E7EB";
+
+    private string _primary = "#1E3A5F";
+    private string _accent  = "#E07C3A";
+    private const string Compliant    = "#107C6C";
+    private const string NonCompliant = "#6B7280";
+    private const string Warn         = "#F59E0B";
+    private const string Crit         = "#DC2626";
+    private const string BodyText     = "#374151";
+    private const string LightGray    = "#F9FAFB";
+    private const string BorderCol    = "#E5E7EB";
+
+    // Fonts available on Debian ASP.NET 8 image
+    private static readonly string[] Fonts = { "Liberation Sans", "DejaVu Sans", "Arial" };
 
     public byte[] GenerateReport(ExecutiveReportData data, ReportSettings settings)
     {
-        // Configure QuestPDF license (Community license)
         QuestPDF.Settings.License = LicenseType.Community;
-        
-        _data = data;
+        _data     = data;
         _settings = settings;
-        
-        // Apply custom colors from settings
+
         if (!string.IsNullOrEmpty(settings.PrimaryColor))
-            _primaryColor = settings.PrimaryColor.StartsWith("#") ? settings.PrimaryColor : $"#{settings.PrimaryColor}";
+            _primary = settings.PrimaryColor.StartsWith("#") ? settings.PrimaryColor : $"#{settings.PrimaryColor}";
         if (!string.IsNullOrEmpty(settings.AccentColor))
-            _accentColor = settings.AccentColor.StartsWith("#") ? settings.AccentColor : $"#{settings.AccentColor}";
-        
-        // Load logo if available
+            _accent = settings.AccentColor.StartsWith("#") ? settings.AccentColor : $"#{settings.AccentColor}";
+
         if (!string.IsNullOrEmpty(settings.LogoBase64))
         {
             try { _logoBytes = Convert.FromBase64String(settings.LogoBase64); }
             catch { _logoBytes = null; }
         }
 
-        // Pick 3 random quotes from the settings pool
         _selectedQuotes = PickRandomQuotes(settings, 3);
-
-        // Use system fonts (works on Linux containers without Segoe UI)
-        QuestPDF.Settings.EnableCaching = true;
-        
         return Document.Create(Compose).GeneratePdf();
     }
 
-    // QuestPDF font helper - falls back gracefully if Segoe UI isn't installed
-    private static TextStyle SafeFont(string preferred = "Segoe UI") =>
-        TextStyle.Default.FontFamily(preferred, "DejaVu Sans", "Arial", "Liberation Sans");
-
-    public void Compose(IDocumentContainer container)
+    public void Compose(IDocumentContainer c)
     {
-        container.Page(page =>
-        {
-            page.Size(PageSizes.A4);
-            page.Margin(0);
-            page.DefaultTextStyle(x => x.FontFamily("Segoe UI", "DejaVu Sans", "Liberation Sans", "Arial").FontColor(TextColor));
-            
-            page.Content().Column(column =>
+        void ContentPage(IDocumentContainer container, Action<ColumnDescriptor> body) =>
+            container.Page(p =>
             {
-                // === COVER PAGE ===
-                ComposeCoverPage(column);
-                
-                // === EXECUTIVE SUMMARY ===
-                column.Item().PageBreak();
-                ComposeExecutiveSummaryPage(column);
-                
-                // === INFOGRAPHIC 1 (if enabled) ===
-                if (_settings.ShowInfoGraphics && _settings.ShowQuotes && _selectedQuotes.Count > 0)
-                {
-                    column.Item().PageBreak();
-                    ComposeInfoGraphicPage(column,
-                        _selectedQuotes[0].BigNumber,
-                        _selectedQuotes[0].Line1,
-                        _selectedQuotes[0].Line2,
-                        _selectedQuotes[0].Source);
-                }
-                
-                // === SECURITY METRICS ===
-                column.Item().PageBreak();
-                ComposeSecurityMetricsPage(column);
-                
-                // === INFOGRAPHIC 2 (if enabled) ===
-                if (_settings.ShowInfoGraphics && _settings.ShowQuotes && _selectedQuotes.Count > 1)
-                {
-                    column.Item().PageBreak();
-                    ComposeInfoGraphicPage(column,
-                        _selectedQuotes[1].BigNumber,
-                        _selectedQuotes[1].Line1,
-                        _selectedQuotes[1].Line2,
-                        _selectedQuotes[1].Source);
-                }
-                
-                // === DEVICE DETAILS ===
-                if (_data.DeviceDetails != null && HasDevices())
-                {
-                    column.Item().PageBreak();
-                    ComposeDeviceDetailsPage(column);
-                }
-                
-                // === INFOGRAPHIC 3 (if enabled) ===
-                if (_settings.ShowInfoGraphics && _settings.ShowQuotes && _selectedQuotes.Count > 2)
-                {
-                    column.Item().PageBreak();
-                    ComposeInfoGraphicPage(column,
-                        _selectedQuotes[2].BigNumber,
-                        _selectedQuotes[2].Line1,
-                        _selectedQuotes[2].Line2,
-                        _selectedQuotes[2].Source);
-                }
-                
-                // === USER DETAILS ===
-                if (_data.UserSignInDetails?.Any() == true)
-                {
-                    column.Item().PageBreak();
-                    ComposeUserDetailsPage(column);
-                }
-                
-                // === DOMAIN SECURITY ===
-                if (_data.DomainSecuritySummary != null)
-                {
-                    column.Item().PageBreak();
-                    ComposeDomainSecurityPage(column);
-                }
+                p.Size(PageSizes.A4);
+                p.MarginHorizontal(40);
+                p.MarginTop(30);
+                p.MarginBottom(20);
+                p.DefaultTextStyle(s => s.FontFamily(Fonts).FontColor(BodyText));
+                p.Content().Column(body);
             });
+
+        void InfoPage(IDocumentContainer container, ReportQuote q) =>
+            container.Page(p =>
+            {
+                p.Size(PageSizes.A4);
+                p.Margin(0);
+                p.DefaultTextStyle(s => s.FontFamily(Fonts));
+                p.Content().Background(_primary).Padding(60).Column(col =>
+                {
+                    col.Item().Height(80);
+                    col.Item().AlignCenter().Text(q.BigNumber).FontSize(110).FontColor(Colors.White);
+                    col.Item().Height(20);
+                    col.Item().AlignCenter().Text(q.Line1).FontSize(22).FontColor(Colors.White);
+                    col.Item().Height(6);
+                    col.Item().AlignCenter().Text(q.Line2).FontSize(22).Bold().FontColor(_accent);
+                    col.Item().Height(60);
+                    col.Item().AlignCenter().Text(q.Source).FontSize(9).Italic().FontColor(Colors.Grey.Lighten2);
+                });
+            });
+
+        // 1. Cover
+        c.Page(p =>
+        {
+            p.Size(PageSizes.A4);
+            p.Margin(0);
+            p.DefaultTextStyle(s => s.FontFamily(Fonts));
+            p.Content().Column(CoverPage);
         });
+
+        // 2. Executive Summary
+        ContentPage(c, ExecutiveSummaryPage);
+
+        // 3. Infographic 1
+        if (_settings.ShowInfoGraphics && _settings.ShowQuotes && _selectedQuotes.Count > 0)
+            InfoPage(c, _selectedQuotes[0]);
+
+        // 4. Security Metrics
+        ContentPage(c, SecurityMetricsPage);
+
+        // 5. Infographic 2
+        if (_settings.ShowInfoGraphics && _settings.ShowQuotes && _selectedQuotes.Count > 1)
+            InfoPage(c, _selectedQuotes[1]);
+
+        // 6. Device Details
+        if (HasDevices())
+            ContentPage(c, DeviceDetailsPage);
+
+        // 7. Infographic 3
+        if (_settings.ShowInfoGraphics && _settings.ShowQuotes && _selectedQuotes.Count > 2)
+            InfoPage(c, _selectedQuotes[2]);
+
+        // 8. User Details
+        if (_data.UserSignInDetails?.Any() == true)
+            ContentPage(c, UserDetailsPage);
+
+        // 9. Domain Security
+        if (_data.DomainSecuritySummary != null)
+            ContentPage(c, DomainSecurityPage);
     }
 
-    #region Cover Page
-    
-    private void ComposeCoverPage(ColumnDescriptor column)
+    private void CoverPage(ColumnDescriptor col)
     {
-        // Full-page dark blue background with title
-        column.Item().Height(600).Background(_primaryColor).Padding(50).Column(coverCol =>
+        var (line1, line2) = ParseTitle(_settings.ReportTitle);
+
+        col.Item().Height(400).Background(_primary).Padding(50).Column(h =>
         {
-            coverCol.Item().Height(120); // Top spacing
-            
-            // Parse title
-            var titleParts = ParseReportTitle(_settings.ReportTitle);
-            
-            // "MICROSOFT 365" in orange
-            coverCol.Item().Text(titleParts.line1)
-                .FontSize(28)
-                .FontColor(_accentColor)
-                .LetterSpacing(0.15f)
-                .FontFamily("Segoe UI");
-            
-            coverCol.Item().Height(5);
-            
-            // Main title in white
-            coverCol.Item().Text(titleParts.line2)
-                .FontSize(48)
-                .FontColor(Colors.White)
-                .FontFamily("Segoe UI Light")
-                .LetterSpacing(0.05f);
+            h.Item().Height(70);
+            h.Item().Text(line1).FontSize(20).FontColor(_accent).Bold();
+            h.Item().Height(12);
+            h.Item().Text(line2).FontSize(38).FontColor(Colors.White);
         });
-        
-        // White section with company info
-        column.Item().Background(Colors.White).Padding(50).AlignCenter().Column(infoCol =>
+
+        col.Item().Background(Colors.White).Padding(50).Column(info =>
         {
-            infoCol.Item().Height(40);
-            
-            // Company name
-            infoCol.Item().AlignCenter().Text(_settings.CompanyName)
-                .FontSize(24)
-                .Bold()
-                .FontColor(_primaryColor);
-            
-            infoCol.Item().Height(15);
-            
-            // Date
-            infoCol.Item().AlignCenter().Text($"Generated on {_data.GeneratedAt:d MMMM yyyy}")
-                .FontSize(12)
-                .FontColor(Colors.Grey.Medium);
-            
-            infoCol.Item().Height(40);
-            
-            // Logo
+            info.Item().Height(15);
+            info.Item().AlignCenter().Text(_settings.CompanyName).FontSize(20).Bold().FontColor(_primary);
+            info.Item().Height(8);
+            info.Item().AlignCenter().Text($"Generated {_data.GeneratedAt:d MMMM yyyy}")
+                .FontSize(11).FontColor(Colors.Grey.Medium);
             if (_logoBytes != null)
             {
-                infoCol.Item().AlignCenter().Height(60).Image(_logoBytes).FitHeight();
+                info.Item().Height(15);
+                info.Item().AlignCenter().MaxHeight(55).Image(_logoBytes).FitHeight();
             }
         });
     }
-    
-    #endregion
 
-    #region Executive Summary Page
-    
-    private void ComposeExecutiveSummaryPage(ColumnDescriptor column)
+    private void ExecutiveSummaryPage(ColumnDescriptor col)
     {
-        column.Item().Padding(40).Column(content =>
+        col.Item().Text("Executive Summary").FontSize(28).FontColor(_primary);
+        col.Item().Height(18);
+
+        col.Item().Row(row =>
         {
-            // Page title
-            content.Item().Text("Executive Summary")
-                .FontSize(36)
-                .FontColor(_primaryColor)
-                .FontFamily("Segoe UI Light");
-            
-            content.Item().Height(25);
-            
-            // KPI Cards Row
-            content.Item().Row(row =>
+            KpiCard(row.RelativeItem(), "Total Users",
+                $"{_data.UserStats?.TotalUsers ?? 0}",
+                $"inc. {_data.UserStats?.GuestUsers ?? 0} guests");
+            row.ConstantItem(10);
+            KpiCard(row.RelativeItem(), "MFA Registered",
+                $"{_data.UserStats?.MfaRegistered ?? 0}",
+                $"{_data.UserStats?.MfaNotRegistered ?? 0} not registered");
+            row.ConstantItem(10);
+            KpiCard(row.RelativeItem(), "Secure Score",
+                _data.SecureScore != null ? $"{_data.SecureScore.PercentageScore:F0}%" : "N/A",
+                _data.SecureScore != null ? $"{_data.SecureScore.CurrentScore:N0}/{_data.SecureScore.MaxScore:N0}" : "");
+        });
+
+        col.Item().Height(18);
+        col.Item().Text(
+            $"This report covers the key security metrics for {_settings.CompanyName} " +
+            $"({_data.GeneratedAt:MMMM yyyy}), spanning Entra ID, Exchange Online, Intune, SharePoint, and Teams.")
+            .FontSize(10);
+
+        col.Item().Height(22);
+        col.Item().Text("User Summary").FontSize(16).FontColor(_primary).Bold();
+        col.Item().Height(8);
+        col.Item().Table(t =>
+        {
+            TwoCols(t);
+            TH(t, "Metric", "Count");
+            TR(t, "Total Users",        $"{_data.UserStats?.TotalUsers ?? 0}");
+            TR(t, "Guest Users",        $"{_data.UserStats?.GuestUsers ?? 0}");
+            TR(t, "MFA Registered",     $"{_data.UserStats?.MfaRegistered ?? 0}", Compliant);
+            TR(t, "MFA Not Registered", $"{_data.UserStats?.MfaNotRegistered ?? 0}",
+                (_data.UserStats?.MfaNotRegistered ?? 0) > 0 ? Warn : null);
+            TR(t, "Risky Users", $"{_data.RiskyUsersCount}",
+                _data.RiskyUsersCount > 0 ? Crit : null);
+        });
+    }
+
+    private void SecurityMetricsPage(ColumnDescriptor col)
+    {
+        if (_data.SecureScore != null)
+        {
+            col.Item().Text("Microsoft Secure Score").FontSize(16).FontColor(_primary).Bold();
+            col.Item().Height(10);
+            col.Item().Table(t =>
             {
-                // Total Users
-                row.RelativeItem().Border(1).BorderColor(BorderColor).Padding(20).Column(kpi =>
-                {
-                    kpi.Item().Row(r =>
-                    {
-                        r.AutoItem().Text("👤").FontSize(24);
-                        r.RelativeItem().AlignRight().Text($"{_data.UserStats?.TotalUsers ?? 0}")
-                            .FontSize(32)
-                            .FontColor(_primaryColor)
-                            .FontFamily("Segoe UI Light");
-                    });
-                    kpi.Item().Height(5);
-                    kpi.Item().Text("Total Users").FontSize(12).Bold();
-                    kpi.Item().Text($"Including {_data.UserStats?.GuestUsers ?? 0} guest users")
-                        .FontSize(10).FontColor(Colors.Grey.Medium);
-                });
-                
-                row.ConstantItem(15);
-                
-                // Licensed Users
-                row.RelativeItem().Border(1).BorderColor(BorderColor).Padding(20).Column(kpi =>
-                {
-                    kpi.Item().Row(r =>
-                    {
-                        r.AutoItem().Text("📋").FontSize(24);
-                        r.RelativeItem().AlignRight().Text($"{(_data.UserStats?.TotalUsers ?? 0) - (_data.UserStats?.GuestUsers ?? 0)}")
-                            .FontSize(32)
-                            .FontColor(_primaryColor)
-                            .FontFamily("Segoe UI Light");
-                    });
-                    kpi.Item().Height(5);
-                    kpi.Item().Text("Licensed Users").FontSize(12).Bold();
-                    kpi.Item().Text($"{_data.UserStats?.GuestUsers ?? 0} unlicensed users")
-                        .FontSize(10).FontColor(Colors.Grey.Medium);
-                });
-                
-                row.ConstantItem(15);
-                
-                // MFA Registered
-                row.RelativeItem().Border(1).BorderColor(BorderColor).Padding(20).Column(kpi =>
-                {
-                    kpi.Item().Row(r =>
-                    {
-                        r.AutoItem().Text("🔐").FontSize(24);
-                        r.RelativeItem().AlignRight().Text($"{_data.UserStats?.MfaRegistered ?? 0}")
-                            .FontSize(32)
-                            .FontColor(_primaryColor)
-                            .FontFamily("Segoe UI Light");
-                    });
-                    kpi.Item().Height(5);
-                    kpi.Item().Text("MFA Registered").FontSize(12).Bold();
-                    kpi.Item().Text($"{_data.UserStats?.MfaNotRegistered ?? 0} not registered")
-                        .FontSize(10).FontColor(Colors.Grey.Medium);
-                });
+                TwoCols(t);
+                TH(t, "Metric", "Value");
+                TR(t, "Current Score", $"{_data.SecureScore.CurrentScore:N0}");
+                TR(t, "Max Score",     $"{_data.SecureScore.MaxScore:N0}");
+                TR(t, "Percentage",    $"{_data.SecureScore.PercentageScore:F1}%",
+                    _data.SecureScore.PercentageScore >= 70 ? Compliant :
+                    _data.SecureScore.PercentageScore >= 50 ? Warn : Crit);
             });
-            
-            content.Item().Height(25);
-            
-            // Introduction paragraphs
-            content.Item().Text(text =>
+            col.Item().Height(18);
+        }
+
+        if (_data.DeviceStats != null)
+        {
+            col.Item().Text("Intune Managed Devices").FontSize(16).FontColor(_primary).Bold();
+            col.Item().Height(10);
+            col.Item().Table(t =>
             {
-                text.Span($"This report was prepared for {_settings.CompanyName} in {_data.GeneratedAt:MMMM yyyy}. ")
-                    .FontSize(11);
-                text.Span($"This {_settings.ReportTitle} provides a comprehensive analysis of your organization's security configuration across key Microsoft 365 services, including Entra ID (Azure AD), Exchange Online, Intune, SharePoint, and Teams.")
-                    .FontSize(11);
+                TwoCols(t);
+                TH(t, "Platform", "Count");
+                TR(t, "Total",         $"{_data.DeviceStats.TotalDevices}");
+                TR(t, "Windows",       $"{_data.DeviceStats.WindowsDevices}");
+                TR(t, "macOS",         $"{_data.DeviceStats.MacOsDevices}");
+                TR(t, "iOS/iPadOS",    $"{_data.DeviceStats.IosDevices}");
+                TR(t, "Android",       $"{_data.DeviceStats.AndroidDevices}");
+                TR(t, "Compliant",     $"{_data.DeviceStats.CompliantDevices}", Compliant);
+                TR(t, "Non-Compliant", $"{_data.DeviceStats.NonCompliantDevices}",
+                    _data.DeviceStats.NonCompliantDevices > 0 ? Crit : null);
+                TR(t, "Compliance %",  $"{_data.DeviceStats.ComplianceRate:F1}%",
+                    _data.DeviceStats.ComplianceRate >= 90 ? Compliant : Warn);
             });
-            
-            content.Item().Height(15);
-            
-            content.Item().Text("The aim of this review is to provide a clear and actionable understanding of your current security posture within Microsoft 365, helping to mitigate potential risks, safeguard sensitive data, and ensure compliance with leading security benchmarks.")
-                .FontSize(11);
-            
-            content.Item().Height(30);
-            
-            // User and Role Distribution Table
-            content.Item().Text("User and Role Distribution")
-                .FontSize(20)
-                .FontColor(_primaryColor)
-                .FontFamily("Segoe UI Light");
-            
-            content.Item().Height(15);
-            
-            content.Item().Row(row =>
+            col.Item().Height(18);
+        }
+
+        if (_data.DefenderStats != null)
+        {
+            col.Item().Text("Microsoft Defender for Endpoint").FontSize(16).FontColor(_primary).Bold();
+            col.Item().Height(10);
+            col.Item().Table(t =>
             {
-                // Left table - User counts
-                row.RelativeItem().Table(table =>
-                {
-                    table.ColumnsDefinition(cols =>
-                    {
-                        cols.RelativeColumn(3);
-                        cols.RelativeColumn(1);
-                    });
-                    
-                    // Header
-                    table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(8)
-                        .Text("Description").FontSize(10).Bold();
-                    table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(8)
-                        .AlignRight().Text("Count").FontSize(10).Bold();
-                    
-                    // Data rows
-                    AddTableRow(table, "Member Users", $"{(_data.UserStats?.TotalUsers ?? 0) - (_data.UserStats?.GuestUsers ?? 0)}");
-                    AddTableRow(table, "Guest Users", $"{_data.UserStats?.GuestUsers ?? 0}");
-                    AddTableRow(table, "Total of All Users", $"{_data.UserStats?.TotalUsers ?? 0}");
-                    AddTableRow(table, "Licensed Users", $"{(_data.UserStats?.TotalUsers ?? 0) - (_data.UserStats?.GuestUsers ?? 0)}");
-                    AddTableRow(table, "MFA Registered", $"{_data.UserStats?.MfaRegistered ?? 0}");
-                    AddTableRow(table, "MFA Not Registered", $"{_data.UserStats?.MfaNotRegistered ?? 0}");
-                });
-                
-                row.ConstantItem(20);
-                
-                // Right table - Role counts (placeholder)
-                row.RelativeItem().Table(table =>
-                {
-                    table.ColumnsDefinition(cols =>
-                    {
-                        cols.RelativeColumn(3);
-                        cols.RelativeColumn(1);
-                    });
-                    
-                    // Header
-                    table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(8)
-                        .Text("Risky Users").FontSize(10).Bold();
-                    table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(8)
-                        .AlignRight().Text("Count").FontSize(10).Bold();
-                    
-                    // Data rows
-                    AddTableRow(table, "Total Risky Users", $"{_data.RiskyUsersCount}");
-                    if (_data.HighRiskUsers?.Any() == true)
-                    {
-                        foreach (var user in _data.HighRiskUsers.Take(5))
-                        {
-                            AddTableRow(table, user, "High", CriticalColor);
-                        }
-                    }
-                });
+                TwoCols(t);
+                TH(t, "Metric", "Value");
+                TR(t, "Exposure Score",     _data.DefenderStats.ExposureScore ?? "N/A");
+                TR(t, "Onboarded Machines", $"{_data.DefenderStats.OnboardedMachines ?? 0}");
+                TR(t, "Vulnerabilities",    $"{_data.DefenderStats.VulnerabilitiesDetected}");
+                TR(t, "Critical",           $"{_data.DefenderStats.CriticalVulnerabilities}",
+                    _data.DefenderStats.CriticalVulnerabilities > 0 ? Crit : null);
+                TR(t, "High",               $"{_data.DefenderStats.HighVulnerabilities}",
+                    _data.DefenderStats.HighVulnerabilities > 0 ? Crit : null);
+                TR(t, "Medium",             $"{_data.DefenderStats.MediumVulnerabilities}",
+                    _data.DefenderStats.MediumVulnerabilities > 0 ? Warn : null);
+                TR(t, "Low",                $"{_data.DefenderStats.LowVulnerabilities}");
             });
-        });
-        
-        // Footer
-        ComposePageFooter(column);
+        }
     }
-    
-    #endregion
 
-    #region Infographic Page
-    
-    private void ComposeInfoGraphicPage(ColumnDescriptor column, string bigNumber, string line1, string line2, string source)
+    private void DeviceDetailsPage(ColumnDescriptor col)
     {
-        column.Item().MinHeight(600).Background(_primaryColor).AlignCenter().AlignMiddle().Column(content =>
+        void DevSection(string title, IEnumerable<string[]> rows)
         {
-            // Big statistic number
-            content.Item().AlignCenter().Text(bigNumber)
-                .FontSize(140)
-                .FontColor(Colors.White)
-                .FontFamily("Segoe UI Light");
-            
-            content.Item().Height(20);
-            
-            // First line
-            content.Item().AlignCenter().Text(line1)
-                .FontSize(28)
-                .FontColor(Colors.White);
-            
-            content.Item().Height(8);
-            
-            // Second line (bold, accent color)
-            content.Item().AlignCenter().Text(line2)
-                .FontSize(28)
-                .FontColor(_accentColor)
-                .Bold();
-            
-            content.Item().Height(100);
-            
-            // Source
-            content.Item().AlignCenter().Text(source)
-                .FontSize(10)
-                .FontColor(Colors.Grey.Lighten2)
-                .Italic();
-        });
-    }
-    
-    #endregion
-
-    #region Security Metrics Page
-    
-    private void ComposeSecurityMetricsPage(ColumnDescriptor column)
-    {
-        column.Item().Padding(40).Column(content =>
-        {
-            // Microsoft Secure Score
-            if (_data.SecureScore != null)
+            col.Item().Text(title).FontSize(16).FontColor(_primary).Bold();
+            col.Item().Height(8);
+            col.Item().Table(t =>
             {
-                content.Item().Text("Microsoft Secure Score")
-                    .FontSize(20).FontColor(_primaryColor).FontFamily("Segoe UI Light");
-                
-                content.Item().Height(8);
-                content.Item().Text("Microsoft Secure Score is a measurement of an organization's security posture, with a higher number indicating more improvement actions taken.")
-                    .FontSize(10).FontColor(Colors.Grey.Darken1);
-                
-                content.Item().Height(15);
-                
-                content.Item().Table(table =>
+                t.ColumnsDefinition(c =>
                 {
-                    table.ColumnsDefinition(cols =>
-                    {
-                        cols.RelativeColumn(3);
-                        cols.RelativeColumn(1);
-                    });
-                    
-                    AddTableRow(table, "Current Score", $"{_data.SecureScore.CurrentScore:N0}");
-                    AddTableRow(table, "Maximum Score", $"{_data.SecureScore.MaxScore:N0}");
-                    AddTableRow(table, "Percentage", $"{_data.SecureScore.PercentageScore:F1}%", 
-                        _data.SecureScore.PercentageScore >= 70 ? CompliantColor : 
-                        _data.SecureScore.PercentageScore >= 50 ? WarningColor : CriticalColor);
+                    c.RelativeColumn(2.5f); c.RelativeColumn(2);
+                    c.RelativeColumn(2);   c.RelativeColumn(1.5f); c.RelativeColumn(1.5f);
                 });
-                
-                content.Item().Height(25);
-            }
-            
-            // Intune Managed Devices
-            if (_data.DeviceStats != null)
-            {
-                content.Item().Text("Intune Managed Devices")
-                    .FontSize(20).FontColor(_primaryColor).FontFamily("Segoe UI Light");
-                
-                content.Item().Height(8);
-                content.Item().Text("Overview of all devices managed through Microsoft Intune, including compliance status across different platforms.")
-                    .FontSize(10).FontColor(Colors.Grey.Darken1);
-                
-                content.Item().Height(15);
-                
-                content.Item().Table(table =>
-                {
-                    table.ColumnsDefinition(cols =>
-                    {
-                        cols.RelativeColumn(3);
-                        cols.RelativeColumn(1);
-                    });
-                    
-                    AddTableRow(table, "Total Devices", $"{_data.DeviceStats.TotalDevices}");
-                    AddTableRow(table, "Windows", $"{_data.DeviceStats.WindowsDevices}");
-                    AddTableRow(table, "macOS", $"{_data.DeviceStats.MacOsDevices}");
-                    AddTableRow(table, "iOS/iPadOS", $"{_data.DeviceStats.IosDevices}");
-                    AddTableRow(table, "Android", $"{_data.DeviceStats.AndroidDevices}");
-                    AddTableRow(table, "Compliant", $"{_data.DeviceStats.CompliantDevices}", CompliantColor);
-                    AddTableRow(table, "Non-Compliant", $"{_data.DeviceStats.NonCompliantDevices}", 
-                        _data.DeviceStats.NonCompliantDevices > 0 ? CriticalColor : null);
-                    AddTableRow(table, "Compliance Rate", $"{_data.DeviceStats.ComplianceRate}%",
-                        _data.DeviceStats.ComplianceRate >= 90 ? CompliantColor : WarningColor);
-                });
-                
-                content.Item().Height(25);
-            }
-            
-            // Defender Stats
-            if (_data.DefenderStats != null)
-            {
-                content.Item().Text("Microsoft Defender for Endpoint")
-                    .FontSize(20).FontColor(_primaryColor).FontFamily("Segoe UI Light");
-                
-                content.Item().Height(15);
-                
-                content.Item().Table(table =>
-                {
-                    table.ColumnsDefinition(cols =>
-                    {
-                        cols.RelativeColumn(3);
-                        cols.RelativeColumn(1);
-                    });
-                    
-                    AddTableRow(table, "Exposure Score", _data.DefenderStats.ExposureScore ?? "N/A");
-                    AddTableRow(table, "Onboarded Machines", $"{_data.DefenderStats.OnboardedMachines ?? 0}");
-                    AddTableRow(table, "Total Vulnerabilities", $"{_data.DefenderStats.VulnerabilitiesDetected}");
-                    AddTableRow(table, "Critical", $"{_data.DefenderStats.CriticalVulnerabilities}",
-                        _data.DefenderStats.CriticalVulnerabilities > 0 ? CriticalColor : null);
-                    AddTableRow(table, "High", $"{_data.DefenderStats.HighVulnerabilities}",
-                        _data.DefenderStats.HighVulnerabilities > 0 ? CriticalColor : null);
-                    AddTableRow(table, "Medium", $"{_data.DefenderStats.MediumVulnerabilities}",
-                        _data.DefenderStats.MediumVulnerabilities > 0 ? WarningColor : null);
-                    AddTableRow(table, "Low", $"{_data.DefenderStats.LowVulnerabilities}");
-                });
-            }
-        });
-        
-        ComposePageFooter(column);
-    }
-    
-    #endregion
-
-    #region Device Details Page
-    
-    private void ComposeDeviceDetailsPage(ColumnDescriptor column)
-    {
-        column.Item().Padding(40).Column(content =>
-        {
-            // Windows Devices
-            if (_data.DeviceDetails?.WindowsDevices?.Any() == true)
-            {
-                content.Item().Text($"Windows Devices ({_data.DeviceDetails.WindowsDevices.Count})")
-                    .FontSize(20).FontColor(_primaryColor).FontFamily("Segoe UI Light");
-                
-                content.Item().Height(10);
-                
-                ComposeDeviceTable(content, _data.DeviceDetails.WindowsDevices.Take(15).Select(d => new DeviceRow
-                {
-                    Name = d.DeviceName ?? "-",
-                    OsVersion = d.OsVersion ?? "-",
-                    UpdateStatus = d.OsVersionStatusMessage ?? d.OsVersionStatus.ToString(),
-                    UpdateStatusColor = GetStatusColor(d.OsVersionStatus.ToString()),
-                    Compliance = d.ComplianceState ?? "-",
-                    LastCheckIn = d.LastCheckIn?.ToString("dd MMM yyyy") ?? "Never"
-                }).ToList());
-                
-                content.Item().Height(20);
-            }
-            
-            // macOS Devices
-            if (_data.DeviceDetails?.MacDevices?.Any() == true)
-            {
-                content.Item().Text($"macOS Devices ({_data.DeviceDetails.MacDevices.Count})")
-                    .FontSize(20).FontColor(_primaryColor).FontFamily("Segoe UI Light");
-                
-                content.Item().Height(10);
-                
-                ComposeDeviceTable(content, _data.DeviceDetails.MacDevices.Take(10).Select(d => new DeviceRow
-                {
-                    Name = d.DeviceName ?? "-",
-                    OsVersion = d.OsVersion ?? "-",
-                    UpdateStatus = d.OsVersionStatusMessage ?? d.OsVersionStatus.ToString(),
-                    UpdateStatusColor = GetStatusColor(d.OsVersionStatus.ToString()),
-                    Compliance = d.ComplianceState ?? "-",
-                    LastCheckIn = d.LastCheckIn?.ToString("dd MMM yyyy") ?? "Never"
-                }).ToList());
-                
-                content.Item().Height(20);
-            }
-            
-            // iOS Devices
-            if (_data.DeviceDetails?.IosDevices?.Any() == true)
-            {
-                content.Item().Text($"iOS/iPadOS Devices ({_data.DeviceDetails.IosDevices.Count})")
-                    .FontSize(20).FontColor(_primaryColor).FontFamily("Segoe UI Light");
-                
-                content.Item().Height(10);
-                
-                ComposeDeviceTable(content, _data.DeviceDetails.IosDevices.Take(10).Select(d => new DeviceRow
-                {
-                    Name = d.DeviceName ?? "-",
-                    OsVersion = d.OsVersion ?? "-",
-                    UpdateStatus = d.OsVersionStatusMessage ?? d.OsVersionStatus.ToString(),
-                    UpdateStatusColor = GetStatusColor(d.OsVersionStatus.ToString()),
-                    Compliance = d.ComplianceState ?? "-",
-                    LastCheckIn = d.LastCheckIn?.ToString("dd MMM yyyy") ?? "Never"
-                }).ToList());
-            }
-        });
-        
-        ComposePageFooter(column);
-    }
-    
-    private void ComposeDeviceTable(ColumnDescriptor content, List<DeviceRow> devices)
-    {
-        content.Item().Table(table =>
-        {
-            table.ColumnsDefinition(cols =>
-            {
-                cols.RelativeColumn(2.5f);  // Device Name
-                cols.RelativeColumn(2);     // OS Version
-                cols.RelativeColumn(2);     // Update Status
-                cols.RelativeColumn(1.5f);  // Compliance
-                cols.RelativeColumn(1.5f);  // Last Check-in
+                foreach (var h in new[] { "Device", "OS", "Update Status", "Compliance", "Last Check-in" })
+                    t.Cell().Background(LightGray).Border(1).BorderColor(BorderCol)
+                        .Padding(5).Text(h).FontSize(8).Bold();
+                foreach (var r in rows)
+                    foreach (var v in r)
+                        t.Cell().Border(1).BorderColor(BorderCol).Padding(5).Text(v).FontSize(8);
             });
-            
-            // Header
-            table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(6)
-                .Text("Device Name").FontSize(9).Bold();
-            table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(6)
-                .Text("OS Version").FontSize(9).Bold();
-            table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(6)
-                .Text("Update Status").FontSize(9).Bold();
-            table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(6)
-                .Text("Compliance").FontSize(9).Bold();
-            table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(6)
-                .Text("Last Check-in").FontSize(9).Bold();
-            
-            foreach (var device in devices)
+            col.Item().Height(16);
+        }
+
+        if (_data.DeviceDetails?.WindowsDevices?.Any() == true)
+            DevSection($"Windows ({_data.DeviceDetails.WindowsDevices.Count})",
+                _data.DeviceDetails.WindowsDevices.Take(20).Select(d => new[]
+                { d.DeviceName ?? "-", d.OsVersion ?? "-", d.OsVersionStatusMessage ?? "-",
+                  d.ComplianceState ?? "-", d.LastCheckIn?.ToString("dd MMM yyyy") ?? "Never" }));
+
+        if (_data.DeviceDetails?.MacDevices?.Any() == true)
+            DevSection($"macOS ({_data.DeviceDetails.MacDevices.Count})",
+                _data.DeviceDetails.MacDevices.Take(10).Select(d => new[]
+                { d.DeviceName ?? "-", d.OsVersion ?? "-", d.OsVersionStatusMessage ?? "-",
+                  d.ComplianceState ?? "-", d.LastCheckIn?.ToString("dd MMM yyyy") ?? "Never" }));
+
+        if (_data.DeviceDetails?.IosDevices?.Any() == true)
+            DevSection($"iOS/iPadOS ({_data.DeviceDetails.IosDevices.Count})",
+                _data.DeviceDetails.IosDevices.Take(10).Select(d => new[]
+                { d.DeviceName ?? "-", d.OsVersion ?? "-", d.OsVersionStatusMessage ?? "-",
+                  d.ComplianceState ?? "-", d.LastCheckIn?.ToString("dd MMM yyyy") ?? "Never" }));
+    }
+
+    private void UserDetailsPage(ColumnDescriptor col)
+    {
+        col.Item().Text($"User Sign-in & MFA ({_data.UserSignInDetails!.Count} users)")
+            .FontSize(16).FontColor(_primary).Bold();
+        col.Item().Height(10);
+        col.Item().Table(t =>
+        {
+            t.ColumnsDefinition(c =>
             {
-                table.Cell().Border(1).BorderColor(BorderColor).Padding(6)
-                    .Text(device.Name).FontSize(9);
-                table.Cell().Border(1).BorderColor(BorderColor).Padding(6)
-                    .Text(device.OsVersion).FontSize(8);
-                table.Cell().Border(1).BorderColor(BorderColor).Padding(6)
-                    .Text(device.UpdateStatus).FontSize(9).FontColor(device.UpdateStatusColor);
-                table.Cell().Border(1).BorderColor(BorderColor).Padding(6)
-                    .Text(device.Compliance).FontSize(9)
-                    .FontColor(device.Compliance.ToLower() == "compliant" ? CompliantColor : NonCompliantColor);
-                table.Cell().Border(1).BorderColor(BorderColor).Padding(6)
-                    .Text(device.LastCheckIn).FontSize(9);
+                c.RelativeColumn(2); c.RelativeColumn(2.5f); c.RelativeColumn(1.5f);
+                c.RelativeColumn(2); c.RelativeColumn(0.8f); c.RelativeColumn(0.8f);
+            });
+            foreach (var h in new[] { "Name", "Email", "Last Sign-in", "MFA Method", "MFA", "Enabled" })
+                t.Cell().Background(LightGray).Border(1).BorderColor(BorderCol)
+                    .Padding(5).Text(h).FontSize(8).Bold();
+            foreach (var u in _data.UserSignInDetails.Take(35))
+            {
+                t.Cell().Border(1).BorderColor(BorderCol).Padding(5).Text(u.DisplayName ?? "-").FontSize(8);
+                t.Cell().Border(1).BorderColor(BorderCol).Padding(5).Text(u.UserPrincipalName ?? "-").FontSize(7);
+                t.Cell().Border(1).BorderColor(BorderCol).Padding(5)
+                    .Text(u.LastInteractiveSignIn?.ToString("dd MMM yyyy") ?? "Never").FontSize(8);
+                t.Cell().Border(1).BorderColor(BorderCol).Padding(5)
+                    .Text(u.DefaultMfaMethod ?? "None").FontSize(8);
+                t.Cell().Border(1).BorderColor(BorderCol).Padding(5)
+                    .Text(u.IsMfaRegistered ? "Yes" : "No").FontSize(8)
+                    .FontColor(u.IsMfaRegistered ? Compliant : Crit);
+                t.Cell().Border(1).BorderColor(BorderCol).Padding(5)
+                    .Text(u.AccountEnabled ? "Yes" : "No").FontSize(8)
+                    .FontColor(u.AccountEnabled ? Compliant : NonCompliant);
             }
         });
     }
-    
-    private class DeviceRow
-    {
-        public string Name { get; set; } = "";
-        public string OsVersion { get; set; } = "";
-        public string UpdateStatus { get; set; } = "";
-        public string UpdateStatusColor { get; set; } = TextColor;
-        public string Compliance { get; set; } = "";
-        public string LastCheckIn { get; set; } = "";
-    }
-    
-    #endregion
 
-    #region User Details Page
-    
-    private void ComposeUserDetailsPage(ColumnDescriptor column)
+    private void DomainSecurityPage(ColumnDescriptor col)
     {
-        column.Item().Padding(40).Column(content =>
+        col.Item().Text("Domain Email Security").FontSize(16).FontColor(_primary).Bold();
+        col.Item().Height(10);
+        col.Item().Table(t =>
         {
-            content.Item().Text($"User Sign-in & MFA Details ({_data.UserSignInDetails!.Count} users)")
-                .FontSize(20).FontColor(_primaryColor).FontFamily("Segoe UI Light");
-            
-            content.Item().Height(8);
-            content.Item().Text("Detailed view of user sign-in activity and multi-factor authentication registration status.")
-                .FontSize(10).FontColor(Colors.Grey.Darken1);
-            
-            content.Item().Height(15);
-            
-            content.Item().Table(table =>
+            TwoCols(t);
+            TH(t, "Metric", "Count");
+            TR(t, "Total Domains", $"{_data.DomainSecuritySummary!.TotalDomains}");
+            TR(t, "With MX",      $"{_data.DomainSecuritySummary.DomainsWithMx}");
+            TR(t, "With SPF",     $"{_data.DomainSecuritySummary.DomainsWithSpf}", Compliant);
+            TR(t, "With DMARC",   $"{_data.DomainSecuritySummary.DomainsWithDmarc}", Compliant);
+            TR(t, "With DKIM",    $"{_data.DomainSecuritySummary.DomainsWithDkim}", Compliant);
+        });
+
+        if (_data.DomainSecurityResults?.Any() == true)
+        {
+            col.Item().Height(18);
+            col.Item().Text("Domain Details").FontSize(16).FontColor(_primary).Bold();
+            col.Item().Height(10);
+            col.Item().Table(t =>
             {
-                table.ColumnsDefinition(cols =>
+                t.ColumnsDefinition(c =>
                 {
-                    cols.RelativeColumn(2);    // Display Name
-                    cols.RelativeColumn(2.5f); // Email
-                    cols.RelativeColumn(1.5f); // Last Sign-in
-                    cols.RelativeColumn(2);    // MFA Method
-                    cols.RelativeColumn(0.8f); // MFA
-                    cols.RelativeColumn(0.8f); // Enabled
+                    c.RelativeColumn(3); c.RelativeColumn(0.7f); c.RelativeColumn(0.7f);
+                    c.RelativeColumn(1); c.RelativeColumn(0.7f); c.RelativeColumn(0.7f); c.RelativeColumn(0.7f);
                 });
-                
-                // Header
-                table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(6)
-                    .Text("Display Name").FontSize(9).Bold();
-                table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(6)
-                    .Text("Email").FontSize(9).Bold();
-                table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(6)
-                    .Text("Last Sign-in").FontSize(9).Bold();
-                table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(6)
-                    .Text("Default MFA Method").FontSize(9).Bold();
-                table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(6)
-                    .Text("MFA").FontSize(9).Bold();
-                table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(6)
-                    .Text("Enabled").FontSize(9).Bold();
-                
-                foreach (var user in _data.UserSignInDetails.Take(30))
+                foreach (var h in new[] { "Domain", "MX", "SPF", "DMARC", "DKIM", "Score", "Grade" })
+                    t.Cell().Background(LightGray).Border(1).BorderColor(BorderCol)
+                        .Padding(5).Text(h).FontSize(8).Bold();
+                foreach (var d in _data.DomainSecurityResults.OrderByDescending(x => x.SecurityScore).Take(20))
                 {
-                    table.Cell().Border(1).BorderColor(BorderColor).Padding(6)
-                        .Text(user.DisplayName ?? "-").FontSize(9);
-                    table.Cell().Border(1).BorderColor(BorderColor).Padding(6)
-                        .Text(user.UserPrincipalName ?? "-").FontSize(8);
-                    table.Cell().Border(1).BorderColor(BorderColor).Padding(6)
-                        .Text(user.LastInteractiveSignIn?.ToString("dd MMM yyyy") ?? "Never").FontSize(9);
-                    table.Cell().Border(1).BorderColor(BorderColor).Padding(6)
-                        .Text(user.DefaultMfaMethod ?? "None").FontSize(9);
-                    table.Cell().Border(1).BorderColor(BorderColor).Padding(6)
-                        .Text(user.IsMfaRegistered ? "Yes" : "No").FontSize(9)
-                        .FontColor(user.IsMfaRegistered ? CompliantColor : CriticalColor);
-                    table.Cell().Border(1).BorderColor(BorderColor).Padding(6)
-                        .Text(user.AccountEnabled ? "Yes" : "No").FontSize(9)
-                        .FontColor(user.AccountEnabled ? CompliantColor : NonCompliantColor);
+                    t.Cell().Border(1).BorderColor(BorderCol).Padding(5).Text(d.Domain).FontSize(8);
+                    Tick(t, d.HasMx);
+                    Tick(t, d.HasSpf);
+                    t.Cell().Border(1).BorderColor(BorderCol).Padding(5)
+                        .Text(d.HasDmarc ? (d.DmarcPolicy ?? "✓") : "✗").FontSize(8)
+                        .FontColor(d.HasDmarc ? Compliant : Crit);
+                    Tick(t, d.HasDkim);
+                    t.Cell().Border(1).BorderColor(BorderCol).Padding(5).Text($"{d.SecurityScore}").FontSize(8);
+                    t.Cell().Border(1).BorderColor(BorderCol).Padding(5)
+                        .Text(d.SecurityGrade).FontSize(8).Bold()
+                        .FontColor(d.SecurityGrade is "A" or "B" ? Compliant : d.SecurityGrade == "C" ? Warn : Crit);
                 }
             });
-        });
-        
-        ComposePageFooter(column);
+        }
     }
-    
-    #endregion
 
-    #region Domain Security Page
-    
-    private void ComposeDomainSecurityPage(ColumnDescriptor column)
-    {
-        column.Item().Padding(40).Column(content =>
+    // ── Helpers ───────────────────────────────────────────────────────────
+
+    private static void KpiCard(IContainer c, string label, string value, string sub) =>
+        c.Border(1).BorderColor(BorderCol).Padding(14).Column(k =>
         {
-            content.Item().Text("Domain Email Security")
-                .FontSize(20).FontColor(_primaryColor).FontFamily("Segoe UI Light");
-            
-            content.Item().Height(8);
-            content.Item().Text("Email authentication protocols (SPF, DMARC, DKIM) help protect your organization from email spoofing and phishing attacks.")
-                .FontSize(10).FontColor(Colors.Grey.Darken1);
-            
-            content.Item().Height(15);
-            
-            // Summary table
-            content.Item().Table(table =>
-            {
-                table.ColumnsDefinition(cols =>
-                {
-                    cols.RelativeColumn(3);
-                    cols.RelativeColumn(1);
-                });
-                
-                AddTableRow(table, "Total Domains Checked", $"{_data.DomainSecuritySummary!.TotalDomains}");
-                AddTableRow(table, "Domains with MX Records", $"{_data.DomainSecuritySummary.DomainsWithMx}");
-                AddTableRow(table, "Domains with SPF", $"{_data.DomainSecuritySummary.DomainsWithSpf}", CompliantColor);
-                AddTableRow(table, "Domains with DMARC", $"{_data.DomainSecuritySummary.DomainsWithDmarc}", CompliantColor);
-                AddTableRow(table, "Domains with DKIM", $"{_data.DomainSecuritySummary.DomainsWithDkim}", CompliantColor);
-            });
-            
-            if (_data.DomainSecurityResults?.Any() == true)
-            {
-                content.Item().Height(25);
-                
-                content.Item().Text("Domain Security Details")
-                    .FontSize(20).FontColor(_primaryColor).FontFamily("Segoe UI Light");
-                
-                content.Item().Height(15);
-                
-                content.Item().Table(table =>
-                {
-                    table.ColumnsDefinition(cols =>
-                    {
-                        cols.RelativeColumn(3);   // Domain
-                        cols.RelativeColumn(0.8f); // MX
-                        cols.RelativeColumn(0.8f); // SPF
-                        cols.RelativeColumn(1);    // DMARC
-                        cols.RelativeColumn(0.8f); // DKIM
-                        cols.RelativeColumn(0.8f); // Score
-                        cols.RelativeColumn(0.8f); // Grade
-                    });
-                    
-                    // Header
-                    table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(6)
-                        .Text("Domain").FontSize(9).Bold();
-                    table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(6)
-                        .Text("MX").FontSize(9).Bold();
-                    table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(6)
-                        .Text("SPF").FontSize(9).Bold();
-                    table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(6)
-                        .Text("DMARC").FontSize(9).Bold();
-                    table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(6)
-                        .Text("DKIM").FontSize(9).Bold();
-                    table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(6)
-                        .Text("Score").FontSize(9).Bold();
-                    table.Cell().Border(1).BorderColor(BorderColor).Background(LightGray).Padding(6)
-                        .Text("Grade").FontSize(9).Bold();
-                    
-                    foreach (var domain in _data.DomainSecurityResults.OrderByDescending(d => d.SecurityScore).Take(15))
-                    {
-                        table.Cell().Border(1).BorderColor(BorderColor).Padding(6)
-                            .Text(domain.Domain).FontSize(9);
-                        table.Cell().Border(1).BorderColor(BorderColor).Padding(6)
-                            .Text(domain.HasMx ? "✓" : "✗").FontSize(9)
-                            .FontColor(domain.HasMx ? CompliantColor : CriticalColor);
-                        table.Cell().Border(1).BorderColor(BorderColor).Padding(6)
-                            .Text(domain.HasSpf ? "✓" : "✗").FontSize(9)
-                            .FontColor(domain.HasSpf ? CompliantColor : CriticalColor);
-                        table.Cell().Border(1).BorderColor(BorderColor).Padding(6)
-                            .Text(domain.HasDmarc ? domain.DmarcPolicy ?? "✓" : "✗").FontSize(9)
-                            .FontColor(domain.HasDmarc ? CompliantColor : CriticalColor);
-                        table.Cell().Border(1).BorderColor(BorderColor).Padding(6)
-                            .Text(domain.HasDkim ? "✓" : "✗").FontSize(9)
-                            .FontColor(domain.HasDkim ? CompliantColor : CriticalColor);
-                        table.Cell().Border(1).BorderColor(BorderColor).Padding(6)
-                            .Text($"{domain.SecurityScore}").FontSize(9);
-                        table.Cell().Border(1).BorderColor(BorderColor).Padding(6)
-                            .Text(domain.SecurityGrade).FontSize(9).Bold()
-                            .FontColor(domain.SecurityGrade switch
-                            {
-                                "A" or "B" => CompliantColor,
-                                "C" => WarningColor,
-                                _ => CriticalColor
-                            });
-                    }
-                });
-            }
+            k.Item().AlignRight().Text(value).FontSize(26).FontColor("#1E3A5F");
+            k.Item().Height(3);
+            k.Item().Text(label).FontSize(10).Bold();
+            k.Item().Text(sub).FontSize(9).FontColor(Colors.Grey.Medium);
         });
-        
-        ComposePageFooter(column);
-    }
-    
-    #endregion
 
-    #region Footer
-    
-    private void ComposePageFooter(ColumnDescriptor column)
-    {
-        column.Item().PaddingHorizontal(40).PaddingVertical(15).Column(footer =>
-        {
-            // Horizontal line
-            footer.Item().Height(1).Background(_primaryColor);
-            
-            footer.Item().Height(15);
-            
-            footer.Item().Row(row =>
-            {
-                // Footer text
-                if (!string.IsNullOrWhiteSpace(_settings.FooterText))
-                {
-                    row.RelativeItem().Text(_settings.FooterText)
-                        .FontSize(8).FontColor(Colors.Grey.Darken1).Italic();
-                }
-                else
-                {
-                    row.RelativeItem().Text("Generated by M365 Dashboard")
-                        .FontSize(8).FontColor(Colors.Grey.Darken1).Italic();
-                }
-                
-                // Logo on right
-                if (_logoBytes != null)
-                {
-                    row.ConstantItem(80).AlignRight().Height(25).Image(_logoBytes).FitHeight();
-                }
-            });
-        });
-    }
-    
-    #endregion
+    private static void TwoCols(TableDescriptor t) =>
+        t.ColumnsDefinition(c => { c.RelativeColumn(3); c.RelativeColumn(1); });
 
-    #region Helpers
-    
-    private void AddTableRow(TableDescriptor table, string label, string value, string? valueColor = null)
+    private static void TH(TableDescriptor t, string c1, string c2)
     {
-        table.Cell().Border(1).BorderColor(BorderColor).Padding(8)
-            .Text(label).FontSize(10);
-        
-        var valueCell = table.Cell().Border(1).BorderColor(BorderColor).Padding(8).AlignRight();
-        if (valueColor != null)
-            valueCell.Text(value).FontSize(10).FontColor(valueColor);
-        else
-            valueCell.Text(value).FontSize(10);
+        t.Cell().Background(LightGray).Border(1).BorderColor(BorderCol).Padding(6)
+            .Text(c1).FontSize(9).Bold();
+        t.Cell().Background(LightGray).Border(1).BorderColor(BorderCol).Padding(6).AlignRight()
+            .Text(c2).FontSize(9).Bold();
     }
-    
-    private (string line1, string line2) ParseReportTitle(string title)
+
+    private static void TR(TableDescriptor t, string label, string value, string? colour = null)
     {
-        if (string.IsNullOrWhiteSpace(title))
-            return ("MICROSOFT 365", "SECURITY ASSESSMENT");
-        
-        var lower = title.ToLower();
-        if (lower.StartsWith("microsoft 365"))
-            return ("MICROSOFT 365", title.Substring(13).Trim().ToUpper());
-        if (lower.StartsWith("m365"))
-            return ("MICROSOFT 365", title.Substring(4).Trim().ToUpper());
-        
+        t.Cell().Border(1).BorderColor(BorderCol).Padding(6).Text(label).FontSize(9);
+        var cell = t.Cell().Border(1).BorderColor(BorderCol).Padding(6).AlignRight();
+        if (colour != null) cell.Text(value).FontSize(9).FontColor(colour);
+        else cell.Text(value).FontSize(9);
+    }
+
+    private static void Tick(TableDescriptor t, bool ok) =>
+        t.Cell().Border(1).BorderColor(BorderCol).Padding(5)
+            .Text(ok ? "✓" : "✗").FontSize(8).FontColor(ok ? Compliant : Crit);
+
+    private static (string line1, string line2) ParseTitle(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return ("MICROSOFT 365", "SECURITY ASSESSMENT");
+        var l = title.ToLower();
+        if (l.StartsWith("microsoft 365")) return ("MICROSOFT 365", title[13..].Trim().ToUpper());
+        if (l.StartsWith("m365"))          return ("MICROSOFT 365", title[4..].Trim().ToUpper());
         return ("MICROSOFT 365", title.ToUpper());
     }
-    
-    private static List<ReportQuote> PickRandomQuotes(ReportSettings settings, int count)
+
+    private static List<ReportQuote> PickRandomQuotes(ReportSettings s, int count)
     {
-        var pool = settings.Quotes
-            .Where(q => q.Enabled &&
-                        !string.IsNullOrWhiteSpace(q.BigNumber) &&
-                        !string.IsNullOrWhiteSpace(q.Line1))
-            .ToList();
+        var pool = s.Quotes.Where(q => q.Enabled && !string.IsNullOrWhiteSpace(q.BigNumber)).ToList();
         if (pool.Count == 0) pool = ReportSettings.DefaultQuotes();
         if (pool.Count <= count) return pool;
         var rng = new Random();
@@ -882,24 +436,9 @@ public class PdfReportGenerator : IDocument
         return pool.Take(count).ToList();
     }
 
-    private bool HasDevices()
-    {
-        return _data.DeviceDetails?.WindowsDevices?.Any() == true ||
-               _data.DeviceDetails?.MacDevices?.Any() == true ||
-               _data.DeviceDetails?.IosDevices?.Any() == true ||
-               _data.DeviceDetails?.AndroidDevices?.Any() == true;
-    }
-    
-    private string GetStatusColor(string? status)
-    {
-        return status?.ToLower() switch
-        {
-            "current" => CompliantColor,
-            "warning" => WarningColor,
-            "critical" => CriticalColor,
-            _ => TextColor
-        };
-    }
-    
-    #endregion
+    private bool HasDevices() =>
+        _data.DeviceDetails?.WindowsDevices?.Any() == true ||
+        _data.DeviceDetails?.MacDevices?.Any()     == true ||
+        _data.DeviceDetails?.IosDevices?.Any()     == true ||
+        _data.DeviceDetails?.AndroidDevices?.Any() == true;
 }
