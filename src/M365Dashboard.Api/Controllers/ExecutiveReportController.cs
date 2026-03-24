@@ -420,9 +420,20 @@ public class ExecutiveReportController : ControllerBase
                 return BadRequest(new { error = "Failed to generate report data" });
             }
 
-            var pdfBytes = _pdfReportGenerator.GenerateReport(reportData, reportSettings);
-            var pdfFileName = $"{reportSettings.CompanyName.Replace(" ", "_")}_M365_Report_{reportData.ReportMonth.Replace(" ", "_")}.pdf";
-            return File(pdfBytes, "application/pdf", pdfFileName);
+            try
+            {
+                var pdfBytes = _pdfReportGenerator.GenerateReport(reportData, reportSettings);
+                var pdfFileName = $"{reportSettings.CompanyName.Replace(" ", "_")}_M365_Report_{reportData.ReportMonth.Replace(" ", "_")}.pdf";
+                return File(pdfBytes, "application/pdf", pdfFileName);
+            }
+            catch (Exception pdfEx)
+            {
+                _logger.LogError(pdfEx, "PDF generation failed: {Message}", pdfEx.Message);
+                // Fall back to Word if PDF fails
+                var documentBytes = _wordReportGenerator.GenerateReport(reportData, reportSettings);
+                var fileName = $"{reportSettings.CompanyName.Replace(" ", "_")}_M365_Report_{reportData.ReportMonth.Replace(" ", "_")}.docx";
+                return File(documentBytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", fileName);
+            }
         }
         catch (Exception ex)
         {

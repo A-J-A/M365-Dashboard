@@ -34,6 +34,7 @@ RUN apt-get update && apt-get install -y \
     libfontconfig1 \
     fontconfig \
     fonts-dejavu-core \
+    fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy published backend

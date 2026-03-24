@@ -54,13 +54,17 @@ public class PdfReportGenerator : IDocument
         return Document.Create(Compose).GeneratePdf();
     }
 
+    // QuestPDF font helper - falls back gracefully if Segoe UI isn't installed
+    private static TextStyle SafeFont(string preferred = "Segoe UI") =>
+        TextStyle.Default.FontFamily(preferred, "DejaVu Sans", "Arial", "Liberation Sans");
+
     public void Compose(IDocumentContainer container)
     {
         container.Page(page =>
         {
             page.Size(PageSizes.A4);
             page.Margin(0);
-            page.DefaultTextStyle(x => x.FontFamily("Segoe UI").FontColor(TextColor));
+            page.DefaultTextStyle(x => x.FontFamily("Segoe UI", "DejaVu Sans", "Liberation Sans", "Arial").FontColor(TextColor));
             
             page.Content().Column(column =>
             {
