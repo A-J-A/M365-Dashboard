@@ -119,19 +119,10 @@ builder.Services.AddScoped<IDefenderForOfficeService, DefenderForOfficeService>(
 builder.Services.AddSingleton<IOsVersionService, OsVersionService>();
 builder.Services.AddScoped<WordReportGenerator>();
 
-// Try to register PDF generator (only works on supported platforms: win-x64, linux-x64, linux-arm64, osx-x64, osx-arm64)
-try
-{
-    // Test if QuestPDF can load on this platform
-    QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
-    builder.Services.AddScoped<PdfReportGenerator>();
-    Log.Information("PDF report generation enabled (QuestPDF)");
-}
-catch (Exception ex)
-{
-    Log.Warning("PDF report generation disabled - platform not supported: {Message}", ex.Message);
-    // PDF generator won't be registered, controller will fall back to Word
-}
+// Register PDF generator - QuestPDF works on Windows, Linux, and macOS
+QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+builder.Services.AddScoped<PdfReportGenerator>();
+Log.Information("PDF report generation enabled (QuestPDF)");
 
 // Configure caching options
 builder.Services.Configure<CacheOptions>(builder.Configuration.GetSection("Cache"));

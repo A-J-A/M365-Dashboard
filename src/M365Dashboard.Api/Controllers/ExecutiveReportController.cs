@@ -25,7 +25,7 @@ public class ExecutiveReportController : ControllerBase
     private readonly IDomainSecurityService _domainSecurityService;
     private readonly IWebHostEnvironment _environment;
     private readonly IOsVersionService _osVersionService;
-    private readonly PdfReportGenerator? _pdfReportGenerator;
+    private readonly PdfReportGenerator _pdfReportGenerator;
     private readonly ITenantSettingsService _tenantSettingsService;
     private readonly WordReportGenerator _wordReportGenerator;
 
@@ -39,7 +39,7 @@ public class ExecutiveReportController : ControllerBase
         IOsVersionService osVersionService,
         ITenantSettingsService tenantSettingsService,
         WordReportGenerator wordReportGenerator,
-        PdfReportGenerator? pdfReportGenerator = null)
+        PdfReportGenerator pdfReportGenerator)
     {
         _graphService = graphService;
         _graphClient = graphClient;
@@ -420,25 +420,9 @@ public class ExecutiveReportController : ControllerBase
                 return BadRequest(new { error = "Failed to generate report data" });
             }
 
-            // Try PDF first (works in Docker/Linux), fall back to Word (works everywhere)
-            if (_pdfReportGenerator != null)
-            {
-                try
-                {
-                    var pdfBytes = _pdfReportGenerator.GenerateReport(reportData, reportSettings);
-                    var pdfFileName = $"{reportSettings.CompanyName.Replace(" ", "_")}_M365_Report_{reportData.ReportMonth.Replace(" ", "_")}.pdf";
-                    return File(pdfBytes, "application/pdf", pdfFileName);
-                }
-                catch (Exception pdfEx)
-                {
-                    _logger.LogWarning(pdfEx, "PDF generation failed, falling back to Word document");
-                }
-            }
-            
-            // Fall back to Word document (WordReportGenerator supports quotes/infographics)
-            var documentBytes = _wordReportGenerator.GenerateReport(reportData, reportSettings);
-            var fileName = $"{reportSettings.CompanyName.Replace(" ", "_")}_M365_Report_{reportData.ReportMonth.Replace(" ", "_")}.docx";
-            return File(documentBytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", fileName);
+            var pdfBytes = _pdfReportGenerator.GenerateReport(reportData, reportSettings);
+            var pdfFileName = $"{reportSettings.CompanyName.Replace(" ", "_")}_M365_Report_{reportData.ReportMonth.Replace(" ", "_")}.pdf";
+            return File(pdfBytes, "application/pdf", pdfFileName);
         }
         catch (Exception ex)
         {
