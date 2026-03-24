@@ -14,6 +14,7 @@ public class PdfReportGenerator : IDocument
     private ExecutiveReportData _data = null!;
     private ReportSettings _settings = null!;
     private byte[]? _logoBytes;
+    private List<ReportQuote> _selectedQuotes = new();
     
     // Branding colors (matching the PDF example)
     private string _primaryColor = "#1E3A5F";  // Dark navy blue
@@ -46,6 +47,9 @@ public class PdfReportGenerator : IDocument
             try { _logoBytes = Convert.FromBase64String(settings.LogoBase64); }
             catch { _logoBytes = null; }
         }
+
+        // Pick 3 random quotes from the settings pool
+        _selectedQuotes = PickRandomQuotes(settings, 3);
         
         return Document.Create(Compose).GeneratePdf();
     }
@@ -68,14 +72,14 @@ public class PdfReportGenerator : IDocument
                 ComposeExecutiveSummaryPage(column);
                 
                 // === INFOGRAPHIC 1 (if enabled) ===
-                if (_settings.ShowInfoGraphics)
+                if (_settings.ShowInfoGraphics && _settings.ShowQuotes && _selectedQuotes.Count > 0)
                 {
                     column.Item().PageBreak();
-                    ComposeInfoGraphicPage(column, 
-                        "99%", 
-                        "of breaches could be mitigated",
-                        "with strong passwords and MFA",
-                        "Source: Microsoft Security Report");
+                    ComposeInfoGraphicPage(column,
+                        _selectedQuotes[0].BigNumber,
+                        _selectedQuotes[0].Line1,
+                        _selectedQuotes[0].Line2,
+                        _selectedQuotes[0].Source);
                 }
                 
                 // === SECURITY METRICS ===
@@ -83,14 +87,14 @@ public class PdfReportGenerator : IDocument
                 ComposeSecurityMetricsPage(column);
                 
                 // === INFOGRAPHIC 2 (if enabled) ===
-                if (_settings.ShowInfoGraphics)
+                if (_settings.ShowInfoGraphics && _settings.ShowQuotes && _selectedQuotes.Count > 1)
                 {
                     column.Item().PageBreak();
                     ComposeInfoGraphicPage(column,
-                        "84%",
-                        "of businesses fell victim",
-                        "to phishing attacks in 2024",
-                        "Source: Cyber Security Breaches Survey");
+                        _selectedQuotes[1].BigNumber,
+                        _selectedQuotes[1].Line1,
+                        _selectedQuotes[1].Line2,
+                        _selectedQuotes[1].Source);
                 }
                 
                 // === DEVICE DETAILS ===
@@ -101,14 +105,14 @@ public class PdfReportGenerator : IDocument
                 }
                 
                 // === INFOGRAPHIC 3 (if enabled) ===
-                if (_settings.ShowInfoGraphics)
+                if (_settings.ShowInfoGraphics && _settings.ShowQuotes && _selectedQuotes.Count > 2)
                 {
                     column.Item().PageBreak();
                     ComposeInfoGraphicPage(column,
-                        "31%",
-                        "of all breaches over the past",
-                        "10 years involved stolen credentials",
-                        "Source: Verizon DBIR");
+                        _selectedQuotes[2].BigNumber,
+                        _selectedQuotes[2].Line1,
+                        _selectedQuotes[2].Line2,
+                        _selectedQuotes[2].Source);
                 }
                 
                 // === USER DETAILS ===
@@ -853,6 +857,24 @@ public class PdfReportGenerator : IDocument
         return ("MICROSOFT 365", title.ToUpper());
     }
     
+    private static List<ReportQuote> PickRandomQuotes(ReportSettings settings, int count)
+    {
+        var pool = settings.Quotes
+            .Where(q => q.Enabled &&
+                        !string.IsNullOrWhiteSpace(q.BigNumber) &&
+                        !string.IsNullOrWhiteSpace(q.Line1))
+            .ToList();
+        if (pool.Count == 0) pool = ReportSettings.DefaultQuotes();
+        if (pool.Count <= count) return pool;
+        var rng = new Random();
+        for (int i = pool.Count - 1; i > 0; i--)
+        {
+            int j = rng.Next(i + 1);
+            (pool[i], pool[j]) = (pool[j], pool[i]);
+        }
+        return pool.Take(count).ToList();
+    }
+
     private bool HasDevices()
     {
         return _data.DeviceDetails?.WindowsDevices?.Any() == true ||
