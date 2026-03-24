@@ -50,6 +50,9 @@ public class PdfReportGenerator : IDocument
 
         // Pick 3 random quotes from the settings pool
         _selectedQuotes = PickRandomQuotes(settings, 3);
+
+        // Use system fonts (works on Linux containers without Segoe UI)
+        QuestPDF.Settings.EnableCaching = true;
         
         return Document.Create(Compose).GeneratePdf();
     }

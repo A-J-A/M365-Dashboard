@@ -29,12 +29,16 @@ RUN echo "${BUILD_VERSION}" > /app/publish/version.txt
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
 
-# Install font dependencies for QuestPDF
+# Install dependencies for QuestPDF / SkiaSharp (native PDF rendering)
 RUN apt-get update && apt-get install -y \
     libfontconfig1 \
     fontconfig \
     fonts-dejavu-core \
     fonts-liberation \
+    libssl3 \
+    libicu72 \
+    libgdiplus \
+    libc6-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy published backend
