@@ -169,7 +169,7 @@ public class PdfReportGenerator : IDocument
         });
         
         // White section with company info
-        column.Item().ExtendVertical().Background(Colors.White).Padding(50).AlignCenter().Column(infoCol =>
+        column.Item().Background(Colors.White).Padding(50).AlignCenter().Column(infoCol =>
         {
             infoCol.Item().Height(40);
             
@@ -363,7 +363,7 @@ public class PdfReportGenerator : IDocument
     
     private void ComposeInfoGraphicPage(ColumnDescriptor column, string bigNumber, string line1, string line2, string source)
     {
-        column.Item().Height(841).Background(_primaryColor).AlignCenter().AlignMiddle().Column(content =>
+        column.Item().MinHeight(600).Background(_primaryColor).AlignCenter().AlignMiddle().Column(content =>
         {
             // Big statistic number
             content.Item().AlignCenter().Text(bigNumber)
@@ -804,7 +804,7 @@ public class PdfReportGenerator : IDocument
     
     private void ComposePageFooter(ColumnDescriptor column)
     {
-        column.Item().ExtendVertical().AlignBottom().Padding(40).Column(footer =>
+        column.Item().PaddingHorizontal(40).PaddingVertical(15).Column(footer =>
         {
             // Horizontal line
             footer.Item().Height(1).Background(_primaryColor);
