@@ -118,7 +118,15 @@ public class PdfReportGenerator : IDocument
         if (_data.UserSignInDetails?.Any() == true)
             ContentPage(c, UserDetailsPage);
 
-        // 9. Domain Security
+        // 9. Deleted Users
+        if (_data.DeletedUsersInPeriod?.Any() == true)
+            ContentPage(c, DeletedUsersPage);
+
+        // 10. Mailbox Storage Details
+        if (_data.MailboxDetails?.Any() == true)
+            ContentPage(c, MailboxDetailsPage);
+
+        // 11. Domain Security
         if (_data.DomainSecuritySummary != null)
             ContentPage(c, DomainSecurityPage);
     }
@@ -238,11 +246,37 @@ public class PdfReportGenerator : IDocument
         {
             col.Item().Text("Microsoft Defender for Endpoint").FontSize(16).FontColor(_primary).Bold();
             col.Item().Height(10);
+
+            // Exposure score gauge (visual bar)
+            if (_data.DefenderStats.ExposureScoreNumeric.HasValue)
+            {
+                var score = _data.DefenderStats.ExposureScoreNumeric.Value;
+                var gaugeColor = score <= 30 ? Compliant : score <= 70 ? Warn : Crit;
+                var gaugeLabel = score <= 30 ? "Low" : score <= 70 ? "Medium" : "High";
+                var fillPct = (float)(score / 100.0);
+
+                col.Item().Column(g =>
+                {
+                    g.Item().Text($"Exposure Score: {gaugeLabel} ({score:F1})").FontSize(9).FontColor(gaugeColor).Bold();
+                    g.Item().Height(4);
+                    // Gauge bar using a row: filled portion + empty remainder
+                    g.Item().Height(12).Row(bar =>
+                    {
+                        if (fillPct > 0)
+                            bar.RelativeItem((int)Math.Round(fillPct * 100)).Height(12).Background(gaugeColor);
+                        if (fillPct < 1)
+                            bar.RelativeItem((int)Math.Round((1 - fillPct) * 100)).Height(12).Background("#E5E7EB");
+                    });
+                });
+                col.Item().Height(12);
+            }
+
             col.Item().Table(t =>
             {
                 TwoCols(t);
                 TH(t, "Metric", "Value");
-                TR(t, "Exposure Score",     _data.DefenderStats.ExposureScore ?? "N/A");
+                TR(t, "Exposure Level",   _data.DefenderStats.ExposureScore ?? "N/A",
+                    _data.DefenderStats.ExposureScore switch { "Low" => Compliant, "High" => Crit, _ => Warn });
                 TR(t, "Onboarded Machines", $"{_data.DefenderStats.OnboardedMachines ?? 0}");
                 TR(t, "Vulnerabilities",    $"{_data.DefenderStats.VulnerabilitiesDetected}");
                 TR(t, "Critical",           $"{_data.DefenderStats.CriticalVulnerabilities}",
@@ -375,6 +409,74 @@ public class PdfReportGenerator : IDocument
                 }
             });
         }
+    }
+
+    private void DeletedUsersPage(ColumnDescriptor col)
+    {
+        col.Item().Text($"Deleted Users ({_data.DeletedUsersInPeriod!.Count} in period)")
+            .FontSize(16).FontColor(_primary).Bold();
+        col.Item().Height(6);
+        col.Item().Text("Users deleted during the report period.")
+            .FontSize(9).FontColor(Colors.Grey.Darken1);
+        col.Item().Height(12);
+        col.Item().Table(t =>
+        {
+            t.ColumnsDefinition(c =>
+            {
+                c.RelativeColumn(2); c.RelativeColumn(2.5f);
+                c.RelativeColumn(1.5f); c.RelativeColumn(1.5f); c.RelativeColumn(1.5f);
+            });
+            foreach (var h in new[] { "Name", "Email", "Deleted", "Job Title", "Department" })
+                t.Cell().Background(LightGray).Border(1).BorderColor(BorderCol)
+                    .Padding(5).Text(h).FontSize(8).Bold();
+            foreach (var u in _data.DeletedUsersInPeriod)
+            {
+                t.Cell().Border(1).BorderColor(BorderCol).Padding(5).Text(u.DisplayName ?? "-").FontSize(8);
+                t.Cell().Border(1).BorderColor(BorderCol).Padding(5).Text(u.UserPrincipalName ?? u.Mail ?? "-").FontSize(7);
+                t.Cell().Border(1).BorderColor(BorderCol).Padding(5)
+                    .Text(u.DeletedDateTime?.ToString("dd MMM yyyy") ?? "-").FontSize(8).FontColor(Crit);
+                t.Cell().Border(1).BorderColor(BorderCol).Padding(5).Text(u.JobTitle ?? "-").FontSize(8);
+                t.Cell().Border(1).BorderColor(BorderCol).Padding(5).Text(u.Department ?? "-").FontSize(8);
+            }
+        });
+    }
+
+    private void MailboxDetailsPage(ColumnDescriptor col)
+    {
+        col.Item().Text($"Mailbox Storage ({_data.MailboxDetails!.Count} mailboxes)")
+            .FontSize(16).FontColor(_primary).Bold();
+        col.Item().Height(6);
+        col.Item().Text("Mailbox storage usage over the last 30 days, sorted by size.")
+            .FontSize(9).FontColor(Colors.Grey.Darken1);
+        col.Item().Height(12);
+        col.Item().Table(t =>
+        {
+            t.ColumnsDefinition(c =>
+            {
+                c.RelativeColumn(2); c.RelativeColumn(2.5f);
+                c.RelativeColumn(1); c.RelativeColumn(1); c.RelativeColumn(1); c.RelativeColumn(1.2f);
+            });
+            foreach (var h in new[] { "Name", "Email", "Size (GB)", "Quota (GB)", "% Used", "Last Active" })
+                t.Cell().Background(LightGray).Border(1).BorderColor(BorderCol)
+                    .Padding(5).Text(h).FontSize(8).Bold();
+            foreach (var m in _data.MailboxDetails.Take(40))
+            {
+                var pctColor = m.PercentUsed >= 90 ? Crit : m.PercentUsed >= 75 ? Warn : null;
+                t.Cell().Border(1).BorderColor(BorderCol).Padding(5).Text(m.DisplayName ?? "-").FontSize(8);
+                t.Cell().Border(1).BorderColor(BorderCol).Padding(5).Text(m.UserPrincipalName ?? "-").FontSize(7);
+                t.Cell().Border(1).BorderColor(BorderCol).Padding(5).AlignRight()
+                    .Text($"{m.StorageUsedGB:F2}").FontSize(8);
+                t.Cell().Border(1).BorderColor(BorderCol).Padding(5).AlignRight()
+                    .Text(m.QuotaGB.HasValue ? $"{m.QuotaGB:F0}" : "-").FontSize(8);
+                var pctCell = t.Cell().Border(1).BorderColor(BorderCol).Padding(5).AlignRight();
+                if (pctColor != null)
+                    pctCell.Text(m.PercentUsed.HasValue ? $"{m.PercentUsed:F1}%" : "-").FontSize(8).FontColor(pctColor);
+                else
+                    pctCell.Text(m.PercentUsed.HasValue ? $"{m.PercentUsed:F1}%" : "-").FontSize(8);
+                t.Cell().Border(1).BorderColor(BorderCol).Padding(5)
+                    .Text(m.LastActivityDate?.ToString("dd MMM yyyy") ?? "Never").FontSize(8);
+            }
+        });
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
