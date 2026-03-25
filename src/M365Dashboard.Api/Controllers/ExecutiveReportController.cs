@@ -100,25 +100,30 @@ public class ExecutiveReportController : ControllerBase
             var json = await response.Content.ReadAsStringAsync();
             var doc = JsonDocument.Parse(json);
 
-            var machines = doc.RootElement.TryGetProperty("value", out var val)
-                ? val.EnumerateArray().Select(m => new
+            var machines = new List<Dictionary<string, string?>>();
+            if (doc.RootElement.TryGetProperty("value", out var val))
+            {
+                foreach (var m in val.EnumerateArray())
                 {
-                    name = m.TryGetProperty("computerDnsName", out var n) ? n.GetString() : null,
-                    onboardingStatus = m.TryGetProperty("onboardingStatus", out var s) ? s.GetString() : null,
-                    osPlatform = m.TryGetProperty("osPlatform", out var p) ? p.GetString() : null,
-                    lastSeen = m.TryGetProperty("lastSeen", out var ls) ? ls.GetString() : null,
-                }).ToList()
-                : new List<object>();
+                    machines.Add(new Dictionary<string, string?>
+                    {
+                        ["name"]            = m.TryGetProperty("computerDnsName",  out var n)  ? n.GetString()  : null,
+                        ["onboardingStatus"] = m.TryGetProperty("onboardingStatus", out var s)  ? s.GetString()  : null,
+                        ["osPlatform"]       = m.TryGetProperty("osPlatform",       out var p)  ? p.GetString()  : null,
+                        ["lastSeen"]         = m.TryGetProperty("lastSeen",         out var ls) ? ls.GetString() : null,
+                    });
+                }
+            }
 
             var summary = machines
-                .GroupBy(m => m.onboardingStatus)
+                .GroupBy(m => m["onboardingStatus"])
                 .ToDictionary(g => g.Key ?? "null", g => g.Count());
 
             return Ok(new
             {
                 totalReturned = machines.Count,
                 onboardingStatusBreakdown = summary,
-                onboardedCount = machines.Count(m => m.onboardingStatus == "Onboarded"),
+                onboardedCount = machines.Count(m => m["onboardingStatus"] == "Onboarded"),
                 machines
             });
         }
