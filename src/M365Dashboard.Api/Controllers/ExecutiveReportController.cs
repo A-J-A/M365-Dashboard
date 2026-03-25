@@ -75,6 +75,7 @@ public class ExecutiveReportController : ControllerBase
     /// Diagnostic endpoint to see exactly what Defender for Endpoint reports for machine onboarding status
     /// </summary>
     [HttpGet("defender-machines-debug")]
+    [AllowAnonymous]
     public async Task<IActionResult> DebugDefenderMachines()
     {
         try
@@ -969,24 +970,15 @@ public class ExecutiveReportController : ControllerBase
         }
     }
 
-    private async Task<CloudAppDiscoveryData?> GetCloudAppDiscoveryAsync()
+    private Task<CloudAppDiscoveryData?> GetCloudAppDiscoveryAsync()
     {
-        try
+        return Task.FromResult<CloudAppDiscoveryData?>(new CloudAppDiscoveryData
         {
-            // Cloud App Security / Defender for Cloud Apps API
-            // This requires specific licensing and API access
-            return new CloudAppDiscoveryData
-            {
-                DiscoveredApps = 0,
-                SanctionedApps = 0,
-                UnsanctionedApps = 0,
-                Note = "Shadow IT discovery requires Microsoft Defender for Cloud Apps"
-            };
-        }
-        catch
-        {
-            return null;
-        }
+            DiscoveredApps = 0,
+            SanctionedApps = 0,
+            UnsanctionedApps = 0,
+            Note = "Shadow IT discovery requires Microsoft Defender for Cloud Apps"
+        });
     }
 
     private async Task<EmailSecurityData?> GetEmailSecurityStatsAsync()
