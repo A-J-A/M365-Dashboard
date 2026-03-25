@@ -580,10 +580,9 @@ public class ExecutiveReportController : ControllerBase
             {
                 // Fetch all machines with just the fields we need, then filter client-side
                 // The Defender API pages at 100 by default so we must follow @odata.nextLink
-                // key = computerDnsName (lowered), value = lastSeen — deduplicate by name, keep most recent
-                var seenMachines    = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
-                var statusBreakdown = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                string? nextUrl = "https://api.securitycenter.microsoft.com/api/machines?$select=id,computerDnsName,onboardingStatus,lastSeen&$top=1000";
+                // Ask the API to only return Onboarded machines - let the server do the filtering
+                int onboardedCount = 0;
+                string? nextUrl = "https://api.securitycenter.microsoft.com/api/machines?$filter=onboardingStatus+eq+'Onboarded'&$select=id&$top=1000";
 
                 while (nextUrl != null)
                 {
@@ -598,38 +597,14 @@ public class ExecutiveReportController : ControllerBase
                     var machineDoc  = JsonDocument.Parse(machineJson);
 
                     if (machineDoc.RootElement.TryGetProperty("value", out var machines))
-                    {
-                        foreach (var m in machines.EnumerateArray())
-                        {
-                            var status   = m.TryGetProperty("onboardingStatus", out var s)  ? s.GetString()  ?? "" : "";
-                            var name     = m.TryGetProperty("computerDnsName",  out var dn) ? dn.GetString() ?? "" : "";
-                            var lastSeen = m.TryGetProperty("lastSeen",         out var ls) &&
-                                           DateTime.TryParse(ls.GetString(), out var lsParsed) ? lsParsed : DateTime.MinValue;
+                        onboardedCount += machines.EnumerateArray().Count();
 
-                            statusBreakdown.TryGetValue(status, out var existing);
-                            statusBreakdown[status] = existing + 1;
-
-                            // Count all Onboarded devices regardless of platform - matches the portal behaviour
-                            // Deduplicate by name to handle devices enrolled multiple times
-                            if (string.Equals(status, "Onboarded", StringComparison.OrdinalIgnoreCase)
-                                && !string.IsNullOrEmpty(name))
-                            {
-                                if (!seenMachines.TryGetValue(name, out var existing2) || lastSeen > existing2)
-                                    seenMachines[name] = lastSeen;
-                            }
-                        }
-                    }
-
-                    // Follow pagination
                     nextUrl = machineDoc.RootElement.TryGetProperty("@odata.nextLink", out var next)
                         ? next.GetString() : null;
                 }
 
-                result.OnboardedMachines = seenMachines.Count;
-                _logger.LogInformation(
-                    "Defender machines by onboardingStatus: {Breakdown}. Onboarded (deduped by name)={Count}",
-                    string.Join(", ", statusBreakdown.Select(kv => $"{kv.Key}={kv.Value}")),
-                    seenMachines.Count);
+                result.OnboardedMachines = onboardedCount;
+                _logger.LogInformation("Defender onboarded machines={Count}", onboardedCount);
             }
             catch (Exception ex)
             {
