@@ -292,44 +292,97 @@ public class PdfReportGenerator : IDocument
 
     private void DeviceDetailsPage(ColumnDescriptor col)
     {
-        void DevSection(string title, IEnumerable<string[]> rows)
+        col.Item().Text("Intune Managed Devices").FontSize(28).FontColor(_primary);
+        col.Item().Height(6);
+        col.Item().Text("OS version status is determined by comparing each device against the latest known release from endoflife.date.")
+            .FontSize(9).FontColor(Colors.Grey.Darken1);
+        col.Item().Height(16);
+
+        // Colour-coded legend
+        col.Item().Row(row =>
         {
-            col.Item().Text(title).FontSize(16).FontColor(_primary).Bold();
-            col.Item().Height(8);
+            row.AutoItem().Text("● Current").FontSize(8).FontColor(Compliant);
+            row.ConstantItem(16);
+            row.AutoItem().Text("● Update available").FontSize(8).FontColor(Warn);
+            row.ConstantItem(16);
+            row.AutoItem().Text("● Critical / EOL").FontSize(8).FontColor(Crit);
+        });
+        col.Item().Height(14);
+
+        void DevSection<T>(string title, IEnumerable<T> devices,
+            Func<T, string> name, Func<T, string> osVer, Func<T, VersionStatus> status,
+            Func<T, string> statusMsg, Func<T, string?> latest,
+            Func<T, string> compliance, Func<T, string> checkIn)
+        {
+            col.Item().Text(title).FontSize(14).FontColor(_primary).Bold();
+            col.Item().Height(6);
             col.Item().Table(t =>
             {
                 t.ColumnsDefinition(c =>
                 {
-                    c.RelativeColumn(2.5f); c.RelativeColumn(2);
-                    c.RelativeColumn(2);   c.RelativeColumn(1.5f); c.RelativeColumn(1.5f);
+                    c.RelativeColumn(2.5f); c.RelativeColumn(1.8f); c.RelativeColumn(1.5f);
+                    c.RelativeColumn(1.5f); c.RelativeColumn(1.5f); c.RelativeColumn(1.5f);
                 });
-                foreach (var h in new[] { "Device", "OS", "Update Status", "Compliance", "Last Check-in" })
+                foreach (var h in new[] { "Device", "Current OS", "Latest OS", "Update Status", "Compliance", "Last Check-in" })
                     t.Cell().Background(LightGray).Border(1).BorderColor(BorderCol)
-                        .Padding(5).Text(h).FontSize(8).Bold();
-                foreach (var r in rows)
-                    foreach (var v in r)
-                        t.Cell().Border(1).BorderColor(BorderCol).Padding(5).Text(v).FontSize(8);
+                        .Padding(4).Text(h).FontSize(7).Bold();
+                foreach (var d in devices)
+                {
+                    var st = status(d);
+                    var stColor = st switch
+                    {
+                        VersionStatus.Current  => Compliant,
+                        VersionStatus.Warning  => Warn,
+                        VersionStatus.Critical => Crit,
+                        _                      => BodyText
+                    };
+                    t.Cell().Border(1).BorderColor(BorderCol).Padding(4).Text(name(d)).FontSize(7);
+                    t.Cell().Border(1).BorderColor(BorderCol).Padding(4).Text(osVer(d)).FontSize(7);
+                    t.Cell().Border(1).BorderColor(BorderCol).Padding(4)
+                        .Text(latest(d) ?? "-").FontSize(7).FontColor(Colors.Grey.Darken1);
+                    t.Cell().Border(1).BorderColor(BorderCol).Padding(4)
+                        .Text(statusMsg(d)).FontSize(7).FontColor(stColor);
+                    t.Cell().Border(1).BorderColor(BorderCol).Padding(4)
+                        .Text(compliance(d)).FontSize(7)
+                        .FontColor(compliance(d).Equals("Compliant", StringComparison.OrdinalIgnoreCase) ? Compliant :
+                                   compliance(d).Equals("Non-Compliant", StringComparison.OrdinalIgnoreCase) ? Crit : BodyText);
+                    t.Cell().Border(1).BorderColor(BorderCol).Padding(4).Text(checkIn(d)).FontSize(7);
+                }
             });
-            col.Item().Height(16);
+            col.Item().Height(14);
         }
 
         if (_data.DeviceDetails?.WindowsDevices?.Any() == true)
             DevSection($"Windows ({_data.DeviceDetails.WindowsDevices.Count})",
-                _data.DeviceDetails.WindowsDevices.Take(20).Select(d => new[]
-                { d.DeviceName ?? "-", d.OsVersion ?? "-", d.OsVersionStatusMessage ?? "-",
-                  d.ComplianceState ?? "-", d.LastCheckIn?.ToString("dd MMM yyyy") ?? "Never" }));
+                _data.DeviceDetails.WindowsDevices.Take(20),
+                d => d.DeviceName ?? "-", d => d.OsVersion ?? "-",
+                d => d.OsVersionStatus, d => d.OsVersionStatusMessage ?? "-",
+                d => d.LatestVersion,
+                d => d.ComplianceState ?? "-", d => d.LastCheckIn?.ToString("dd MMM yyyy") ?? "Never");
 
         if (_data.DeviceDetails?.MacDevices?.Any() == true)
             DevSection($"macOS ({_data.DeviceDetails.MacDevices.Count})",
-                _data.DeviceDetails.MacDevices.Take(10).Select(d => new[]
-                { d.DeviceName ?? "-", d.OsVersion ?? "-", d.OsVersionStatusMessage ?? "-",
-                  d.ComplianceState ?? "-", d.LastCheckIn?.ToString("dd MMM yyyy") ?? "Never" }));
+                _data.DeviceDetails.MacDevices.Take(10),
+                d => d.DeviceName ?? "-", d => d.OsVersion ?? "-",
+                d => d.OsVersionStatus, d => d.OsVersionStatusMessage ?? "-",
+                d => d.LatestVersion,
+                d => d.ComplianceState ?? "-", d => d.LastCheckIn?.ToString("dd MMM yyyy") ?? "Never");
 
         if (_data.DeviceDetails?.IosDevices?.Any() == true)
             DevSection($"iOS/iPadOS ({_data.DeviceDetails.IosDevices.Count})",
-                _data.DeviceDetails.IosDevices.Take(10).Select(d => new[]
-                { d.DeviceName ?? "-", d.OsVersion ?? "-", d.OsVersionStatusMessage ?? "-",
-                  d.ComplianceState ?? "-", d.LastCheckIn?.ToString("dd MMM yyyy") ?? "Never" }));
+                _data.DeviceDetails.IosDevices.Take(10),
+                d => d.DeviceName ?? "-", d => d.OsVersion ?? "-",
+                d => d.OsVersionStatus, d => d.OsVersionStatusMessage ?? "-",
+                d => d.LatestVersion,
+                d => d.ComplianceState ?? "-", d => d.LastCheckIn?.ToString("dd MMM yyyy") ?? "Never");
+
+        if (_data.DeviceDetails?.AndroidDevices?.Any() == true)
+            DevSection($"Android ({_data.DeviceDetails.AndroidDevices.Count})",
+                _data.DeviceDetails.AndroidDevices.Take(10),
+                d => d.DeviceName ?? "-", d => d.OsVersion ?? "-",
+                d => d.OsVersionStatus, d => d.OsVersionStatusMessage ?? "-",
+                d => d.LatestVersion,
+                d => d.ComplianceState ?? "-", d => d.LastCheckIn?.ToString("dd MMM yyyy") ?? "Never");
     }
 
     private void UserDetailsPage(ColumnDescriptor col)

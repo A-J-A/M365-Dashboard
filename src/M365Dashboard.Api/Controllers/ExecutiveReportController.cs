@@ -1564,9 +1564,10 @@ public class ExecutiveReportController : ControllerBase
                         ComplianceState = FormatComplianceState(device.ComplianceState),
                         ManagementAgent = device.ManagementAgent,
                         Ownership = device.ManagedDeviceOwnerType,
-                        SkuFamily = device.Model, // Using Model as fallback - Windows Edition requires beta API
+                        SkuFamily = device.Model,
                         OsVersionStatus = versionStatus.Status,
-                        OsVersionStatusMessage = versionStatus.Message
+                        OsVersionStatusMessage = versionStatus.Message,
+                        LatestVersion = versionStatus.LatestVersion
                     });
                 }
                 else if (os.Contains("ios") || os.Contains("ipad"))
@@ -1582,7 +1583,8 @@ public class ExecutiveReportController : ControllerBase
                         OsVersion = device.OsVersion,
                         LastCheckIn = device.LastSyncDateTime,
                         OsVersionStatus = versionStatus.Status,
-                        OsVersionStatusMessage = versionStatus.Message
+                        OsVersionStatusMessage = versionStatus.Message,
+                        LatestVersion = versionStatus.LatestVersion
                     });
                 }
                 else if (os.Contains("android"))
@@ -1598,7 +1600,8 @@ public class ExecutiveReportController : ControllerBase
                         OsVersion = device.OsVersion,
                         LastCheckIn = device.LastSyncDateTime,
                         OsVersionStatus = versionStatus.Status,
-                        OsVersionStatusMessage = versionStatus.Message
+                        OsVersionStatusMessage = versionStatus.Message,
+                        LatestVersion = versionStatus.LatestVersion
                     });
                 }
                 else if (os.Contains("mac"))
@@ -1613,7 +1616,8 @@ public class ExecutiveReportController : ControllerBase
                         ManagementAgent = device.ManagementAgent,
                         Ownership = device.ManagedDeviceOwnerType,
                         OsVersionStatus = versionStatus.Status,
-                        OsVersionStatusMessage = versionStatus.Message
+                        OsVersionStatusMessage = versionStatus.Message,
+                        LatestVersion = versionStatus.LatestVersion
                     });
                 }
             }
@@ -2751,9 +2755,9 @@ public class WindowsDeviceDetailData
     public string? ManagementAgent { get; set; }
     public string? Ownership { get; set; }
     public string? SkuFamily { get; set; }
-    // OS Version Status
     public VersionStatus OsVersionStatus { get; set; } = VersionStatus.Unknown;
     public string? OsVersionStatusMessage { get; set; }
+    public string? LatestVersion { get; set; }
 }
 
 public class IosDeviceDetailData
@@ -2765,9 +2769,9 @@ public class IosDeviceDetailData
     public string? Os { get; set; }
     public string? OsVersion { get; set; }
     public DateTime? LastCheckIn { get; set; }
-    // OS Version Status
     public VersionStatus OsVersionStatus { get; set; } = VersionStatus.Unknown;
     public string? OsVersionStatusMessage { get; set; }
+    public string? LatestVersion { get; set; }
 }
 
 public class AndroidDeviceDetailData
@@ -2779,9 +2783,9 @@ public class AndroidDeviceDetailData
     public string? OsVersion { get; set; }
     public DateTime? LastCheckIn { get; set; }
     public string? SecurityPatchLevel { get; set; }
-    // OS Version Status
     public VersionStatus OsVersionStatus { get; set; } = VersionStatus.Unknown;
     public string? OsVersionStatusMessage { get; set; }
+    public string? LatestVersion { get; set; }
 }
 
 public class MacDeviceDetailData
@@ -2792,9 +2796,9 @@ public class MacDeviceDetailData
     public string? ComplianceState { get; set; }
     public string? ManagementAgent { get; set; }
     public string? Ownership { get; set; }
-    // OS Version Status
     public VersionStatus OsVersionStatus { get; set; } = VersionStatus.Unknown;
     public string? OsVersionStatusMessage { get; set; }
+    public string? LatestVersion { get; set; }
 }
 
 public class DeviceDetailsData
