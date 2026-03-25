@@ -580,9 +580,10 @@ public class ExecutiveReportController : ControllerBase
             {
                 // Fetch all machines with just the fields we need, then filter client-side
                 // The Defender API pages at 100 by default so we must follow @odata.nextLink
-                var seenMachineIds  = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                // key = computerDnsName (lowered), value = lastSeen — deduplicate by name, keep most recent
+                var seenMachines    = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
                 var statusBreakdown = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                string? nextUrl = "https://api.securitycenter.microsoft.com/api/machines?$select=id,onboardingStatus,osPlatform&$top=1000";
+                string? nextUrl = "https://api.securitycenter.microsoft.com/api/machines?$select=id,computerDnsName,onboardingStatus,osPlatform,lastSeen&$top=1000";
 
                 while (nextUrl != null)
                 {
@@ -594,15 +595,17 @@ public class ExecutiveReportController : ControllerBase
                     }
 
                     var machineJson = await machineResponse.Content.ReadAsStringAsync();
-                    var machineDoc = JsonDocument.Parse(machineJson);
+                    var machineDoc  = JsonDocument.Parse(machineJson);
 
                     if (machineDoc.RootElement.TryGetProperty("value", out var machines))
                     {
                         foreach (var m in machines.EnumerateArray())
                         {
-                            var status   = m.TryGetProperty("onboardingStatus", out var s)  ? s.GetString()  ?? "" : "";
-                            var platform = m.TryGetProperty("osPlatform",       out var pl) ? pl.GetString() ?? "" : "";
-                            var id       = m.TryGetProperty("id",               out var i)  ? i.GetString()  ?? "" : "";
+                            var status   = m.TryGetProperty("onboardingStatus", out var s)   ? s.GetString()   ?? "" : "";
+                            var platform = m.TryGetProperty("osPlatform",       out var pl)  ? pl.GetString()  ?? "" : "";
+                            var name     = m.TryGetProperty("computerDnsName",  out var dn)  ? dn.GetString()  ?? "" : "";
+                            var lastSeen = m.TryGetProperty("lastSeen",         out var ls) &&
+                                           DateTime.TryParse(ls.GetString(), out var lsParsed) ? lsParsed : DateTime.MinValue;
 
                             statusBreakdown.TryGetValue(status, out var existing);
                             statusBreakdown[status] = existing + 1;
@@ -614,9 +617,12 @@ public class ExecutiveReportController : ControllerBase
                                                || platform.StartsWith("iOS",     StringComparison.OrdinalIgnoreCase)
                                                || platform.StartsWith("Android", StringComparison.OrdinalIgnoreCase);
 
-                            // Deduplicate by machine ID to handle Defender duplicate entries
-                            if (isOnboarded && isKnownPlatform && !string.IsNullOrEmpty(id))
-                                seenMachineIds.Add(id);
+                            if (isOnboarded && isKnownPlatform && !string.IsNullOrEmpty(name))
+                            {
+                                // Keep only the most recently seen entry per device name
+                                if (!seenMachines.TryGetValue(name, out var existing2) || lastSeen > existing2)
+                                    seenMachines[name] = lastSeen;
+                            }
                         }
                     }
 
@@ -625,11 +631,11 @@ public class ExecutiveReportController : ControllerBase
                         ? next.GetString() : null;
                 }
 
-                result.OnboardedMachines = seenMachineIds.Count;
+                result.OnboardedMachines = seenMachines.Count;
                 _logger.LogInformation(
-                    "Defender machines by onboardingStatus: {Breakdown}. Onboarded (deduplicated)={Count}",
+                    "Defender machines by onboardingStatus: {Breakdown}. Onboarded (deduped by name)={Count}",
                     string.Join(", ", statusBreakdown.Select(kv => $"{kv.Key}={kv.Value}")),
-                    seenMachineIds.Count);
+                    seenMachines.Count);
             }
             catch (Exception ex)
             {
