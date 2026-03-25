@@ -557,7 +557,7 @@ public class WordReportGenerator
             new FontSize() { Val = "22" },
             new Color() { Val = _bodyTextColor }
         ));
-        introRun.Append(new Text($"This report was prepared for {_settings.CompanyName} in {data.GeneratedAt:MMMM yyyy}. This {_settings.ReportTitle} provides a comprehensive analysis of your organization's security configuration across key Microsoft 365 services, including Entra ID (Azure AD), Exchange Online, Intune, SharePoint, and Teams."));
+        introRun.Append(new Text($"This {_settings.ReportTitle} for {data.GeneratedAt:MMMM yyyy} provides a comprehensive analysis of your organization's security configuration across key Microsoft 365 services, including Entra ID (Azure AD), Exchange Online, Intune, SharePoint, and Teams."));
         introPara.Append(introRun);
         body.Append(introPara);
         

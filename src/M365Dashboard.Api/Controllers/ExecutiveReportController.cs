@@ -2341,7 +2341,7 @@ public class ExecutiveReportController : ControllerBase
             </div>
         </div>
         
-        <p class='intro'>This report was prepared for {settings.CompanyName} in {data.GeneratedAt:MMMM yyyy}. This {settings.ReportTitle} provides a comprehensive analysis of your organization's security configuration across key Microsoft 365 services, including Entra ID (Azure AD), Exchange Online, Intune, SharePoint, and Teams.</p>
+        <p class='intro'>This {settings.ReportTitle} for {data.GeneratedAt:MMMM yyyy} provides a comprehensive analysis of your organization's security configuration across key Microsoft 365 services, including Entra ID (Azure AD), Exchange Online, Intune, SharePoint, and Teams.</p>
         
         <p class='intro'>The aim of this review is to provide a clear and actionable understanding of your current security posture within Microsoft 365, helping to mitigate potential risks, safeguard sensitive data, and ensure compliance with leading security benchmarks.</p>
     </div>

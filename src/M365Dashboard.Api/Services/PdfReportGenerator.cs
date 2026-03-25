@@ -172,8 +172,8 @@ public class PdfReportGenerator : IDocument
 
         col.Item().Height(18);
         col.Item().Text(
-            $"This report covers the key security metrics for {_settings.CompanyName} " +
-            $"({_data.GeneratedAt:MMMM yyyy}), spanning Entra ID, Exchange Online, Intune, SharePoint, and Teams.")
+            $"This {_settings.ReportTitle} for {_data.GeneratedAt:MMMM yyyy} provides a comprehensive overview of your " +
+            $"Microsoft 365 security posture, covering Entra ID, Exchange Online, Intune, SharePoint, and Teams.")
             .FontSize(10);
 
         col.Item().Height(22);
