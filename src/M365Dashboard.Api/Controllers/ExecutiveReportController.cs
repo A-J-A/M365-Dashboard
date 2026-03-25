@@ -575,21 +575,28 @@ public class ExecutiveReportController : ControllerBase
                 _logger.LogWarning(ex, "Error fetching vulnerabilities");
             }
             
-            // Get Machine count for context
+            // Get Machine count - filter to onboarded only
             try
             {
-                // Get all machines and count them
-                var machineResponse = await httpClient.GetAsync("https://api.securitycenter.microsoft.com/api/machines");
+                // Filter to onboardingStatus eq 'Onboarded' to exclude offboarded/stale devices
+                var machineResponse = await httpClient.GetAsync(
+                    "https://api.securitycenter.microsoft.com/api/machines?$filter=onboardingStatus+eq+'Onboarded'&$select=id,onboardingStatus&$count=true");
                 if (machineResponse.IsSuccessStatusCode)
                 {
                     var machineJson = await machineResponse.Content.ReadAsStringAsync();
                     var machineDoc = JsonDocument.Parse(machineJson);
-                    
-                    if (machineDoc.RootElement.TryGetProperty("value", out var machines))
+
+                    // Prefer @odata.count if present (avoids paging issues)
+                    if (machineDoc.RootElement.TryGetProperty("@odata.count", out var countEl))
+                    {
+                        result.OnboardedMachines = countEl.GetInt32();
+                    }
+                    else if (machineDoc.RootElement.TryGetProperty("value", out var machines))
                     {
                         result.OnboardedMachines = machines.EnumerateArray().Count();
-                        _logger.LogInformation("Retrieved {Count} onboarded machines", result.OnboardedMachines);
                     }
+
+                    _logger.LogInformation("Retrieved {Count} onboarded machines", result.OnboardedMachines);
                 }
             }
             catch (Exception ex)
