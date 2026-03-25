@@ -580,7 +580,7 @@ public class ExecutiveReportController : ControllerBase
             {
                 // Fetch all machines with just the fields we need, then filter client-side
                 // The Defender API pages at 100 by default so we must follow @odata.nextLink
-                int onboardedCount = 0;
+                var seenMachineIds  = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var statusBreakdown = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                 string? nextUrl = "https://api.securitycenter.microsoft.com/api/machines?$select=id,onboardingStatus,osPlatform&$top=1000";
 
@@ -600,19 +600,23 @@ public class ExecutiveReportController : ControllerBase
                     {
                         foreach (var m in machines.EnumerateArray())
                         {
-                            var status = m.TryGetProperty("onboardingStatus", out var s) ? s.GetString() ?? "" : "";
+                            var status   = m.TryGetProperty("onboardingStatus", out var s)  ? s.GetString()  ?? "" : "";
+                            var platform = m.TryGetProperty("osPlatform",       out var pl) ? pl.GetString() ?? "" : "";
+                            var id       = m.TryGetProperty("id",               out var i)  ? i.GetString()  ?? "" : "";
+
                             statusBreakdown.TryGetValue(status, out var existing);
                             statusBreakdown[status] = existing + 1;
 
-                            // Only count actual computer platforms - exclude mobile and network devices
-                            var platform = m.TryGetProperty("osPlatform", out var pl) ? pl.GetString() ?? "" : "";
-                            var isComputer = platform.StartsWith("Windows", StringComparison.OrdinalIgnoreCase)
-                                          || platform.StartsWith("macOS", StringComparison.OrdinalIgnoreCase)
-                                          || platform.StartsWith("Linux", StringComparison.OrdinalIgnoreCase)
-                                          || platform.StartsWith("iOS", StringComparison.OrdinalIgnoreCase)
-                                          || platform.StartsWith("Android", StringComparison.OrdinalIgnoreCase);
-                            if (string.Equals(status, "Onboarded", StringComparison.OrdinalIgnoreCase) && isComputer)
-                                onboardedCount++;
+                            var isOnboarded = string.Equals(status, "Onboarded", StringComparison.OrdinalIgnoreCase);
+                            var isKnownPlatform = platform.StartsWith("Windows", StringComparison.OrdinalIgnoreCase)
+                                               || platform.StartsWith("macOS",   StringComparison.OrdinalIgnoreCase)
+                                               || platform.StartsWith("Linux",   StringComparison.OrdinalIgnoreCase)
+                                               || platform.StartsWith("iOS",     StringComparison.OrdinalIgnoreCase)
+                                               || platform.StartsWith("Android", StringComparison.OrdinalIgnoreCase);
+
+                            // Deduplicate by machine ID to handle Defender duplicate entries
+                            if (isOnboarded && isKnownPlatform && !string.IsNullOrEmpty(id))
+                                seenMachineIds.Add(id);
                         }
                     }
 
@@ -621,11 +625,11 @@ public class ExecutiveReportController : ControllerBase
                         ? next.GetString() : null;
                 }
 
-                result.OnboardedMachines = onboardedCount;
+                result.OnboardedMachines = seenMachineIds.Count;
                 _logger.LogInformation(
-                    "Defender machines by onboardingStatus: {Breakdown}. Onboarded computers (Windows/macOS/Linux)={Count}",
+                    "Defender machines by onboardingStatus: {Breakdown}. Onboarded (deduplicated)={Count}",
                     string.Join(", ", statusBreakdown.Select(kv => $"{kv.Key}={kv.Value}")),
-                    onboardedCount);
+                    seenMachineIds.Count);
             }
             catch (Exception ex)
             {
