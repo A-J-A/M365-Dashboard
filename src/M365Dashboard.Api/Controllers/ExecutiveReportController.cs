@@ -72,68 +72,6 @@ public class ExecutiveReportController : ControllerBase
         hex.TrimStart('#').ToUpperInvariant();
 
     /// <summary>
-    /// Diagnostic endpoint to see exactly what Defender for Endpoint reports for machine onboarding status
-    /// </summary>
-    [HttpGet("defender-machines-debug")]
-    public async Task<IActionResult> DebugDefenderMachines()
-    {
-        try
-        {
-            var tenantId = _configuration["AzureAd:TenantId"];
-            var clientId = _configuration["AzureAd:ClientId"];
-            var clientSecret = _configuration["AzureAd:ClientSecret"];
-
-            var credential = new Azure.Identity.ClientSecretCredential(tenantId, clientId, clientSecret);
-            var token = await credential.GetTokenAsync(new Azure.Core.TokenRequestContext(
-                new[] { "https://api.securitycenter.microsoft.com/.default" }));
-
-            using var httpClient = new HttpClient();
-            httpClient.DefaultRequestHeaders.Authorization =
-                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
-
-            var response = await httpClient.GetAsync(
-                "https://api.securitycenter.microsoft.com/api/machines?$select=id,computerDnsName,onboardingStatus,osPlatform,lastSeen&$top=100");
-
-            if (!response.IsSuccessStatusCode)
-                return Ok(new { error = $"API returned {response.StatusCode}", body = await response.Content.ReadAsStringAsync() });
-
-            var json = await response.Content.ReadAsStringAsync();
-            var doc = JsonDocument.Parse(json);
-
-            var machines = new List<Dictionary<string, string?>>();
-            if (doc.RootElement.TryGetProperty("value", out var val))
-            {
-                foreach (var m in val.EnumerateArray())
-                {
-                    machines.Add(new Dictionary<string, string?>
-                    {
-                        ["name"]            = m.TryGetProperty("computerDnsName",  out var n)  ? n.GetString()  : null,
-                        ["onboardingStatus"] = m.TryGetProperty("onboardingStatus", out var s)  ? s.GetString()  : null,
-                        ["osPlatform"]       = m.TryGetProperty("osPlatform",       out var p)  ? p.GetString()  : null,
-                        ["lastSeen"]         = m.TryGetProperty("lastSeen",         out var ls) ? ls.GetString() : null,
-                    });
-                }
-            }
-
-            var summary = machines
-                .GroupBy(m => m["onboardingStatus"])
-                .ToDictionary(g => g.Key ?? "null", g => g.Count());
-
-            return Ok(new
-            {
-                totalReturned = machines.Count,
-                onboardingStatusBreakdown = summary,
-                onboardedCount = machines.Count(m => m["onboardingStatus"] == "Onboarded"),
-                machines
-            });
-        }
-        catch (Exception ex)
-        {
-            return Ok(new { error = ex.Message });
-        }
-    }
-
-    /// <summary>
     /// Test endpoint to check domain security configuration and run a quick test
     /// </summary>
     [HttpGet("domain-security-test")]
