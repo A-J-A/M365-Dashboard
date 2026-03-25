@@ -632,10 +632,12 @@ public class ExecutiveReportController : ControllerBase
                 }
 
                 result.OnboardedMachines = seenMachines.Count;
+                result.OnboardedMachineNames = seenMachines.Keys.OrderBy(k => k).ToList();
                 _logger.LogInformation(
-                    "Defender machines by onboardingStatus: {Breakdown}. Onboarded (deduped by name)={Count}",
+                    "Defender machines by onboardingStatus: {Breakdown}. Onboarded (deduped by name)={Count}: {Names}",
                     string.Join(", ", statusBreakdown.Select(kv => $"{kv.Key}={kv.Value}")),
-                    seenMachines.Count);
+                    seenMachines.Count,
+                    string.Join(", ", seenMachines.Keys.OrderBy(k => k)));
             }
             catch (Exception ex)
             {
@@ -2764,6 +2766,7 @@ public class DefenderStatsData
     public int MediumVulnerabilities { get; set; }
     public int LowVulnerabilities { get; set; }
     public int? OnboardedMachines { get; set; }
+    public List<string> OnboardedMachineNames { get; set; } = new();
     public string? Note { get; set; }
 }
 
