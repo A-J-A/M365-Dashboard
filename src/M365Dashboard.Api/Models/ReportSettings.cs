@@ -33,6 +33,11 @@ public class ReportSettings
     /// </summary>
     public List<ReportQuote> Quotes { get; set; } = DefaultQuotes();
 
+    /// <summary>
+    /// Domains to exclude from the domain security section of the report.
+    /// </summary>
+    public List<string> ExcludedDomains { get; set; } = new();
+
     public static List<ReportQuote> DefaultQuotes() => new()
     {
         new() { BigNumber = "99%",  Line1 = "of breaches could be mitigated",          Line2 = "with strong passwords and MFA",                Source = "Source: Microsoft Security Report",          Enabled = true },

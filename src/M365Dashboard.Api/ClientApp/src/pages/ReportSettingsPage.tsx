@@ -35,6 +35,7 @@ interface ReportSettings {
   footerText: string | null;
   updatedAt: string;
   quotes: ReportQuote[];
+  excludedDomains: string[];
 }
 
 const DEFAULT_QUOTES: ReportQuote[] = [
@@ -49,6 +50,35 @@ const DEFAULT_QUOTES: ReportQuote[] = [
   { bigNumber: '50%',  line1: 'of SMBs have suffered a cyberattack',  line2: 'and 60% close within 6 months',             source: 'Source: SCORE.org',                        enabled: true },
   { bigNumber: '98%',  line1: 'of cyberattacks can be prevented',      line2: 'by implementing basic cyber hygiene',       source: 'Source: Microsoft Digital Defence Report', enabled: true },
 ];
+
+// Small controlled input for adding a domain to the exclusion list
+const ExcludedDomainInput: React.FC<{ onAdd: (domain: string) => void }> = ({ onAdd }) => {
+  const [value, setValue] = React.useState('');
+  const submit = () => {
+    const trimmed = value.trim().toLowerCase();
+    if (trimmed) { onAdd(trimmed); setValue(''); }
+  };
+  return (
+    <div className="flex gap-2">
+      <input
+        type="text"
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && submit()}
+        placeholder="e.g. legacy.example.com"
+        className="flex-1 px-3 py-1.5 text-sm border border-slate-300 dark:border-slate-600 rounded bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-400"
+      />
+      <button
+        onClick={submit}
+        disabled={!value.trim()}
+        className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40 flex items-center gap-1.5"
+      >
+        <AddRegular className="w-4 h-4" />
+        Add
+      </button>
+    </div>
+  );
+};
 
 const ReportSettingsPage: React.FC = () => {
   const { getAccessToken } = useAppContext();
@@ -67,6 +97,7 @@ const ReportSettingsPage: React.FC = () => {
     footerText: null,
     updatedAt: new Date().toISOString(),
     quotes: DEFAULT_QUOTES,
+    excludedDomains: [],
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -90,6 +121,9 @@ const ReportSettingsPage: React.FC = () => {
         // Backfill quotes if not yet in DB (first load after upgrade)
         if (!data.quotes || data.quotes.length === 0) {
           data.quotes = DEFAULT_QUOTES;
+        }
+        if (!data.excludedDomains) {
+          data.excludedDomains = [];
         }
         setSettings(data);
       }
@@ -614,6 +648,43 @@ const ReportSettingsPage: React.FC = () => {
             <ChatRegular className="w-4 h-4 flex-shrink-0 mt-0.5" />
             <span>3 quotes are picked at random from the enabled pool each time a report is generated, so monthly reports won't always show the same statistics. Uncheck a quote to exclude it without deleting it.</span>
           </div>
+        </div>
+
+        {/* Excluded Domains */}
+        <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm p-6">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">Excluded Domains</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
+            Domains listed here will be hidden from the Domain Security section of the report.
+            Useful for internal or legacy domains where SPF/DMARC cannot be configured.
+          </p>
+
+          {/* Existing excluded domains */}
+          <div className="space-y-2 mb-3">
+            {(settings.excludedDomains ?? []).map((domain, i) => (
+              <div key={i} className="flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg">
+                <span className="flex-1 text-sm font-mono text-slate-700 dark:text-slate-300">{domain}</span>
+                <button
+                  onClick={() => setSettings(prev => ({
+                    ...prev,
+                    excludedDomains: (prev.excludedDomains ?? []).filter((_, idx) => idx !== i)
+                  }))}
+                  className="p-1 text-slate-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                  title="Remove"
+                >
+                  <DeleteRegular className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+            {(settings.excludedDomains ?? []).length === 0 && (
+              <p className="text-sm text-slate-400 dark:text-slate-500 italic">No domains excluded.</p>
+            )}
+          </div>
+
+          {/* Add domain input */}
+          <ExcludedDomainInput onAdd={domain => setSettings(prev => ({
+            ...prev,
+            excludedDomains: [...(prev.excludedDomains ?? []), domain]
+          }))} />
         </div>
 
         {/* Preview */}

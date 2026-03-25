@@ -929,6 +929,7 @@ public class WordReportGenerator
             
             var detailHeaders = new[] { "Domain", "MX", "SPF", "DMARC", "DKIM" };
             var detailRows = data.DomainSecurityResults
+                .Where(d => !_settings.ExcludedDomains.Contains(d.Domain, StringComparer.OrdinalIgnoreCase))
                 .OrderByDescending(d => d.SecurityScore)
                 .Select(d => new[]
                 {

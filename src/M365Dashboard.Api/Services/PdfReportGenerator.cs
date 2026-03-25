@@ -361,7 +361,9 @@ public class PdfReportGenerator : IDocument
                 foreach (var h in new[] { "Domain", "MX", "SPF", "DMARC", "DKIM" })
                     t.Cell().Background(LightGray).Border(1).BorderColor(BorderCol)
                         .Padding(5).Text(h).FontSize(8).Bold();
-                foreach (var d in _data.DomainSecurityResults.OrderByDescending(x => x.SecurityScore).Take(20))
+                foreach (var d in _data.DomainSecurityResults
+                    .Where(x => !_settings.ExcludedDomains.Any(e => string.Equals(e, x.Domain, StringComparison.OrdinalIgnoreCase)))
+                    .OrderByDescending(x => x.SecurityScore).Take(20))
                 {
                     t.Cell().Border(1).BorderColor(BorderCol).Padding(5).Text(d.Domain).FontSize(8);
                     Tick(t, d.HasMx);

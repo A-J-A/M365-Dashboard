@@ -2485,7 +2485,7 @@ public class ExecutiveReportController : ControllerBase
     {(showQuotes && quotes.Count > 2 ? RenderHtmlInfoGraphic(quotes[2]) : "")}
     
     <div class='content page-break'>
-    {GenerateDomainSecuritySection(data.DomainSecuritySummary, data.DomainSecurityResults)}
+    {GenerateDomainSecuritySection(data.DomainSecuritySummary, data.DomainSecurityResults, settings.ExcludedDomains)}
 
     <div class='footer'>
         {(settings.FooterText != null ? $"<p>{settings.FooterText}</p>" : "")}
@@ -2570,7 +2570,7 @@ public class ExecutiveReportController : ControllerBase
         return sb.ToString();
     }
 
-    private string GenerateDomainSecuritySection(DomainSecuritySummary? summary, List<DomainSecurityResult>? results)
+    private string GenerateDomainSecuritySection(DomainSecuritySummary? summary, List<DomainSecurityResult>? results, List<string>? excludedDomains = null)
     {
         if (summary == null) return "";
 
@@ -2622,7 +2622,7 @@ public class ExecutiveReportController : ControllerBase
             sb.AppendLine("<table>");
             sb.AppendLine("<tr><th>Domain</th><th>MX</th><th>SPF</th><th>DMARC</th><th>DKIM</th><th>MTA-STS</th></tr>");
             
-            foreach (var domain in results.OrderByDescending(d => d.SecurityScore))
+            foreach (var domain in results.Where(d => excludedDomains == null || !excludedDomains.Contains(d.Domain, StringComparer.OrdinalIgnoreCase)).OrderByDescending(d => d.SecurityScore))
             {
                 var gradeClass = domain.SecurityGrade switch { "A" or "B" => "good", "C" => "warning", _ => "critical" };
                 sb.AppendLine("<tr>");
