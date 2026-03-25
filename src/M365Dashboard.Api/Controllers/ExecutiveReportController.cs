@@ -583,7 +583,7 @@ public class ExecutiveReportController : ControllerBase
                 // key = computerDnsName (lowered), value = lastSeen — deduplicate by name, keep most recent
                 var seenMachines    = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
                 var statusBreakdown = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                string? nextUrl = "https://api.securitycenter.microsoft.com/api/machines?$select=id,computerDnsName,onboardingStatus,osPlatform,lastSeen&$top=1000";
+                string? nextUrl = "https://api.securitycenter.microsoft.com/api/machines?$select=id,computerDnsName,onboardingStatus,lastSeen&$top=1000";
 
                 while (nextUrl != null)
                 {
@@ -601,25 +601,19 @@ public class ExecutiveReportController : ControllerBase
                     {
                         foreach (var m in machines.EnumerateArray())
                         {
-                            var status   = m.TryGetProperty("onboardingStatus", out var s)   ? s.GetString()   ?? "" : "";
-                            var platform = m.TryGetProperty("osPlatform",       out var pl)  ? pl.GetString()  ?? "" : "";
-                            var name     = m.TryGetProperty("computerDnsName",  out var dn)  ? dn.GetString()  ?? "" : "";
+                            var status   = m.TryGetProperty("onboardingStatus", out var s)  ? s.GetString()  ?? "" : "";
+                            var name     = m.TryGetProperty("computerDnsName",  out var dn) ? dn.GetString() ?? "" : "";
                             var lastSeen = m.TryGetProperty("lastSeen",         out var ls) &&
                                            DateTime.TryParse(ls.GetString(), out var lsParsed) ? lsParsed : DateTime.MinValue;
 
                             statusBreakdown.TryGetValue(status, out var existing);
                             statusBreakdown[status] = existing + 1;
 
-                            var isOnboarded = string.Equals(status, "Onboarded", StringComparison.OrdinalIgnoreCase);
-                            var isKnownPlatform = platform.StartsWith("Windows", StringComparison.OrdinalIgnoreCase)
-                                               || platform.StartsWith("macOS",   StringComparison.OrdinalIgnoreCase)
-                                               || platform.StartsWith("Linux",   StringComparison.OrdinalIgnoreCase)
-                                               || platform.StartsWith("iOS",     StringComparison.OrdinalIgnoreCase)
-                                               || platform.StartsWith("Android", StringComparison.OrdinalIgnoreCase);
-
-                            if (isOnboarded && isKnownPlatform && !string.IsNullOrEmpty(name))
+                            // Count all Onboarded devices regardless of platform - matches the portal behaviour
+                            // Deduplicate by name to handle devices enrolled multiple times
+                            if (string.Equals(status, "Onboarded", StringComparison.OrdinalIgnoreCase)
+                                && !string.IsNullOrEmpty(name))
                             {
-                                // Keep only the most recently seen entry per device name
                                 if (!seenMachines.TryGetValue(name, out var existing2) || lastSeen > existing2)
                                     seenMachines[name] = lastSeen;
                             }
@@ -632,12 +626,10 @@ public class ExecutiveReportController : ControllerBase
                 }
 
                 result.OnboardedMachines = seenMachines.Count;
-                result.OnboardedMachineNames = seenMachines.Keys.OrderBy(k => k).ToList();
                 _logger.LogInformation(
-                    "Defender machines by onboardingStatus: {Breakdown}. Onboarded (deduped by name)={Count}: {Names}",
+                    "Defender machines by onboardingStatus: {Breakdown}. Onboarded (deduped by name)={Count}",
                     string.Join(", ", statusBreakdown.Select(kv => $"{kv.Key}={kv.Value}")),
-                    seenMachines.Count,
-                    string.Join(", ", seenMachines.Keys.OrderBy(k => k)));
+                    seenMachines.Count);
             }
             catch (Exception ex)
             {
@@ -2766,7 +2758,6 @@ public class DefenderStatsData
     public int MediumVulnerabilities { get; set; }
     public int LowVulnerabilities { get; set; }
     public int? OnboardedMachines { get; set; }
-    public List<string> OnboardedMachineNames { get; set; } = new();
     public string? Note { get; set; }
 }
 
