@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   DocumentTextRegular,
-  CalendarRegular,
   ShieldCheckmarkRegular,
   LaptopRegular,
   PersonRegular,
@@ -354,20 +353,14 @@ const ExecutiveReportPage: React.FC = () => {
   const [reportData, setReportData] = useState<ExecutiveReportData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedMonth, setSelectedMonth] = useState(() => {
-    const lastMonth = new Date();
-    lastMonth.setMonth(lastMonth.getMonth() - 1);
-    return `${lastMonth.getFullYear()}-${String(lastMonth.getMonth() + 1).padStart(2, '0')}`;
-  });
 
   const fetchReportData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
       const token = await getAccessToken();
-      const [year, month] = selectedMonth.split('-').map(Number);
       
-      const response = await fetch(`/api/executivereport/data?month=${month}&year=${year}`, {
+      const response = await fetch(`/api/executivereport/data`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -385,14 +378,13 @@ const ExecutiveReportPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [getAccessToken, selectedMonth]);
+  }, [getAccessToken]);
 
   const downloadReport = async () => {
     try {
       const token = await getAccessToken();
-      const [year, month] = selectedMonth.split('-').map(Number);
       
-      const response = await fetch(`/api/executivereport/download?month=${month}&year=${year}`, {
+      const response = await fetch(`/api/executivereport/download`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -555,15 +547,6 @@ const ExecutiveReportPage: React.FC = () => {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2">
-            <CalendarRegular className="w-4 h-4 text-slate-500" />
-            <input
-              type="month"
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="bg-transparent text-sm text-slate-900 dark:text-white focus:outline-none"
-            />
-          </div>
           <button
             onClick={() => fetchReportData()}
             disabled={loading}
