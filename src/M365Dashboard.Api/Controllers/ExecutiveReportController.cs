@@ -575,29 +575,49 @@ public class ExecutiveReportController : ControllerBase
                 _logger.LogWarning(ex, "Error fetching vulnerabilities");
             }
             
-            // Get Machine count - filter to onboarded only
+            // Get Machine count - page through all results and count onboarded Windows/macOS/mobile devices
             try
             {
-                // Filter to onboardingStatus eq 'Onboarded' to exclude offboarded/stale devices
-                var machineResponse = await httpClient.GetAsync(
-                    "https://api.securitycenter.microsoft.com/api/machines?$filter=onboardingStatus+eq+'Onboarded'&$select=id,onboardingStatus&$count=true");
-                if (machineResponse.IsSuccessStatusCode)
+                // Fetch all machines with just the fields we need, then filter client-side
+                // The Defender API pages at 100 by default so we must follow @odata.nextLink
+                int onboardedCount = 0;
+                var statusBreakdown = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                string? nextUrl = "https://api.securitycenter.microsoft.com/api/machines?$select=id,onboardingStatus,osPlatform&$top=1000";
+
+                while (nextUrl != null)
                 {
+                    var machineResponse = await httpClient.GetAsync(nextUrl);
+                    if (!machineResponse.IsSuccessStatusCode)
+                    {
+                        _logger.LogWarning("Machines API returned {Status}", machineResponse.StatusCode);
+                        break;
+                    }
+
                     var machineJson = await machineResponse.Content.ReadAsStringAsync();
                     var machineDoc = JsonDocument.Parse(machineJson);
 
-                    // Prefer @odata.count if present (avoids paging issues)
-                    if (machineDoc.RootElement.TryGetProperty("@odata.count", out var countEl))
+                    if (machineDoc.RootElement.TryGetProperty("value", out var machines))
                     {
-                        result.OnboardedMachines = countEl.GetInt32();
-                    }
-                    else if (machineDoc.RootElement.TryGetProperty("value", out var machines))
-                    {
-                        result.OnboardedMachines = machines.EnumerateArray().Count();
+                        foreach (var m in machines.EnumerateArray())
+                        {
+                            var status = m.TryGetProperty("onboardingStatus", out var s) ? s.GetString() ?? "" : "";
+                            statusBreakdown.TryGetValue(status, out var existing);
+                            statusBreakdown[status] = existing + 1;
+
+                            if (string.Equals(status, "Onboarded", StringComparison.OrdinalIgnoreCase))
+                                onboardedCount++;
+                        }
                     }
 
-                    _logger.LogInformation("Retrieved {Count} onboarded machines", result.OnboardedMachines);
+                    // Follow pagination
+                    nextUrl = machineDoc.RootElement.TryGetProperty("@odata.nextLink", out var next)
+                        ? next.GetString() : null;
                 }
+
+                result.OnboardedMachines = onboardedCount;
+                _logger.LogInformation("Defender machines by onboardingStatus: {Breakdown}. Onboarded={Count}",
+                    string.Join(", ", statusBreakdown.Select(kv => $"{kv.Key}={kv.Value}")),
+                    onboardedCount);
             }
             catch (Exception ex)
             {
