@@ -115,6 +115,33 @@ interface UpdateStatus {
 
 type SettingsTab = 'general' | 'security' | 'system' | 'reports';
 
+function ExcludedDomainInputInline({ onAdd }: { onAdd: (domain: string) => void }) {
+  const [value, setValue] = React.useState('');
+  const submit = () => {
+    const trimmed = value.trim().toLowerCase();
+    if (trimmed) { onAdd(trimmed); setValue(''); }
+  };
+  return (
+    <div className="flex gap-2">
+      <input
+        type="text"
+        value={value}
+        onChange={e => setValue(e.target.value)}
+        onKeyDown={e => e.key === 'Enter' && submit()}
+        placeholder="e.g. legacy.contoso.com"
+        className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400"
+      />
+      <button
+        onClick={submit}
+        disabled={!value.trim()}
+        className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40"
+      >
+        Add
+      </button>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const { settings, widgets, updateSettings, updateWidget, resetWidgets, isLoading } = useSettings();
   const { theme, setTheme } = useTheme();
@@ -166,6 +193,7 @@ export function SettingsPage() {
     footerText: string | null;
     updatedAt: string;
     quotes: ReportQuote[];
+    excludedDomains: string[];
   }>({
     companyName: 'M365 Dashboard',
     reportTitle: 'Microsoft 365 Security Assessment',
@@ -178,6 +206,7 @@ export function SettingsPage() {
     footerText: null,
     updatedAt: new Date().toISOString(),
     quotes: DEFAULT_QUOTES,
+    excludedDomains: [],
   });
   const [editingQuoteIndex, setEditingQuoteIndex] = React.useState<number | null>(null);
   const [editingQuote, setEditingQuote] = React.useState<ReportQuote | null>(null);
@@ -366,6 +395,7 @@ export function SettingsPage() {
         const data = await response.json();
         if (!data.quotes || data.quotes.length === 0) data.quotes = DEFAULT_QUOTES;
         if (data.showQuotes === undefined) data.showQuotes = true;
+        if (!data.excludedDomains) data.excludedDomains = [];
         setReportSettings(data);
         setHasLoadedReport(true);
       }
@@ -1461,6 +1491,29 @@ export function SettingsPage() {
                     )}
                   </div>
                   <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">Uncheck a quote to exclude it from selection without deleting it.</p>
+                </SettingsSection>
+
+                {/* Excluded Domains */}
+                <SettingsSection icon={Globe24Regular} title="Excluded Domains" description="Domains hidden from the Domain Security section of generated reports. Useful for internal or legacy domains where SPF/DMARC cannot be configured.">
+                  <div className="space-y-2 mb-3">
+                    {(reportSettings.excludedDomains ?? []).length === 0 ? (
+                      <p className="text-sm text-gray-400 dark:text-gray-500 italic">No domains excluded.</p>
+                    ) : (
+                      (reportSettings.excludedDomains ?? []).map((domain, i) => (
+                        <div key={i} className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                          <span className="flex-1 text-sm font-mono text-gray-700 dark:text-gray-300">{domain}</span>
+                          <button
+                            onClick={() => setReportSettings((p: any) => ({ ...p, excludedDomains: p.excludedDomains.filter((_: any, idx: number) => idx !== i) }))}
+                            className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                            title="Remove"
+                          >
+                            <Delete16Regular className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <ExcludedDomainInputInline onAdd={(domain) => setReportSettings((p: any) => ({ ...p, excludedDomains: [...(p.excludedDomains ?? []), domain] }))} />
                 </SettingsSection>
 
                 {/* Save */}
