@@ -275,9 +275,9 @@ public class PdfReportGenerator : IDocument
             {
                 TwoCols(t);
                 TH(t, "Metric", "Value");
-                TR(t, "Exposure Level",   _data.DefenderStats.ExposureScore ?? "N/A",
+                TR(t, "Exposure Level",       _data.DefenderStats.ExposureScore ?? "N/A",
                     _data.DefenderStats.ExposureScore switch { "Low" => Compliant, "High" => Crit, _ => Warn });
-                TR(t, "Onboarded Machines", $"{_data.DefenderStats.OnboardedMachines ?? 0}");
+                TR(t, "Onboarded Devices",     $"{_data.DefenderStats.OnboardedMachines ?? 0}");
                 TR(t, "Vulnerabilities",    $"{_data.DefenderStats.VulnerabilitiesDetected}");
                 TR(t, "Critical",           $"{_data.DefenderStats.CriticalVulnerabilities}",
                     _data.DefenderStats.CriticalVulnerabilities > 0 ? Crit : null);

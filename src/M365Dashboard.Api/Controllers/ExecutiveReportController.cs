@@ -75,7 +75,6 @@ public class ExecutiveReportController : ControllerBase
     /// Diagnostic endpoint to see exactly what Defender for Endpoint reports for machine onboarding status
     /// </summary>
     [HttpGet("defender-machines-debug")]
-    [AllowAnonymous]
     public async Task<IActionResult> DebugDefenderMachines()
     {
         try
@@ -667,7 +666,14 @@ public class ExecutiveReportController : ControllerBase
                             statusBreakdown.TryGetValue(status, out var existing);
                             statusBreakdown[status] = existing + 1;
 
-                            if (string.Equals(status, "Onboarded", StringComparison.OrdinalIgnoreCase))
+                            // Only count actual computer platforms - exclude mobile and network devices
+                            var platform = m.TryGetProperty("osPlatform", out var pl) ? pl.GetString() ?? "" : "";
+                            var isComputer = platform.StartsWith("Windows", StringComparison.OrdinalIgnoreCase)
+                                          || platform.StartsWith("macOS", StringComparison.OrdinalIgnoreCase)
+                                          || platform.StartsWith("Linux", StringComparison.OrdinalIgnoreCase)
+                                          || platform.StartsWith("iOS", StringComparison.OrdinalIgnoreCase)
+                                          || platform.StartsWith("Android", StringComparison.OrdinalIgnoreCase);
+                            if (string.Equals(status, "Onboarded", StringComparison.OrdinalIgnoreCase) && isComputer)
                                 onboardedCount++;
                         }
                     }
@@ -678,7 +684,8 @@ public class ExecutiveReportController : ControllerBase
                 }
 
                 result.OnboardedMachines = onboardedCount;
-                _logger.LogInformation("Defender machines by onboardingStatus: {Breakdown}. Onboarded={Count}",
+                _logger.LogInformation(
+                    "Defender machines by onboardingStatus: {Breakdown}. Onboarded computers (Windows/macOS/Linux)={Count}",
                     string.Join(", ", statusBreakdown.Select(kv => $"{kv.Key}={kv.Value}")),
                     onboardedCount);
             }
