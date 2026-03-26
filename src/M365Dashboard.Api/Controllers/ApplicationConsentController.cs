@@ -376,6 +376,121 @@ public class ApplicationConsentController : ControllerBase
     }
 
     /// <summary>
+    /// Enterprise app audit - unused apps, unused credentials, creation timeline
+    /// </summary>
+    [HttpGet("enterprise-app-audit")]
+    public async Task<IActionResult> GetEnterpriseAppAudit()
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+            var thirtyDaysAgo = now.AddDays(-30);
+            var ninetyDaysAgo = now.AddDays(-90);
+
+            // Fetch app registrations with credentials
+            var apps = await _graphClient.Applications.GetAsync(config =>
+            {
+                config.QueryParameters.Top = 200;
+                config.QueryParameters.Select = new[]
+                {
+                    "id", "appId", "displayName", "createdDateTime", "description",
+                    "signInAudience", "publisherDomain", "passwordCredentials", "keyCredentials",
+                    "requiredResourceAccess"
+                };
+            });
+            var appList = apps?.Value ?? new List<Microsoft.Graph.Models.Application>();
+
+            // Fetch service principals to get sign-in activity
+            var sps = await _graphClient.ServicePrincipals.GetAsync(config =>
+            {
+                config.QueryParameters.Top = 200;
+                config.QueryParameters.Filter = "servicePrincipalType eq 'Application'";
+                config.QueryParameters.Select = new[] { "id", "appId", "displayName", "accountEnabled", "signInActivity" };
+            });
+            var spList = sps?.Value ?? new List<Microsoft.Graph.Models.ServicePrincipal>();
+
+            // Build lookup: appId -> last sign-in
+            var signInLookup = spList
+                .Where(sp => sp.AppId != null)
+                .ToDictionary(
+                    sp => sp.AppId!,
+                    sp => sp.AdditionalData.TryGetValue("signInActivity", out var sa) ? sa : null
+                );
+
+            var result = appList.Select(a =>
+            {
+                var hasSecret = a.PasswordCredentials?.Any() == true;
+                var hasCert   = a.KeyCredentials?.Any() == true;
+                var hasAnyCred = hasSecret || hasCert;
+
+                var allExpired = hasAnyCred &&
+                    (a.PasswordCredentials?.All(p => p.EndDateTime < now) ?? true) &&
+                    (a.KeyCredentials?.All(k => k.EndDateTime < now) ?? true);
+
+                var noCredentials = !hasAnyCred;
+
+                // Nearest expiry across all credentials
+                var allExpiries = new List<DateTimeOffset?>();
+                if (a.PasswordCredentials != null) allExpiries.AddRange(a.PasswordCredentials.Select(p => p.EndDateTime));
+                if (a.KeyCredentials != null) allExpiries.AddRange(a.KeyCredentials.Select(k => k.EndDateTime));
+                var nextExpiry = allExpiries.Where(d => d > now).OrderBy(d => d).FirstOrDefault();
+
+                var createdDaysAgo = a.CreatedDateTime.HasValue
+                    ? (int)(now - a.CreatedDateTime.Value).TotalDays : (int?)null;
+
+                return new
+                {
+                    id = a.Id,
+                    appId = a.AppId,
+                    displayName = a.DisplayName ?? "(no name)",
+                    description = a.Description,
+                    createdDateTime = a.CreatedDateTime,
+                    createdDaysAgo,
+                    isNew = a.CreatedDateTime.HasValue && a.CreatedDateTime.Value >= thirtyDaysAgo,
+                    signInAudience = a.SignInAudience,
+                    publisherDomain = a.PublisherDomain,
+                    hasCredentials = hasAnyCred,
+                    noCredentials,
+                    allCredentialsExpired = allExpired,
+                    secretCount = a.PasswordCredentials?.Count ?? 0,
+                    certCount = a.KeyCredentials?.Count ?? 0,
+                    nextExpiry,
+                    daysUntilNextExpiry = nextExpiry.HasValue ? (int)(nextExpiry.Value - now).TotalDays : (int?)null,
+                    requiresResourceAccess = a.RequiredResourceAccess?.Any() == true,
+                    resourceAccessCount = a.RequiredResourceAccess?.Sum(r => r.ResourceAccess?.Count ?? 0) ?? 0
+                };
+            }).ToList();
+
+            var recentApps  = result.Where(r => r.isNew).OrderByDescending(r => r.createdDateTime).ToList();
+            var noCredApps  = result.Where(r => r.noCredentials).OrderBy(r => r.displayName).ToList();
+            var expiredCred = result.Where(r => r.allCredentialsExpired).OrderBy(r => r.displayName).ToList();
+            var byDate      = result.OrderByDescending(r => r.createdDateTime).ToList();
+
+            return Ok(new
+            {
+                summary = new
+                {
+                    totalApps          = result.Count,
+                    newLast30Days      = recentApps.Count,
+                    noCredentials      = noCredApps.Count,
+                    allCredentialsExpired = expiredCred.Count,
+                    appsWithPermissions = result.Count(r => r.requiresResourceAccess)
+                },
+                recentApps,
+                noCredentialsApps = noCredApps,
+                expiredCredentialsApps = expiredCred,
+                allAppsByDate = byDate,
+                lastUpdated = now
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching enterprise app audit");
+            return StatusCode(500, new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Get risky/suspicious app consents
     /// </summary>
     [HttpGet("risky-consents")]

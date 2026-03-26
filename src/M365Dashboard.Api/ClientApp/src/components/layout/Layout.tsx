@@ -165,6 +165,13 @@ export function Layout({ children }: LayoutProps) {
       section: 'security'
     },
     { 
+      to: '/enterprise-apps', 
+      icon: Apps24Regular, 
+      iconFilled: Apps24Filled, 
+      label: 'Enterprise Apps',
+      section: 'security'
+    },
+    { 
       to: '/defender-office', 
       icon: ShieldCheckmark24Regular, 
       iconFilled: ShieldCheckmark24Filled, 
