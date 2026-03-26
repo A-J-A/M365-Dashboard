@@ -376,7 +376,7 @@ public class ApplicationConsentController : ControllerBase
     }
 
     /// <summary>
-    /// Enterprise app audit - unused apps, unused credentials, creation timeline
+    /// Enterprise app audit - covers both app registrations and enterprise apps (service principals)
     /// </summary>
     [HttpGet("enterprise-app-audit")]
     public async Task<IActionResult> GetEnterpriseAppAudit()
@@ -385,58 +385,34 @@ public class ApplicationConsentController : ControllerBase
         {
             var now = DateTime.UtcNow;
             var thirtyDaysAgo = now.AddDays(-30);
-            var ninetyDaysAgo = now.AddDays(-90);
 
-            // Fetch app registrations with credentials
+            // ── App Registrations ──────────────────────────────────────────
             var apps = await _graphClient.Applications.GetAsync(config =>
             {
                 config.QueryParameters.Top = 200;
                 config.QueryParameters.Select = new[]
                 {
                     "id", "appId", "displayName", "createdDateTime", "description",
-                    "signInAudience", "publisherDomain", "passwordCredentials", "keyCredentials",
-                    "requiredResourceAccess"
+                    "signInAudience", "publisherDomain", "passwordCredentials",
+                    "keyCredentials", "requiredResourceAccess"
                 };
             });
             var appList = apps?.Value ?? new List<Microsoft.Graph.Models.Application>();
 
-            // Fetch service principals to get sign-in activity
-            var sps = await _graphClient.ServicePrincipals.GetAsync(config =>
+            var registrations = appList.Select(a =>
             {
-                config.QueryParameters.Top = 200;
-                config.QueryParameters.Filter = "servicePrincipalType eq 'Application'";
-                config.QueryParameters.Select = new[] { "id", "appId", "displayName", "accountEnabled", "signInActivity" };
-            });
-            var spList = sps?.Value ?? new List<Microsoft.Graph.Models.ServicePrincipal>();
-
-            // Build lookup: appId -> last sign-in
-            var signInLookup = spList
-                .Where(sp => sp.AppId != null)
-                .ToDictionary(
-                    sp => sp.AppId!,
-                    sp => sp.AdditionalData.TryGetValue("signInActivity", out var sa) ? sa : null
-                );
-
-            var result = appList.Select(a =>
-            {
-                var hasSecret = a.PasswordCredentials?.Any() == true;
-                var hasCert   = a.KeyCredentials?.Any() == true;
+                var hasSecret  = a.PasswordCredentials?.Any() == true;
+                var hasCert    = a.KeyCredentials?.Any() == true;
                 var hasAnyCred = hasSecret || hasCert;
-
                 var allExpired = hasAnyCred &&
                     (a.PasswordCredentials?.All(p => p.EndDateTime < now) ?? true) &&
                     (a.KeyCredentials?.All(k => k.EndDateTime < now) ?? true);
 
-                var noCredentials = !hasAnyCred;
-
-                // Nearest expiry across all credentials
                 var allExpiries = new List<DateTimeOffset?>();
                 if (a.PasswordCredentials != null) allExpiries.AddRange(a.PasswordCredentials.Select(p => p.EndDateTime));
-                if (a.KeyCredentials != null) allExpiries.AddRange(a.KeyCredentials.Select(k => k.EndDateTime));
+                if (a.KeyCredentials     != null) allExpiries.AddRange(a.KeyCredentials.Select(k => k.EndDateTime));
                 var nextExpiry = allExpiries.Where(d => d > now).OrderBy(d => d).FirstOrDefault();
-
-                var createdDaysAgo = a.CreatedDateTime.HasValue
-                    ? (int)(now - a.CreatedDateTime.Value).TotalDays : (int?)null;
+                var createdDaysAgo = a.CreatedDateTime.HasValue ? (int)(now - a.CreatedDateTime.Value).TotalDays : (int?)null;
 
                 return new
                 {
@@ -450,36 +426,95 @@ public class ApplicationConsentController : ControllerBase
                     signInAudience = a.SignInAudience,
                     publisherDomain = a.PublisherDomain,
                     hasCredentials = hasAnyCred,
-                    noCredentials,
+                    noCredentials = !hasAnyCred,
                     allCredentialsExpired = allExpired,
                     secretCount = a.PasswordCredentials?.Count ?? 0,
-                    certCount = a.KeyCredentials?.Count ?? 0,
+                    certCount   = a.KeyCredentials?.Count ?? 0,
                     nextExpiry,
                     daysUntilNextExpiry = nextExpiry.HasValue ? (int)(nextExpiry.Value - now).TotalDays : (int?)null,
                     requiresResourceAccess = a.RequiredResourceAccess?.Any() == true,
-                    resourceAccessCount = a.RequiredResourceAccess?.Sum(r => r.ResourceAccess?.Count ?? 0) ?? 0
+                    resourceAccessCount    = a.RequiredResourceAccess?.Sum(r => r.ResourceAccess?.Count ?? 0) ?? 0,
+                    appType = "Registration"
                 };
             }).ToList();
 
-            var recentApps  = result.Where(r => r.isNew).OrderByDescending(r => r.createdDateTime).ToList();
-            var noCredApps  = result.Where(r => r.noCredentials).OrderBy(r => r.displayName).ToList();
-            var expiredCred = result.Where(r => r.allCredentialsExpired).OrderBy(r => r.displayName).ToList();
-            var byDate      = result.OrderByDescending(r => r.createdDateTime).ToList();
+            // ── Enterprise Apps (Service Principals) ──────────────────────
+            // Only non-Microsoft-first-party apps (exclude WindowsAzureActiveDirectoryIntegratedApp tag)
+            var sps = await _graphClient.ServicePrincipals.GetAsync(config =>
+            {
+                config.QueryParameters.Top = 200;
+                config.QueryParameters.Filter = "servicePrincipalType eq 'Application'";
+                config.QueryParameters.Select = new[]
+                {
+                    "id", "appId", "displayName", "description", "accountEnabled",
+                    "createdDateTime", "signInAudience", "tags",
+                    "verifiedPublisher", "appOwnerOrganizationId", "homepage"
+                };
+            });
+            var spList = sps?.Value ?? new List<Microsoft.Graph.Models.ServicePrincipal>();
+
+            // Build a set of appIds that are our own registrations (to flag them)
+            var ownAppIds = new HashSet<string>(appList.Select(a => a.AppId ?? ""), StringComparer.OrdinalIgnoreCase);
+
+            var enterpriseApps = spList.Select(sp =>
+            {
+                var isOwn = ownAppIds.Contains(sp.AppId ?? "");
+                var isMicrosoft = sp.AppOwnerOrganizationId?.ToString() == "f8cdef31-a31e-4b4a-93e4-5f571e91255a" // Microsoft tenant
+                               || sp.AppOwnerOrganizationId?.ToString() == "72f988bf-86f1-41af-91ab-2d7cd011db47";
+                var createdDaysAgo = sp.CreatedDateTime.HasValue ? (int)(now - sp.CreatedDateTime.Value).TotalDays : (int?)null;
+
+                return new
+                {
+                    id = sp.Id,
+                    appId = sp.AppId,
+                    displayName = sp.DisplayName ?? "(no name)",
+                    description = sp.Description,
+                    createdDateTime = sp.CreatedDateTime,
+                    createdDaysAgo,
+                    isNew = sp.CreatedDateTime.HasValue && sp.CreatedDateTime.Value >= thirtyDaysAgo,
+                    accountEnabled = sp.AccountEnabled,
+                    signInAudience = sp.SignInAudience,
+                    isOwnRegistration = isOwn,
+                    isMicrosoftApp = isMicrosoft,
+                    isVerified = sp.VerifiedPublisher != null,
+                    publisherName = sp.VerifiedPublisher?.DisplayName,
+                    homepage = sp.Homepage,
+                    tags = sp.Tags,
+                    appType = "EnterpriseApp"
+                };
+            }).ToList();
+
+            // ── Summaries ──────────────────────────────────────────────────
+            var recentRegistrations  = registrations.Where(r => r.isNew).OrderByDescending(r => r.createdDateTime).ToList();
+            var noCredApps           = registrations.Where(r => r.noCredentials).OrderBy(r => r.displayName).ToList();
+            var expiredCredApps      = registrations.Where(r => r.allCredentialsExpired).OrderBy(r => r.displayName).ToList();
+            var recentEnterprise     = enterpriseApps.Where(e => e.isNew).OrderByDescending(e => e.createdDateTime).ToList();
+            var disabledEnterprise   = enterpriseApps.Where(e => e.accountEnabled == false).OrderBy(e => e.displayName).ToList();
+            var thirdPartyEnterprise = enterpriseApps.Where(e => !e.isMicrosoftApp).OrderBy(e => e.displayName).ToList();
 
             return Ok(new
             {
                 summary = new
                 {
-                    totalApps          = result.Count,
-                    newLast30Days      = recentApps.Count,
-                    noCredentials      = noCredApps.Count,
-                    allCredentialsExpired = expiredCred.Count,
-                    appsWithPermissions = result.Count(r => r.requiresResourceAccess)
+                    totalRegistrations    = registrations.Count,
+                    totalEnterpriseApps   = enterpriseApps.Count,
+                    thirdPartyApps        = thirdPartyEnterprise.Count,
+                    newRegistrations30d   = recentRegistrations.Count,
+                    newEnterpriseApps30d  = recentEnterprise.Count,
+                    noCredentials         = noCredApps.Count,
+                    allCredentialsExpired = expiredCredApps.Count,
+                    disabledEnterpriseApps = disabledEnterprise.Count
                 },
-                recentApps,
-                noCredentialsApps = noCredApps,
-                expiredCredentialsApps = expiredCred,
-                allAppsByDate = byDate,
+                // App registrations
+                recentRegistrations,
+                noCredentialsApps    = noCredApps,
+                expiredCredentialsApps = expiredCredApps,
+                allRegistrationsByDate = registrations.OrderByDescending(r => r.createdDateTime).ToList(),
+                // Enterprise apps
+                recentEnterpriseApps   = recentEnterprise,
+                allEnterpriseApps      = enterpriseApps.OrderByDescending(e => e.createdDateTime).ToList(),
+                thirdPartyEnterpriseApps = thirdPartyEnterprise,
+                disabledEnterpriseApps = disabledEnterprise,
                 lastUpdated = now
             });
         }
