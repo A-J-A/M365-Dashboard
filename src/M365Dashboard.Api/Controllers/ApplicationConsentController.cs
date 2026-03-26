@@ -447,7 +447,7 @@ public class ApplicationConsentController : ControllerBase
                 config.QueryParameters.Select = new[]
                 {
                     "id", "appId", "displayName", "description", "accountEnabled",
-                    "createdDateTime", "signInAudience", "tags",
+                    "signInAudience", "tags",
                     "verifiedPublisher", "appOwnerOrganizationId", "homepage"
                 };
             });
@@ -459,9 +459,17 @@ public class ApplicationConsentController : ControllerBase
             var enterpriseApps = spList.Select(sp =>
             {
                 var isOwn = ownAppIds.Contains(sp.AppId ?? "");
-                var isMicrosoft = sp.AppOwnerOrganizationId?.ToString() == "f8cdef31-a31e-4b4a-93e4-5f571e91255a" // Microsoft tenant
+                var isMicrosoft = sp.AppOwnerOrganizationId?.ToString() == "f8cdef31-a31e-4b4a-93e4-5f571e91255a"
                                || sp.AppOwnerOrganizationId?.ToString() == "72f988bf-86f1-41af-91ab-2d7cd011db47";
-                var createdDaysAgo = sp.CreatedDateTime.HasValue ? (int)(now - sp.CreatedDateTime.Value).TotalDays : (int?)null;
+
+                // CreatedDateTime is not a typed property on ServicePrincipal in SDK v5 - read from AdditionalData
+                DateTimeOffset? createdDt = null;
+                if (sp.AdditionalData?.TryGetValue("createdDateTime", out var cdtRaw) == true
+                    && cdtRaw is string cdtString
+                    && DateTimeOffset.TryParse(cdtString, out var parsedDt))
+                    createdDt = parsedDt;
+
+                var createdDaysAgo = createdDt.HasValue ? (int)(now - createdDt.Value).TotalDays : (int?)null;
 
                 return new
                 {
@@ -469,9 +477,9 @@ public class ApplicationConsentController : ControllerBase
                     appId = sp.AppId,
                     displayName = sp.DisplayName ?? "(no name)",
                     description = sp.Description,
-                    createdDateTime = sp.CreatedDateTime,
+                    createdDateTime = createdDt,
                     createdDaysAgo,
-                    isNew = sp.CreatedDateTime.HasValue && sp.CreatedDateTime.Value >= thirtyDaysAgo,
+                    isNew = createdDt.HasValue && createdDt.Value >= thirtyDaysAgo,
                     accountEnabled = sp.AccountEnabled,
                     signInAudience = sp.SignInAudience,
                     isOwnRegistration = isOwn,
