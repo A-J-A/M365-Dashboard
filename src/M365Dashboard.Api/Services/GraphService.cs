@@ -2564,24 +2564,16 @@ public class GraphService : IGraphService
                         controlMaxScore = ConvertToDouble(maxScoreObj);
                     }
                     
-                    // If maxScore is still 0, calculate it from scoreInPercentage
-                    // Formula: if score is X and that represents Y%, then maxScore = X / (Y/100)
+                    // If maxScore is still 0, calculate it from scoreInPercentage only when score > 0
+                    // Never guess maxScore for unimplemented controls (score=0, pct=0) - let profile lookup handle it
                     if (controlMaxScore == 0 && cs.AdditionalData.TryGetValue("scoreInPercentage", out var percentObj))
                     {
                         var percent = ConvertToDouble(percentObj);
                         if (percent > 0 && controlScore > 0)
                         {
-                            // score / (percent/100) = maxScore
-                            // e.g., score=5, percent=100 -> maxScore = 5 / 1.0 = 5
-                            // e.g., score=3, percent=60 -> maxScore = 3 / 0.6 = 5
                             controlMaxScore = Math.Round(controlScore / (percent / 100.0), 2);
                         }
-                        else if (percent == 0 && controlScore == 0)
-                        {
-                            // Control not implemented - try to estimate maxScore from control name patterns
-                            // Most controls have maxScore between 1-10, default to reasonable estimate
-                            controlMaxScore = 5; // Default estimate
-                        }
+                        // If percent=0 and score=0: leave maxScore=0, profile lookup will supply the correct value
                     }
                 }
                 
@@ -2620,19 +2612,21 @@ public class GraphService : IGraphService
             {
                 var profiles = await _graphClient.Security.SecureScoreControlProfiles.GetAsync(config =>
                 {
-                    config.QueryParameters.Top = 200;
+                    config.QueryParameters.Top = 999;
                     config.QueryParameters.Select = new[] { "id", "maxScore", "controlCategory" };
                 });
-                if (profiles?.Value != null)
+                while (profiles?.Value != null)
                 {
                     foreach (var p in profiles.Value)
                     {
-                        // In the SDK, Id is the control name (e.g. "AdminMFA", "DLPEnabled")
                         if (!string.IsNullOrEmpty(p.Id))
                             profileMaxScores[p.Id] = p.MaxScore ?? 0;
                     }
-                    _logger.LogInformation("Fetched {Count} control profiles for maxScore lookup", profiles.Value.Count);
+                    if (profiles.OdataNextLink == null) break;
+                    profiles = await _graphClient.Security.SecureScoreControlProfiles
+                        .WithUrl(profiles.OdataNextLink).GetAsync();
                 }
+                _logger.LogInformation("Fetched {Count} control profiles for maxScore lookup", profileMaxScores.Count);
             }
             catch (Exception ex)
             {
@@ -2645,7 +2639,11 @@ public class GraphService : IGraphService
             double CalcMax(string category) =>
                 controlScores
                     .Where(c => string.Equals(c.ControlCategory, category, StringComparison.OrdinalIgnoreCase))
-                    .Sum(c => profileMaxScores.TryGetValue(c.ControlName, out var m) && m > 0 ? m : c.MaxScore);
+                    .Sum(c =>
+                        // Always prefer the authoritative maxScore from control profiles
+                        profileMaxScores.TryGetValue(c.ControlName, out var m) && m > 0 ? m :
+                        // Fall back to the value derived from scoreInPercentage if available
+                        c.MaxScore > 0 ? c.MaxScore : 0);
             double CalcPct(double score, double max) => max > 0 ? Math.Round(score / max * 100, 1) : 0;
 
             var idScore  = CalcScore("Identity"); var idMax  = CalcMax("Identity");
