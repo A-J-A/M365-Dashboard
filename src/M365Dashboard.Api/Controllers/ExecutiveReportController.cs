@@ -289,15 +289,7 @@ public class ExecutiveReportController : ControllerBase
                 catch (Exception ex) { _logger.LogWarning(ex, "Failed to get Risky Users"); }
             }));
 
-            // 11. Windows Update Compliance
-            tasks.Add(Task.Run(async () =>
-            {
-                try
-                {
-                    reportData.WindowsUpdateStats = await GetWindowsUpdateStatsAsync();
-                }
-                catch (Exception ex) { _logger.LogWarning(ex, "Failed to get Windows Update Stats"); }
-            }));
+            // 11. (Windows Update Compliance removed - was using Intune compliance as proxy, not actual patch data)
 
             // 12. Cloud App Discovery (Shadow IT)
             tasks.Add(Task.Run(async () =>

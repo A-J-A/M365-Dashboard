@@ -645,27 +645,7 @@ const ExecutiveReportPage: React.FC = () => {
               <DataRow label="Non-Compliant" value={reportData.deviceStats?.nonCompliantDevices || 0} color="red" />
             </SectionCard>
 
-            {/* Windows Patch Status */}
-            <SectionCard 
-              title="Windows Patch Status" 
-              icon={<LaptopRegular className="w-5 h-5 text-blue-600" />}
-              note={reportData.windowsUpdateStats?.note}
-            >
-              <div className="grid grid-cols-2 gap-4 mb-4">
-                <div className="text-center p-3 bg-slate-50 dark:bg-slate-900/50 rounded-lg">
-                  <p className="text-2xl font-bold text-blue-600">{reportData.windowsUpdateStats?.totalWindowsDevices || 0}</p>
-                  <p className="text-xs text-slate-500">Windows Devices</p>
-                </div>
-                <div className="text-center p-3 bg-slate-50 dark:bg-slate-900/50 rounded-lg">
-                  <p className={`text-2xl font-bold ${(reportData.windowsUpdateStats?.complianceRate || 0) >= 90 ? 'text-green-600' : 'text-amber-600'}`}>
-                    {reportData.windowsUpdateStats?.complianceRate || 0}%
-                  </p>
-                  <p className="text-xs text-slate-500">Up to Date</p>
-                </div>
-              </div>
-              <DataRow label="Up to Date" value={reportData.windowsUpdateStats?.upToDate || 0} color="green" />
-              <DataRow label="Needs Update" value={reportData.windowsUpdateStats?.needsUpdate || 0} color="amber" />
-            </SectionCard>
+
 
             {/* Microsoft Defender */}
             <SectionCard 
