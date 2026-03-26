@@ -212,7 +212,11 @@ public class PdfReportGenerator : IDocument
         if (_data.SecureScore != null)
         {
             col.Item().Text("Microsoft Secure Score").FontSize(16).FontColor(_primary).Bold();
-            col.Item().Height(10);
+            col.Item().Height(4);
+            col.Item().Text("Microsoft Secure Score measures your organisation's security posture across Microsoft 365. " +
+                "A higher score indicates more security controls are in place. Scores above 70% are considered good, " +
+                "with the maximum achievable score depending on your licensed services.").FontSize(8).FontColor(Colors.Grey.Darken1);
+            col.Item().Height(8);
             col.Item().Table(t =>
             {
                 TwoCols(t);
@@ -228,7 +232,11 @@ public class PdfReportGenerator : IDocument
         if (_data.DeviceStats != null)
         {
             col.Item().Text("Intune Managed Devices").FontSize(16).FontColor(_primary).Bold();
-            col.Item().Height(10);
+            col.Item().Height(4);
+            col.Item().Text("Microsoft Intune is the mobile device and application management solution within Microsoft 365. " +
+                "Compliant devices meet the security requirements defined in your compliance policies, such as requiring " +
+                "encryption, PIN protection, and up-to-date operating systems.").FontSize(8).FontColor(Colors.Grey.Darken1);
+            col.Item().Height(8);
             col.Item().Table(t =>
             {
                 TwoCols(t);
@@ -250,7 +258,11 @@ public class PdfReportGenerator : IDocument
         if (_data.DefenderStats != null)
         {
             col.Item().Text("Microsoft Defender for Endpoint").FontSize(16).FontColor(_primary).Bold();
-            col.Item().Height(10);
+            col.Item().Height(4);
+            col.Item().Text("Microsoft Defender for Endpoint provides advanced threat protection for devices. " +
+                "The Exposure Score reflects how vulnerable your organisation is to threats — a lower score is better. " +
+                "Low (0-30) indicates good posture, Medium (31-70) needs attention, and High (71-100) requires immediate action.").FontSize(8).FontColor(Colors.Grey.Darken1);
+            col.Item().Height(8);
 
             // Exposure score gauge (visual bar)
             if (_data.DefenderStats.ExposureScoreNumeric.HasValue)
@@ -291,8 +303,9 @@ public class PdfReportGenerator : IDocument
     {
         col.Item().Text("Intune Managed Devices").FontSize(28).FontColor(_primary);
         col.Item().Height(6);
-        col.Item().Text("OS version status is determined by comparing each device against the latest known release from endoflife.date.")
-            .FontSize(9).FontColor(Colors.Grey.Darken1);
+        col.Item().Text("Detailed view of all Intune-managed devices with OS version status. " +
+            "Each device's OS is compared against the latest known release sourced from endoflife.date. " +
+            "Keeping devices up to date is critical for patching known vulnerabilities and maintaining compliance.").FontSize(8).FontColor(Colors.Grey.Darken1);
         col.Item().Height(16);
 
         // Colour-coded legend
@@ -386,7 +399,11 @@ public class PdfReportGenerator : IDocument
     {
         col.Item().Text($"User Sign-in & MFA ({_data.UserSignInDetails!.Count} users)")
             .FontSize(16).FontColor(_primary).Bold();
-        col.Item().Height(10);
+        col.Item().Height(4);
+        col.Item().Text("Multi-Factor Authentication (MFA) requires users to verify their identity using a second method beyond their password, " +
+            "significantly reducing the risk of account compromise. All users should have MFA registered. " +
+            "Last sign-in dates help identify inactive accounts that may pose a security risk.").FontSize(8).FontColor(Colors.Grey.Darken1);
+        col.Item().Height(8);
         col.Item().Table(t =>
         {
             t.ColumnsDefinition(c =>
@@ -418,7 +435,13 @@ public class PdfReportGenerator : IDocument
     private void DomainSecurityPage(ColumnDescriptor col)
     {
         col.Item().Text("Domain Email Security").FontSize(16).FontColor(_primary).Bold();
-        col.Item().Height(10);
+        col.Item().Height(4);
+        col.Item().Text("Email authentication records protect your domains from spoofing and phishing attacks. " +
+            "SPF (Sender Policy Framework) specifies which mail servers are authorised to send email for your domain. " +
+            "DKIM (DomainKeys Identified Mail) adds a digital signature to emails to verify they have not been tampered with. " +
+            "DMARC (Domain-based Message Authentication) tells receiving mail servers what to do with emails that fail SPF or DKIM checks — " +
+            "a policy of 'reject' provides the strongest protection.").FontSize(8).FontColor(Colors.Grey.Darken1);
+        col.Item().Height(8);
         col.Item().Table(t =>
         {
             TwoCols(t);
@@ -466,8 +489,9 @@ public class PdfReportGenerator : IDocument
         col.Item().Text($"Deleted Users ({_data.DeletedUsersInPeriod!.Count} in period)")
             .FontSize(16).FontColor(_primary).Bold();
         col.Item().Height(6);
-        col.Item().Text("Users deleted during the report period.")
-            .FontSize(9).FontColor(Colors.Grey.Darken1);
+        col.Item().Text("Users deleted during the report period. Deleted accounts are soft-deleted and retained in the directory for 30 days " +
+            "before permanent removal. Reviewing deletions helps identify unauthorised account removals or offboarding that may " +
+            "require follow-up, such as revoking access to shared resources or reassigning licences.").FontSize(8).FontColor(Colors.Grey.Darken1);
         col.Item().Height(12);
         col.Item().Table(t =>
         {
@@ -496,8 +520,9 @@ public class PdfReportGenerator : IDocument
         col.Item().Text($"Mailbox Storage ({_data.MailboxDetails!.Count} mailboxes)")
             .FontSize(16).FontColor(_primary).Bold();
         col.Item().Height(6);
-        col.Item().Text("Mailbox storage usage over the last 30 days, sorted by size.")
-            .FontSize(9).FontColor(Colors.Grey.Darken1);
+        col.Item().Text("Mailbox storage usage over the last 30 days, sorted by size. Exchange Online mailboxes have a default quota of 50GB (100GB with Microsoft 365 E3/E5). " +
+            "Mailboxes approaching their quota will begin to experience send/receive restrictions. " +
+            "Inactive mailboxes (no recent activity) may indicate unused licences that could be reclaimed.").FontSize(8).FontColor(Colors.Grey.Darken1);
         col.Item().Height(12);
         col.Item().Table(t =>
         {
@@ -537,9 +562,10 @@ public class PdfReportGenerator : IDocument
             .FontSize(28).FontColor(_primary);
         col.Item().Height(6);
         col.Item().Text(
-            $"App registrations with credentials expiring within {creds.ThresholdDays} days or already expired. " +
-            $"{creds.TotalApps} app registrations scanned.")
-            .FontSize(9).FontColor(Colors.Grey.Darken1);
+            $"App registrations use secrets and certificates to authenticate to Microsoft 365 and other services. " +
+            $"Expired credentials cause application outages and broken integrations. " +
+            $"{creds.TotalApps} app registrations were scanned and credentials expiring within {creds.ThresholdDays} days or already expired are listed below. " +
+            $"Renew expiring credentials before they expire to avoid service disruption.").FontSize(8).FontColor(Colors.Grey.Darken1);
         col.Item().Height(16);
 
         void CredTable(string title, List<AppCredentialDetail> items, string rowColor)
