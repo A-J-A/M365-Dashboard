@@ -129,6 +129,12 @@ public class PdfReportGenerator : IDocument
         // 11. Domain Security
         if (_data.DomainSecuritySummary != null)
             ContentPage(c, DomainSecurityPage);
+
+        // 12. App Secrets & Certificates
+        if (_data.AppCredentialStatus != null &&
+            (_data.AppCredentialStatus.ExpiringSecrets.Any() || _data.AppCredentialStatus.ExpiredSecrets.Any() ||
+             _data.AppCredentialStatus.ExpiringCertificates.Any() || _data.AppCredentialStatus.ExpiredCertificates.Any()))
+            ContentPage(c, AppCredentialsPage);
     }
 
     private void CoverPage(ColumnDescriptor col)
@@ -522,6 +528,55 @@ public class PdfReportGenerator : IDocument
                     .Text(m.LastActivityDate?.ToString("dd MMM yyyy") ?? "Never").FontSize(8);
             }
         });
+    }
+
+    private void AppCredentialsPage(ColumnDescriptor col)
+    {
+        var creds = _data.AppCredentialStatus!;
+
+        col.Item().Text($"App Secrets & Certificates ({creds.ThresholdDays}-day threshold)")
+            .FontSize(28).FontColor(_primary);
+        col.Item().Height(6);
+        col.Item().Text(
+            $"App registrations with credentials expiring within {creds.ThresholdDays} days or already expired. " +
+            $"{creds.TotalApps} app registrations scanned.")
+            .FontSize(9).FontColor(Colors.Grey.Darken1);
+        col.Item().Height(16);
+
+        void CredTable(string title, List<AppCredentialDetail> items, string rowColor)
+        {
+            if (!items.Any()) return;
+            col.Item().Text(title).FontSize(14).FontColor(_primary).Bold();
+            col.Item().Height(6);
+            col.Item().Table(t =>
+            {
+                t.ColumnsDefinition(c =>
+                {
+                    c.RelativeColumn(2.5f); c.RelativeColumn(1.5f);
+                    c.RelativeColumn(1.5f); c.RelativeColumn(2.5f);
+                });
+                foreach (var h in new[] { "App Name", "Type", "Expiry Date", "Status" })
+                    t.Cell().Background(LightGray).Border(1).BorderColor(BorderCol)
+                        .Padding(4).Text(h).FontSize(8).Bold();
+                foreach (var item in items)
+                {
+                    t.Cell().Border(1).BorderColor(BorderCol).Padding(4)
+                        .Text(item.AppName ?? "-").FontSize(8);
+                    t.Cell().Border(1).BorderColor(BorderCol).Padding(4)
+                        .Text(item.CredentialType ?? "-").FontSize(8);
+                    t.Cell().Border(1).BorderColor(BorderCol).Padding(4)
+                        .Text(item.ExpiryDate.HasValue ? item.ExpiryDate.Value.ToString("dd MMM yyyy") : "-").FontSize(8);
+                    t.Cell().Border(1).BorderColor(BorderCol).Padding(4)
+                        .Text(item.Status ?? "-").FontSize(8).FontColor(rowColor);
+                }
+            });
+            col.Item().Height(14);
+        }
+
+        CredTable($"Expired Secrets ({creds.ExpiredSecrets.Count})", creds.ExpiredSecrets, Crit);
+        CredTable($"Expiring Secrets ({creds.ExpiringSecrets.Count})", creds.ExpiringSecrets, Warn);
+        CredTable($"Expired Certificates ({creds.ExpiredCertificates.Count})", creds.ExpiredCertificates, Crit);
+        CredTable($"Expiring Certificates ({creds.ExpiringCertificates.Count})", creds.ExpiringCertificates, Warn);
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
