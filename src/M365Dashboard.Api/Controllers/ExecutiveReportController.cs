@@ -575,41 +575,7 @@ public class ExecutiveReportController : ControllerBase
                 _logger.LogWarning(ex, "Error fetching vulnerabilities");
             }
             
-            // Get Machine count - page through all results and count onboarded Windows/macOS/mobile devices
-            try
-            {
-                // Fetch all machines with just the fields we need, then filter client-side
-                // The Defender API pages at 100 by default so we must follow @odata.nextLink
-                // Ask the API to only return Onboarded machines - let the server do the filtering
-                int onboardedCount = 0;
-                string? nextUrl = "https://api.securitycenter.microsoft.com/api/machines?$filter=onboardingStatus+eq+'Onboarded'&$select=id&$top=1000";
 
-                while (nextUrl != null)
-                {
-                    var machineResponse = await httpClient.GetAsync(nextUrl);
-                    if (!machineResponse.IsSuccessStatusCode)
-                    {
-                        _logger.LogWarning("Machines API returned {Status}", machineResponse.StatusCode);
-                        break;
-                    }
-
-                    var machineJson = await machineResponse.Content.ReadAsStringAsync();
-                    var machineDoc  = JsonDocument.Parse(machineJson);
-
-                    if (machineDoc.RootElement.TryGetProperty("value", out var machines))
-                        onboardedCount += machines.EnumerateArray().Count();
-
-                    nextUrl = machineDoc.RootElement.TryGetProperty("@odata.nextLink", out var next)
-                        ? next.GetString() : null;
-                }
-
-                result.OnboardedMachines = onboardedCount;
-                _logger.LogInformation("Defender onboarded machines={Count}", onboardedCount);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error fetching machine count");
-            }
             
             return result;
         }

@@ -679,23 +679,7 @@ const ExecutiveReportPage: React.FC = () => {
                   score={reportData.defenderStats?.exposureScoreNumeric ?? 0} 
                 />
               </div>
-              {/* Onboarded device count + list */}
-              <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-700">
-                <DataRow label="Onboarded Devices" value={reportData.defenderStats?.onboardedMachines ?? 0} />
-                {reportData.defenderStats?.onboardedMachineNames && reportData.defenderStats.onboardedMachineNames.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {reportData.defenderStats.onboardedMachineNames.map((name, i) => (
-                      <span key={i} className="px-2 py-0.5 bg-slate-100 dark:bg-slate-700 text-xs text-slate-600 dark:text-slate-300 rounded font-mono">
-                        {name}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <DataRow label="Vulnerabilities" value={reportData.defenderStats?.vulnerabilitiesDetected ?? 0} />
-              <DataRow label="Critical" value={reportData.defenderStats?.criticalVulnerabilities ?? 0} color={(reportData.defenderStats?.criticalVulnerabilities ?? 0) > 0 ? 'red' : 'default'} />
-              <DataRow label="High" value={reportData.defenderStats?.highVulnerabilities ?? 0} color={(reportData.defenderStats?.highVulnerabilities ?? 0) > 0 ? 'red' : 'default'} />
-              <DataRow label="Medium" value={reportData.defenderStats?.mediumVulnerabilities ?? 0} color={(reportData.defenderStats?.mediumVulnerabilities ?? 0) > 0 ? 'amber' : 'default'} />
+
             </SectionCard>
 
             {/* User Accounts */}

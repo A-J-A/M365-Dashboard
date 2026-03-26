@@ -271,21 +271,13 @@ public class PdfReportGenerator : IDocument
                 col.Item().Height(12);
             }
 
+            // Only show exposure level in table, rest removed
             col.Item().Table(t =>
             {
                 TwoCols(t);
                 TH(t, "Metric", "Value");
-                TR(t, "Exposure Level",       _data.DefenderStats.ExposureScore ?? "N/A",
+                TR(t, "Exposure Level", _data.DefenderStats.ExposureScore ?? "N/A",
                     _data.DefenderStats.ExposureScore switch { "Low" => Compliant, "High" => Crit, _ => Warn });
-                TR(t, "Onboarded Devices",     $"{_data.DefenderStats.OnboardedMachines ?? 0}");
-                TR(t, "Vulnerabilities",    $"{_data.DefenderStats.VulnerabilitiesDetected}");
-                TR(t, "Critical",           $"{_data.DefenderStats.CriticalVulnerabilities}",
-                    _data.DefenderStats.CriticalVulnerabilities > 0 ? Crit : null);
-                TR(t, "High",               $"{_data.DefenderStats.HighVulnerabilities}",
-                    _data.DefenderStats.HighVulnerabilities > 0 ? Crit : null);
-                TR(t, "Medium",             $"{_data.DefenderStats.MediumVulnerabilities}",
-                    _data.DefenderStats.MediumVulnerabilities > 0 ? Warn : null);
-                TR(t, "Low",                $"{_data.DefenderStats.LowVulnerabilities}");
             });
         }
     }
