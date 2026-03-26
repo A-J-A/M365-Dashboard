@@ -161,14 +161,7 @@ export function Layout({ children }: LayoutProps) {
       to: '/app-consent', 
       icon: Apps24Regular, 
       iconFilled: Apps24Filled, 
-      label: 'App Consents',
-      section: 'security'
-    },
-    { 
-      to: '/enterprise-apps', 
-      icon: Apps24Regular, 
-      iconFilled: Apps24Filled, 
-      label: 'Enterprise Apps',
+      label: 'Applications',
       section: 'security'
     },
     { 

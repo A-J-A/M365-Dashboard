@@ -24,7 +24,6 @@ import PrivilegedAccessPage from './pages/PrivilegedAccessPage';
 import ThreatIntelligencePage from './pages/ThreatIntelligencePage';
 import MailFlowMonitorPage from './pages/MailFlowMonitorPage';
 import ApplicationConsentPage from './pages/ApplicationConsentPage';
-import EnterpriseAppsPage from './pages/EnterpriseAppsPage';
 import ExecutiveReportPage from './pages/ExecutiveReportPage';
 import CisBenchmarkPage from './pages/CisBenchmarkPage';
 import SecurityAssessmentPage from './pages/SecurityAssessmentPage';
@@ -51,7 +50,6 @@ function AuthenticatedApp() {
             <Route path="/threat-intelligence" element={<ThreatIntelligencePage />} />
             <Route path="/mail-flow" element={<MailFlowMonitorPage />} />
             <Route path="/app-consent" element={<ApplicationConsentPage />} />
-            <Route path="/enterprise-apps" element={<EnterpriseAppsPage />} />
             <Route path="/sharepoint" element={<SharePointPage />} />
             <Route path="/licenses" element={<LicensesPage />} />
             <Route path="/reports" element={<ReportsPage />} />
