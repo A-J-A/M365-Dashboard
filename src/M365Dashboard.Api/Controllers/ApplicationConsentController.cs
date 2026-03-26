@@ -139,15 +139,20 @@ public class ApplicationConsentController : ControllerBase
     {
         try
         {
-            var servicePrincipals = await _graphClient.ServicePrincipals
-                .GetAsync(config =>
-                {
-                    config.QueryParameters.Top = 200;
-                    config.QueryParameters.Filter = "servicePrincipalType eq 'Application'";
-                    config.QueryParameters.Orderby = new[] { "displayName" };
-                });
-
-            var spList = servicePrincipals?.Value ?? new List<ServicePrincipal>();
+            // Page through all service principals - Entra portal shows all Application type SPs
+            var spList = new List<ServicePrincipal>();
+            var spPage = await _graphClient.ServicePrincipals.GetAsync(config =>
+            {
+                config.QueryParameters.Top = 999;
+                config.QueryParameters.Filter = "servicePrincipalType eq 'Application'";
+                config.QueryParameters.Orderby = new[] { "displayName" };
+            });
+            while (spPage?.Value != null)
+            {
+                spList.AddRange(spPage.Value);
+                if (spPage.OdataNextLink == null) break;
+                spPage = await _graphClient.ServicePrincipals.WithUrl(spPage.OdataNextLink).GetAsync();
+            }
 
             var result = new List<object>();
 
@@ -386,10 +391,11 @@ public class ApplicationConsentController : ControllerBase
             var now = DateTime.UtcNow;
             var thirtyDaysAgo = now.AddDays(-30);
 
-            // ── App Registrations ──────────────────────────────────────────
-            var apps = await _graphClient.Applications.GetAsync(config =>
+            // ── App Registrations (paged) ──────────────────────────────────
+            var appList = new List<Microsoft.Graph.Models.Application>();
+            var appPage = await _graphClient.Applications.GetAsync(config =>
             {
-                config.QueryParameters.Top = 200;
+                config.QueryParameters.Top = 999;
                 config.QueryParameters.Select = new[]
                 {
                     "id", "appId", "displayName", "createdDateTime", "description",
@@ -397,7 +403,12 @@ public class ApplicationConsentController : ControllerBase
                     "keyCredentials", "requiredResourceAccess"
                 };
             });
-            var appList = apps?.Value ?? new List<Microsoft.Graph.Models.Application>();
+            while (appPage?.Value != null)
+            {
+                appList.AddRange(appPage.Value);
+                if (appPage.OdataNextLink == null) break;
+                appPage = await _graphClient.Applications.WithUrl(appPage.OdataNextLink).GetAsync();
+            }
 
             var registrations = appList.Select(a =>
             {
@@ -438,20 +449,25 @@ public class ApplicationConsentController : ControllerBase
                 };
             }).ToList();
 
-            // ── Enterprise Apps (Service Principals) ──────────────────────
-            // Only non-Microsoft-first-party apps (exclude WindowsAzureActiveDirectoryIntegratedApp tag)
-            var sps = await _graphClient.ServicePrincipals.GetAsync(config =>
+            // ── Enterprise Apps (Service Principals, paged) ─────────────────
+            var spList = new List<Microsoft.Graph.Models.ServicePrincipal>();
+            var spPage = await _graphClient.ServicePrincipals.GetAsync(config =>
             {
-                config.QueryParameters.Top = 200;
+                config.QueryParameters.Top = 999;
                 config.QueryParameters.Filter = "servicePrincipalType eq 'Application'";
                 config.QueryParameters.Select = new[]
                 {
                     "id", "appId", "displayName", "description", "accountEnabled",
-                    "signInAudience", "tags",
-                    "verifiedPublisher", "appOwnerOrganizationId", "homepage"
+                    "signInAudience", "tags", "verifiedPublisher", "appOwnerOrganizationId",
+                    "homepage", "servicePrincipalType"
                 };
             });
-            var spList = sps?.Value ?? new List<Microsoft.Graph.Models.ServicePrincipal>();
+            while (spPage?.Value != null)
+            {
+                spList.AddRange(spPage.Value);
+                if (spPage.OdataNextLink == null) break;
+                spPage = await _graphClient.ServicePrincipals.WithUrl(spPage.OdataNextLink).GetAsync();
+            }
 
             // Build a set of appIds that are our own registrations (to flag them)
             var ownAppIds = new HashSet<string>(appList.Select(a => a.AppId ?? ""), StringComparer.OrdinalIgnoreCase);
@@ -459,8 +475,11 @@ public class ApplicationConsentController : ControllerBase
             var enterpriseApps = spList.Select(sp =>
             {
                 var isOwn = ownAppIds.Contains(sp.AppId ?? "");
-                var isMicrosoft = sp.AppOwnerOrganizationId?.ToString() == "f8cdef31-a31e-4b4a-93e4-5f571e91255a"
-                               || sp.AppOwnerOrganizationId?.ToString() == "72f988bf-86f1-41af-91ab-2d7cd011db47";
+                var ownerGuid = sp.AppOwnerOrganizationId?.ToString();
+                var isMicrosoft =
+                    ownerGuid == "f8cdef31-a31e-4b4a-93e4-5f571e91255a" ||
+                    ownerGuid == "72f988bf-86f1-41af-91ab-2d7cd011db47" ||
+                    sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") == true;
 
                 // CreatedDateTime is not a typed property on ServicePrincipal in SDK v5 - read from AdditionalData
                 DateTimeOffset? createdDt = null;
@@ -498,7 +517,7 @@ public class ApplicationConsentController : ControllerBase
             var expiredCredApps      = registrations.Where(r => r.allCredentialsExpired).OrderBy(r => r.displayName).ToList();
             var recentEnterprise     = enterpriseApps.Where(e => e.isNew).OrderByDescending(e => e.createdDateTime).ToList();
             var disabledEnterprise   = enterpriseApps.Where(e => e.accountEnabled == false).OrderBy(e => e.displayName).ToList();
-            var thirdPartyEnterprise = enterpriseApps.Where(e => !e.isMicrosoftApp).OrderBy(e => e.displayName).ToList();
+            var thirdPartyEnterprise = enterpriseApps.Where(e => !e.isMicrosoftApp && !e.isOwnRegistration).OrderBy(e => e.displayName).ToList();
 
             return Ok(new
             {
