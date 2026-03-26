@@ -601,7 +601,6 @@ const ExecutiveReportPage: React.FC = () => {
               <DocumentTextRegular className="w-8 h-8" />
               <div>
                 <h2 className="text-2xl font-bold">Microsoft 365 Executive Summary</h2>
-                <p className="text-blue-100">{reportData.reportMonth}</p>
               </div>
             </div>
             <p className="text-sm text-blue-200 mt-2">
