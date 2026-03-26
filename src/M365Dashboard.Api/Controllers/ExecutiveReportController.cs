@@ -169,7 +169,16 @@ public class ExecutiveReportController : ControllerBase
                         {
                             CurrentScore = score.CurrentScore,
                             MaxScore = score.MaxScore,
-                            PercentageScore = score.MaxScore > 0 ? Math.Round((double)score.CurrentScore / score.MaxScore * 100, 1) : 0
+                            PercentageScore = score.MaxScore > 0 ? Math.Round((double)score.CurrentScore / score.MaxScore * 100, 1) : 0,
+                            IdentityScore = score.IdentityScore,
+                            IdentityMaxScore = score.IdentityMaxScore,
+                            IdentityPercentage = score.IdentityPercentage,
+                            DeviceScore = score.DeviceScore,
+                            DeviceMaxScore = score.DeviceMaxScore,
+                            DevicePercentage = score.DevicePercentage,
+                            AppsScore = score.AppsScore,
+                            AppsMaxScore = score.AppsMaxScore,
+                            AppsPercentage = score.AppsPercentage,
                         };
                     }
                 }
@@ -1207,15 +1216,7 @@ public class ExecutiveReportController : ControllerBase
             AddTableRow(deviceTable, new[] { "Non-Compliant", $"{data.DeviceStats?.NonCompliantDevices ?? 0}" });
             AddTableRow(deviceTable, new[] { "Compliance Rate", $"{data.DeviceStats?.ComplianceRate ?? 0}%" });
 
-            // Windows Patch Status
-            AddHeading(body, "Windows Patch Status", 2);
-            var patchTable = CreateTable(body, new[] { "Status", "Count" });
-            AddTableRow(patchTable, new[] { "Total Windows Devices", $"{data.WindowsUpdateStats?.TotalWindowsDevices ?? 0}" });
-            AddTableRow(patchTable, new[] { "Up to Date", $"{data.WindowsUpdateStats?.UpToDate ?? 0}" });
-            AddTableRow(patchTable, new[] { "Needs Update", $"{data.WindowsUpdateStats?.NeedsUpdate ?? 0}" });
-            AddTableRow(patchTable, new[] { "Compliance Rate", $"{data.WindowsUpdateStats?.ComplianceRate ?? 0}%" });
-            if (!string.IsNullOrEmpty(data.WindowsUpdateStats?.Note))
-                AddParagraph(body, data.WindowsUpdateStats.Note, true);
+            // Windows Patch Status removed - was using Intune compliance as proxy, not actual patch data
 
             // Microsoft Defender
             AddHeading(body, "Microsoft Defender for Endpoint", 2);
@@ -2346,17 +2347,7 @@ public class ExecutiveReportController : ControllerBase
         </table>
     </div>
 
-    <div class='section'>
-        <h2>Windows Patch Status</h2>
-        <table>
-            <tr><th>Status</th><th>Count</th></tr>
-            <tr><td>Total Windows Devices</td><td>{data.WindowsUpdateStats?.TotalWindowsDevices ?? 0}</td></tr>
-            <tr><td>Up to Date</td><td class='good'>{data.WindowsUpdateStats?.UpToDate ?? 0}</td></tr>
-            <tr><td>Needs Update</td><td class='warning'>{data.WindowsUpdateStats?.NeedsUpdate ?? 0}</td></tr>
-            <tr><td>Compliance Rate</td><td>{data.WindowsUpdateStats?.ComplianceRate ?? 0}%</td></tr>
-        </table>
-        {(data.WindowsUpdateStats?.Note != null ? $"<p><em>{data.WindowsUpdateStats.Note}</em></p>" : "")}
-    </div>
+
 
     <div class='section'>
         <h2>Microsoft Defender for Endpoint</h2>
@@ -2658,6 +2649,15 @@ public class SecureScoreData
     public double CurrentScore { get; set; }
     public double MaxScore { get; set; }
     public double PercentageScore { get; set; }
+    public double IdentityScore { get; set; }
+    public double IdentityMaxScore { get; set; }
+    public double IdentityPercentage { get; set; }
+    public double DeviceScore { get; set; }
+    public double DeviceMaxScore { get; set; }
+    public double DevicePercentage { get; set; }
+    public double AppsScore { get; set; }
+    public double AppsMaxScore { get; set; }
+    public double AppsPercentage { get; set; }
 }
 
 public class DeviceStatsData

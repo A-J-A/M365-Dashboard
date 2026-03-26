@@ -540,7 +540,19 @@ public record SecurityScoreDto(
     double MaxScore,
     double PercentageScore,
     List<SecurityControlScoreDto> ControlScores,
-    DateTime LastUpdated
+    DateTime LastUpdated,
+    double IdentityScore = 0,
+    double IdentityMaxScore = 0,
+    double IdentityPercentage = 0,
+    double DeviceScore = 0,
+    double DeviceMaxScore = 0,
+    double DevicePercentage = 0,
+    double AppsScore = 0,
+    double AppsMaxScore = 0,
+    double AppsPercentage = 0,
+    double DataScore = 0,
+    double DataMaxScore = 0,
+    double DataPercentage = 0
 );
 
 public record SecurityControlScoreDto(

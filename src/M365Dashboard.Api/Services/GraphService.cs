@@ -2613,12 +2613,28 @@ public class GraphService : IGraphService
                     ctrl.ControlName, ctrl.Score, ctrl.MaxScore);
             }
 
+            // Calculate category scores by summing controls per category
+            double CalcScore(string category) =>
+                controlScores.Where(c => string.Equals(c.ControlCategory, category, StringComparison.OrdinalIgnoreCase)).Sum(c => c.Score);
+            double CalcMax(string category) =>
+                controlScores.Where(c => string.Equals(c.ControlCategory, category, StringComparison.OrdinalIgnoreCase)).Sum(c => c.MaxScore);
+            double CalcPct(double score, double max) => max > 0 ? Math.Round(score / max * 100, 1) : 0;
+
+            var idScore  = CalcScore("Identity"); var idMax  = CalcMax("Identity");
+            var devScore = CalcScore("Device");   var devMax = CalcMax("Device");
+            var appScore = CalcScore("Apps");     var appMax = CalcMax("Apps");
+            var datScore = CalcScore("Data");     var datMax = CalcMax("Data");
+
             return new SecurityScoreDto(
                 CurrentScore: currentScore,
                 MaxScore: maxScoreTotal,
                 PercentageScore: percentage,
                 ControlScores: controlScores,
-                LastUpdated: latestScore.CreatedDateTime?.DateTime ?? DateTime.UtcNow
+                LastUpdated: latestScore.CreatedDateTime?.DateTime ?? DateTime.UtcNow,
+                IdentityScore: idScore,  IdentityMaxScore: idMax,  IdentityPercentage: CalcPct(idScore, idMax),
+                DeviceScore: devScore,   DeviceMaxScore: devMax,   DevicePercentage: CalcPct(devScore, devMax),
+                AppsScore: appScore,     AppsMaxScore: appMax,     AppsPercentage: CalcPct(appScore, appMax),
+                DataScore: datScore,     DataMaxScore: datMax,     DataPercentage: CalcPct(datScore, datMax)
             );
         }
         catch (Exception ex)
