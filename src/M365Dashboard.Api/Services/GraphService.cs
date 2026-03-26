@@ -2621,14 +2621,15 @@ public class GraphService : IGraphService
                 var profiles = await _graphClient.Security.SecureScoreControlProfiles.GetAsync(config =>
                 {
                     config.QueryParameters.Top = 200;
-                    config.QueryParameters.Select = new[] { "controlName", "maxScore", "controlCategory" };
+                    config.QueryParameters.Select = new[] { "id", "maxScore", "controlCategory" };
                 });
                 if (profiles?.Value != null)
                 {
                     foreach (var p in profiles.Value)
                     {
-                        if (!string.IsNullOrEmpty(p.ControlName))
-                            profileMaxScores[p.ControlName] = p.MaxScore ?? 0;
+                        // In the SDK, Id is the control name (e.g. "AdminMFA", "DLPEnabled")
+                        if (!string.IsNullOrEmpty(p.Id))
+                            profileMaxScores[p.Id] = p.MaxScore ?? 0;
                     }
                     _logger.LogInformation("Fetched {Count} control profiles for maxScore lookup", profiles.Value.Count);
                 }
