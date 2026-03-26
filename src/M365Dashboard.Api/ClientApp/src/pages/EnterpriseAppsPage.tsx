@@ -93,7 +93,7 @@ const EnterpriseAppsPage: React.FC = () => {
   };
 
   const SortTh: React.FC<{ col: string; label: string }> = ({ col, label }) => (
-    <th onClick={() => { sortCol === col ? setSortAsc(!sortAsc) : (setSortCol(col), setSortAsc(true)); }}
+    <th onClick={() => { if (sortCol === col) setSortAsc(!sortAsc); else { setSortCol(col); setSortAsc(true); } }}
       className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider cursor-pointer hover:text-slate-700 dark:hover:text-slate-200 select-none">
       <span className="flex items-center gap-1">
         {label}
