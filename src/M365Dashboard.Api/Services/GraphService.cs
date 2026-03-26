@@ -2613,17 +2613,47 @@ public class GraphService : IGraphService
                     ctrl.ControlName, ctrl.Score, ctrl.MaxScore);
             }
 
-            // Calculate category scores by summing controls per category
+            // Fetch control profiles to get accurate maxScore per control
+            // This avoids the unreliable scoreInPercentage estimation
+            Dictionary<string, double> profileMaxScores = new(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                var profiles = await _graphClient.Security.SecureScoreControlProfiles.GetAsync(config =>
+                {
+                    config.QueryParameters.Top = 200;
+                    config.QueryParameters.Select = new[] { "controlName", "maxScore", "controlCategory" };
+                });
+                if (profiles?.Value != null)
+                {
+                    foreach (var p in profiles.Value)
+                    {
+                        if (!string.IsNullOrEmpty(p.ControlName))
+                            profileMaxScores[p.ControlName] = p.MaxScore ?? 0;
+                    }
+                    _logger.LogInformation("Fetched {Count} control profiles for maxScore lookup", profiles.Value.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not fetch control profiles - category percentages may be inaccurate");
+            }
+
+            // Calculate category scores using actual maxScores from profiles
             double CalcScore(string category) =>
                 controlScores.Where(c => string.Equals(c.ControlCategory, category, StringComparison.OrdinalIgnoreCase)).Sum(c => c.Score);
             double CalcMax(string category) =>
-                controlScores.Where(c => string.Equals(c.ControlCategory, category, StringComparison.OrdinalIgnoreCase)).Sum(c => c.MaxScore);
+                controlScores
+                    .Where(c => string.Equals(c.ControlCategory, category, StringComparison.OrdinalIgnoreCase))
+                    .Sum(c => profileMaxScores.TryGetValue(c.ControlName, out var m) && m > 0 ? m : c.MaxScore);
             double CalcPct(double score, double max) => max > 0 ? Math.Round(score / max * 100, 1) : 0;
 
             var idScore  = CalcScore("Identity"); var idMax  = CalcMax("Identity");
             var devScore = CalcScore("Device");   var devMax = CalcMax("Device");
             var appScore = CalcScore("Apps");     var appMax = CalcMax("Apps");
             var datScore = CalcScore("Data");     var datMax = CalcMax("Data");
+
+            _logger.LogInformation("Category scores - Identity: {IS}/{IM} ({IP}%), Device: {DS}/{DM}, Apps: {AS}/{AM}",
+                idScore, idMax, CalcPct(idScore, idMax), devScore, devMax, appScore, appMax);
 
             return new SecurityScoreDto(
                 CurrentScore: currentScore,
