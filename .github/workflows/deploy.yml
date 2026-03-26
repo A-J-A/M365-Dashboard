@@ -47,6 +47,17 @@ jobs:
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
 
+      - name: Generate version
+        id: version
+        run: |
+          DATE=$(date +'%Y.%m.%d')
+          SHORT_SHA=${GITHUB_SHA::7}
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "BUILD_VERSION=dev-${DATE}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+          else
+            echo "BUILD_VERSION=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -58,7 +69,7 @@ jobs:
           build-args: |
             VITE_AZURE_CLIENT_ID=${{ secrets.VITE_AZURE_CLIENT_ID }}
             VITE_AZURE_TENANT_ID=${{ secrets.VITE_AZURE_TENANT_ID }}
-            BUILD_VERSION=${{ github.ref_name == 'main' && format('dev-{0}', github.sha) || github.ref_name }}
+            BUILD_VERSION=${{ steps.version.outputs.BUILD_VERSION }}
           no-cache: true
 
   deploy:
