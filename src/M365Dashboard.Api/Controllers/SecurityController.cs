@@ -62,6 +62,7 @@ public class SecurityController : ControllerBase
     /// Debug endpoint - Identity Secure Score breakdown
     /// </summary>
     [HttpGet("identity-score-debug")]
+    [AllowAnonymous]
     public async Task<IActionResult> DebugIdentityScore()
     {
         try
