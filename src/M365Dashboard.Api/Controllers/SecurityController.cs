@@ -59,39 +59,6 @@ public class SecurityController : ControllerBase
     }
 
     /// <summary>
-    /// Debug endpoint - Identity Secure Score breakdown
-    /// </summary>
-    [HttpGet("identity-score-debug")]
-    [AllowAnonymous]
-    public async Task<IActionResult> DebugIdentityScore()
-    {
-        try
-        {
-            var score = await _graphService.GetSecureScoreAsync();
-            if (score == null) return Ok(new { error = "No score data" });
-
-            var identityControls = score.ControlScores
-                .Where(c => string.Equals(c.ControlCategory, "Identity", StringComparison.OrdinalIgnoreCase))
-                .OrderBy(c => c.ControlName)
-                .Select(c => new { c.ControlName, c.Score, c.MaxScore })
-                .ToList();
-
-            return Ok(new
-            {
-                identityScore = score.IdentityScore,
-                identityMaxScore = score.IdentityMaxScore,
-                identityPercentage = score.IdentityPercentage,
-                controlCount = identityControls.Count,
-                controls = identityControls
-            });
-        }
-        catch (Exception ex)
-        {
-            return StatusCode(500, new { error = ex.Message });
-        }
-    }
-
-    /// <summary>
     /// Get risky users from Identity Protection
     /// </summary>
     [HttpGet("riskyusers")]

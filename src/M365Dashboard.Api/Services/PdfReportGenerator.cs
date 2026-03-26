@@ -217,22 +217,10 @@ public class PdfReportGenerator : IDocument
             {
                 TwoCols(t);
                 TH(t, "Metric", "Value");
-                TR(t, "Overall Score",  $"{_data.SecureScore.CurrentScore:N0} / {_data.SecureScore.MaxScore:N0}");
-                TR(t, "Overall %",      $"{_data.SecureScore.PercentageScore:F1}%",
+                TR(t, "Current Score", $"{_data.SecureScore.CurrentScore:N0} / {_data.SecureScore.MaxScore:N0}");
+                TR(t, "Percentage",    $"{_data.SecureScore.PercentageScore:F1}%",
                     _data.SecureScore.PercentageScore >= 70 ? Compliant :
                     _data.SecureScore.PercentageScore >= 50 ? Warn : Crit);
-                if (_data.SecureScore.IdentityMaxScore > 0)
-                    TR(t, "Identity",   $"{_data.SecureScore.IdentityPercentage:F1}%  ({_data.SecureScore.IdentityScore:N0} / {_data.SecureScore.IdentityMaxScore:N0})",
-                        _data.SecureScore.IdentityPercentage >= 70 ? Compliant :
-                        _data.SecureScore.IdentityPercentage >= 50 ? Warn : Crit);
-                if (_data.SecureScore.DeviceMaxScore > 0)
-                    TR(t, "Device",     $"{_data.SecureScore.DevicePercentage:F1}%  ({_data.SecureScore.DeviceScore:N0} / {_data.SecureScore.DeviceMaxScore:N0})",
-                        _data.SecureScore.DevicePercentage >= 70 ? Compliant :
-                        _data.SecureScore.DevicePercentage >= 50 ? Warn : Crit);
-                if (_data.SecureScore.AppsMaxScore > 0)
-                    TR(t, "Apps",       $"{_data.SecureScore.AppsPercentage:F1}%  ({_data.SecureScore.AppsScore:N0} / {_data.SecureScore.AppsMaxScore:N0})",
-                        _data.SecureScore.AppsPercentage >= 70 ? Compliant :
-                        _data.SecureScore.AppsPercentage >= 50 ? Warn : Crit);
             });
             col.Item().Height(18);
         }

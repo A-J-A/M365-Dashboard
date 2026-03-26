@@ -621,36 +621,7 @@ const ExecutiveReportPage: React.FC = () => {
                   <p className="text-sm text-slate-500 dark:text-slate-400">
                     {reportData.secureScore?.currentScore || 0} / {reportData.secureScore?.maxScore || 0} points
                   </p>
-                  {/* Category breakdown */}
-                  <div className="mt-4 grid grid-cols-3 gap-3">
-                    {(reportData.secureScore?.identityMaxScore ?? 0) > 0 && (
-                      <div className="bg-white/60 dark:bg-slate-800/60 rounded-lg p-3">
-                        <p className="text-xs text-slate-500 dark:text-slate-400">Identity</p>
-                        <p className={`text-lg font-bold ${getScoreColor(reportData.secureScore?.identityPercentage || 0)}`}>
-                          {reportData.secureScore?.identityPercentage || 0}%
-                        </p>
-                        <p className="text-xs text-slate-400">{reportData.secureScore?.identityScore || 0} / {reportData.secureScore?.identityMaxScore || 0}</p>
-                      </div>
-                    )}
-                    {(reportData.secureScore?.deviceMaxScore ?? 0) > 0 && (
-                      <div className="bg-white/60 dark:bg-slate-800/60 rounded-lg p-3">
-                        <p className="text-xs text-slate-500 dark:text-slate-400">Device</p>
-                        <p className={`text-lg font-bold ${getScoreColor(reportData.secureScore?.devicePercentage || 0)}`}>
-                          {reportData.secureScore?.devicePercentage || 0}%
-                        </p>
-                        <p className="text-xs text-slate-400">{reportData.secureScore?.deviceScore || 0} / {reportData.secureScore?.deviceMaxScore || 0}</p>
-                      </div>
-                    )}
-                    {(reportData.secureScore?.appsMaxScore ?? 0) > 0 && (
-                      <div className="bg-white/60 dark:bg-slate-800/60 rounded-lg p-3">
-                        <p className="text-xs text-slate-500 dark:text-slate-400">Apps</p>
-                        <p className={`text-lg font-bold ${getScoreColor(reportData.secureScore?.appsPercentage || 0)}`}>
-                          {reportData.secureScore?.appsPercentage || 0}%
-                        </p>
-                        <p className="text-xs text-slate-400">{reportData.secureScore?.appsScore || 0} / {reportData.secureScore?.appsMaxScore || 0}</p>
-                      </div>
-                    )}
-                  </div>
+
                 </div>
                 <ShieldCheckmarkRegular className={`w-16 h-16 ${getScoreColor(reportData.secureScore?.percentageScore || 0)} opacity-50 ml-4 self-start`} />
               </div>
