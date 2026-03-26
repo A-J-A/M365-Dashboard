@@ -6,7 +6,6 @@ import {
   SearchRegular,
   KeyRegular,
   CertificateRegular,
-  CalendarRegular,
   SparkleRegular,
   WarningRegular,
   ErrorCircleRegular,
@@ -249,9 +248,6 @@ const EnterpriseAppsPage: React.FC = () => {
   if (loading) return <div className="p-4 flex items-center justify-center h-64"><div className="flex flex-col items-center gap-3"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div><p className="text-slate-500 dark:text-slate-400">Loading enterprise apps...</p></div></div>;
   if (error) return <div className="p-4"><div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-6 text-center"><ErrorCircleRegular className="w-12 h-12 mx-auto text-red-500 mb-3" /><p className="text-red-700 dark:text-red-300 mb-4">{error}</p><button onClick={fetchData} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">Try Again</button></div></div>;
   if (!data) return null;
-
-  const isRegTab = ['registrations','newRegistrations','noCredentials','expiredCredentials'].includes(activeTab);
-  const isEntTab = ['enterpriseApps','thirdParty','newEnterprise'].includes(activeTab);
 
   return (
     <div className="p-4 space-y-4 max-w-7xl mx-auto">
