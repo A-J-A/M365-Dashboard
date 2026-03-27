@@ -28,6 +28,21 @@ public class ReportsController : ControllerBase
     }
 
     /// <summary>
+    /// Gets the user's object ID from the JWT claims, trying multiple claim types
+    /// to handle ASP.NET Core's automatic claim remapping.
+    /// </summary>
+    private string? GetUserId() =>
+        User.FindFirst("oid")?.Value
+        ?? User.FindFirst("http://schemas.microsoft.com/identity/claims/objectidentifier")?.Value
+        ?? User.FindFirst("sub")?.Value;
+
+    private string? GetUserEmail() =>
+        User.FindFirst("preferred_username")?.Value
+        ?? User.FindFirst("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress")?.Value
+        ?? User.FindFirst("email")?.Value
+        ?? User.FindFirst("upn")?.Value;
+
+    /// <summary>
     /// Get available report definitions
     /// </summary>
     [HttpGet("definitions")]
@@ -89,7 +104,7 @@ public class ReportsController : ControllerBase
     [HttpGet("schedules")]
     public async Task<IActionResult> GetScheduledReports()
     {
-        var userId = User.FindFirst("oid")?.Value ?? User.FindFirst("sub")?.Value;
+        var userId = GetUserId();
         if (string.IsNullOrEmpty(userId))
         {
             return Unauthorized();
@@ -105,9 +120,9 @@ public class ReportsController : ControllerBase
     [HttpPost("schedules")]
     public async Task<IActionResult> CreateScheduledReport([FromBody] CreateScheduledReportRequest request)
     {
-        var userId = User.FindFirst("oid")?.Value ?? User.FindFirst("sub")?.Value;
-        var userEmail = User.FindFirst("preferred_username")?.Value ?? User.FindFirst("email")?.Value;
-        
+        var userId = GetUserId();
+        var userEmail = GetUserEmail();
+
         if (string.IsNullOrEmpty(userId))
         {
             return Unauthorized();
@@ -131,7 +146,7 @@ public class ReportsController : ControllerBase
     [HttpPut("schedules/{scheduleId}")]
     public async Task<IActionResult> UpdateScheduledReport(string scheduleId, [FromBody] UpdateScheduledReportRequest request)
     {
-        var userId = User.FindFirst("oid")?.Value ?? User.FindFirst("sub")?.Value;
+        var userId = GetUserId();
         if (string.IsNullOrEmpty(userId))
         {
             return Unauthorized();
@@ -159,7 +174,7 @@ public class ReportsController : ControllerBase
     [HttpDelete("schedules/{scheduleId}")]
     public async Task<IActionResult> DeleteScheduledReport(string scheduleId)
     {
-        var userId = User.FindFirst("oid")?.Value ?? User.FindFirst("sub")?.Value;
+        var userId = GetUserId();
         if (string.IsNullOrEmpty(userId))
         {
             return Unauthorized();
@@ -209,7 +224,7 @@ public class ReportsController : ControllerBase
     [HttpGet("history")]
     public async Task<IActionResult> GetReportHistory([FromQuery] int take = 20)
     {
-        var userId = User.FindFirst("oid")?.Value ?? User.FindFirst("sub")?.Value;
+        var userId = GetUserId();
         if (string.IsNullOrEmpty(userId))
         {
             return Unauthorized();

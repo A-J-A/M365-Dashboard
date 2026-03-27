@@ -35,6 +35,11 @@ if (!string.IsNullOrEmpty(keyVaultUri))
     Log.Information("Azure Key Vault configuration loaded from {Uri}", keyVaultUri);
 }
 
+// Prevent ASP.NET from remapping JWT claim names (e.g. 'oid' → long URI form)
+// so User.FindFirst("oid") works as expected in controllers.
+Microsoft.IdentityModel.JsonWebTokens.JsonWebTokenHandler.DefaultInboundClaimTypeMap.Clear();
+System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
+
 // Configure Entra ID Authentication for API (validates incoming tokens)
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"))
