@@ -492,16 +492,9 @@ public class ApplicationConsentController : ControllerBase
 
             // ── App Registrations (paged) ──────────────────────────────────
             var appList = new List<Microsoft.Graph.Models.Application>();
-            var appPage = await _graphClient.Applications.GetAsync(config =>
-            {
-                config.QueryParameters.Top = 999;
-                config.QueryParameters.Select = new[]
-                {
-                    "id", "appId", "displayName", "createdDateTime", "description",
-                    "signInAudience", "publisherDomain", "passwordCredentials",
-                    "keyCredentials", "requiredResourceAccess"
-                };
-            });
+            // Use beta endpoint to get isDisabled (not available in v1.0)
+            var betaUrl = "https://graph.microsoft.com/beta/applications?$top=999&$select=id,appId,displayName,createdDateTime,description,signInAudience,publisherDomain,passwordCredentials,keyCredentials,requiredResourceAccess,isDisabled";
+            var appPage = await _graphClient.Applications.WithUrl(betaUrl).GetAsync();
             while (appPage?.Value != null)
             {
                 appList.AddRange(appPage.Value);
@@ -533,13 +526,6 @@ public class ApplicationConsentController : ControllerBase
 
             // Build a set of appIds that are our own registrations (to flag them)
             var ownAppIds = new HashSet<string>(appList.Select(a => a.AppId ?? ""), StringComparer.OrdinalIgnoreCase);
-
-            // Build lookup: appId -> accountEnabled from service principal
-            // Use GroupBy to handle rare duplicate appId cases, take first match
-            var spEnabledLookup = spList
-                .Where(sp => sp.AppId != null)
-                .GroupBy(sp => sp.AppId!, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.First().AccountEnabled, StringComparer.OrdinalIgnoreCase);
 
             var registrations = appList.Select(a =>
             {
@@ -576,8 +562,10 @@ public class ApplicationConsentController : ControllerBase
                     daysUntilNextExpiry = nextExpiry.HasValue ? (int)(nextExpiry.Value - now).TotalDays : (int?)null,
                     requiresResourceAccess = a.RequiredResourceAccess?.Any() == true,
                     resourceAccessCount    = a.RequiredResourceAccess?.Sum(r => r.ResourceAccess?.Count ?? 0) ?? 0,
-                    // null AccountEnabled from Graph means enabled (default state) - treat as true
-                    accountEnabled = spEnabledLookup.TryGetValue(a.AppId ?? "", out var enabled) ? (enabled ?? true) : true,
+                    // isDisabled is a beta-only field, comes back in AdditionalData
+                    accountEnabled = a.AdditionalData?.TryGetValue("isDisabled", out var isDisabledRaw) == true
+                        && isDisabledRaw is System.Text.Json.JsonElement el
+                        && el.ValueKind == System.Text.Json.JsonValueKind.True ? false : true,
                     appType = "Registration"
                 };
             }).ToList();
