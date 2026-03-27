@@ -411,7 +411,10 @@ public class ApplicationConsentController : ControllerBase
                 ownerOrg = sp.AppOwnerOrganizationId?.ToString(),
                 tags = sp.Tags,
                 isOwn = ownIds.Contains(sp.AppId ?? ""),
-                isMicrosoft = sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") == true
+                isEnterpriseApp = sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") == true || ownIds.Contains(sp.AppId ?? ""),
+                isMicrosoft = (sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") == true || ownIds.Contains(sp.AppId ?? "")) &&
+                              (sp.AppOwnerOrganizationId?.ToString() == "f8cdef31-a31e-4b4a-93e4-5f571e91255a" || sp.AppOwnerOrganizationId?.ToString() == "72f988bf-86f1-41af-91ab-2d7cd011db47") &&
+                              !ownIds.Contains(sp.AppId ?? "")
             });
 
             return Ok(new
@@ -419,8 +422,11 @@ public class ApplicationConsentController : ControllerBase
                 totalSPs = spList.Count,
                 totalOwnRegistrations = ownIds.Count,
                 thirdPartyCount = spList.Count(sp =>
+                    // Enterprise app (tagged) but NOT own registration AND NOT Microsoft-owned
+                    (sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") == true) &&
                     !ownIds.Contains(sp.AppId ?? "") &&
-                    sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") != true),
+                    sp.AppOwnerOrganizationId?.ToString() != "f8cdef31-a31e-4b4a-93e4-5f571e91255a" &&
+                    sp.AppOwnerOrganizationId?.ToString() != "72f988bf-86f1-41af-91ab-2d7cd011db47"),
                 sample
             });
         }
@@ -522,11 +528,16 @@ public class ApplicationConsentController : ControllerBase
             var enterpriseApps = spList.Select(sp =>
             {
                 var isOwn = ownAppIds.Contains(sp.AppId ?? "");
-                // Use tags to identify Microsoft's own service/infrastructure apps.
-                // appOwnerOrganizationId is NOT reliable - gallery apps (Apple, Huntress, Atlassian etc.)
-                // are all registered in Microsoft's tenant so they all share Microsoft's org ID.
-                // The WindowsAzureActiveDirectoryIntegratedApp tag is set on MS infrastructure SPs only.
-                var isMicrosoft = sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") == true;
+                // The Entra portal "Enterprise applications" view shows apps tagged with
+                // "WindowsAzureActiveDirectoryIntegratedApp" - this tag identifies gallery/enterprise apps
+                // (Apple, Huntress, Atlassian, your own apps etc.)
+                // The 700+ untagged SPs are Microsoft's internal service principals (Azure AD, Graph etc.)
+                // which are NOT shown in the Entra portal enterprise apps list.
+                var isEnterpriseApp = sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") == true || isOwn;
+                var isMicrosoftApp = isEnterpriseApp &&
+                    (sp.AppOwnerOrganizationId?.ToString() == "f8cdef31-a31e-4b4a-93e4-5f571e91255a" ||
+                     sp.AppOwnerOrganizationId?.ToString() == "72f988bf-86f1-41af-91ab-2d7cd011db47") &&
+                    !isOwn;
 
                 // CreatedDateTime is not a typed property on ServicePrincipal in SDK v5 - read from AdditionalData
                 DateTimeOffset? createdDt = null;
@@ -549,7 +560,8 @@ public class ApplicationConsentController : ControllerBase
                     accountEnabled = sp.AccountEnabled,
                     signInAudience = sp.SignInAudience,
                     isOwnRegistration = isOwn,
-                    isMicrosoftApp = isMicrosoft,
+                    isMicrosoftApp = isMicrosoftApp,
+                    isEnterpriseApp,
                     isVerified = sp.VerifiedPublisher != null,
                     publisherName = sp.VerifiedPublisher?.DisplayName,
                     homepage = sp.Homepage,
@@ -559,19 +571,22 @@ public class ApplicationConsentController : ControllerBase
             }).ToList();
 
             // ── Summaries ──────────────────────────────────────────────────
+            // Filter to only apps shown in Entra portal Enterprise applications view
+            var visibleEnterpriseApps = enterpriseApps.Where(e => e.isEnterpriseApp).ToList();
+
             var recentRegistrations  = registrations.Where(r => r.isNew).OrderByDescending(r => r.createdDateTime).ToList();
             var noCredApps           = registrations.Where(r => r.noCredentials).OrderBy(r => r.displayName).ToList();
             var expiredCredApps      = registrations.Where(r => r.allCredentialsExpired).OrderBy(r => r.displayName).ToList();
-            var recentEnterprise     = enterpriseApps.Where(e => e.isNew).OrderByDescending(e => e.createdDateTime).ToList();
-            var disabledEnterprise   = enterpriseApps.Where(e => e.accountEnabled == false).OrderBy(e => e.displayName).ToList();
-            var thirdPartyEnterprise = enterpriseApps.Where(e => !e.isMicrosoftApp && !e.isOwnRegistration).OrderBy(e => e.displayName).ToList();
+            var recentEnterprise     = visibleEnterpriseApps.Where(e => e.isNew).OrderByDescending(e => e.createdDateTime).ToList();
+            var disabledEnterprise   = visibleEnterpriseApps.Where(e => e.accountEnabled == false).OrderBy(e => e.displayName).ToList();
+            var thirdPartyEnterprise = visibleEnterpriseApps.Where(e => !e.isMicrosoftApp && !e.isOwnRegistration).OrderBy(e => e.displayName).ToList();
 
             return Ok(new
             {
                 summary = new
                 {
                     totalRegistrations    = registrations.Count,
-                    totalEnterpriseApps   = enterpriseApps.Count,
+                    totalEnterpriseApps   = visibleEnterpriseApps.Count,
                     thirdPartyApps        = thirdPartyEnterprise.Count,
                     newRegistrations30d   = recentRegistrations.Count,
                     newEnterpriseApps30d  = recentEnterprise.Count,
@@ -584,9 +599,9 @@ public class ApplicationConsentController : ControllerBase
                 noCredentialsApps    = noCredApps,
                 expiredCredentialsApps = expiredCredApps,
                 allRegistrationsByDate = registrations.OrderByDescending(r => r.createdDateTime).ToList(),
-                // Enterprise apps
+                // Enterprise apps (filtered to match Entra portal view)
                 recentEnterpriseApps   = recentEnterprise,
-                allEnterpriseApps      = enterpriseApps.OrderByDescending(e => e.createdDateTime).ToList(),
+                allEnterpriseApps      = visibleEnterpriseApps.OrderByDescending(e => e.createdDateTime).ToList(),
                 thirdPartyEnterpriseApps = thirdPartyEnterprise,
                 disabledEnterpriseApps = disabledEnterprise,
                 lastUpdated = now
