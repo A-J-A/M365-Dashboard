@@ -403,12 +403,19 @@ public class ApplicationConsentController : ControllerBase
                 spPage = await _graphClient.ServicePrincipals.WithUrl(spPage.OdataNextLink).GetAsync();
             }
 
-            var appPage = await _graphClient.Applications.GetAsync(config =>
-            {
-                config.QueryParameters.Top = 999;
-                config.QueryParameters.Select = new[] { "id", "appId", "displayName" };
-            });
+            var debugBetaUrl = "https://graph.microsoft.com/beta/applications?$top=999&$select=id,appId,displayName,isDisabled";
+            var appPage = await _graphClient.Applications.WithUrl(debugBetaUrl).GetAsync();
             var ownIds = new HashSet<string>((appPage?.Value ?? new List<Application>()).Select(a => a.AppId ?? ""), StringComparer.OrdinalIgnoreCase);
+
+            // Debug: show isDisabled from AdditionalData for own apps
+            var ownAppsIsDisabledDebug = appPage?.Value?
+                .Where(a => ownIds.Contains(a.AppId ?? ""))
+                .Select(a => new
+                {
+                    a.DisplayName,
+                    a.AppId,
+                    isDisabledRaw = a.AdditionalData?.TryGetValue("isDisabled", out var v) == true ? v?.ToString() : "not present"
+                }) ?? Enumerable.Empty<object>();
 
             // Show own registrations with their accountEnabled status for debugging
             var ownAppsDebug = spList
@@ -473,6 +480,7 @@ public class ApplicationConsentController : ControllerBase
                     sp.AppOwnerOrganizationId?.ToString() != "72f988bf-86f1-41af-91ab-2d7cd011db47"),
                 sample,
                 ownAppsDebug,
+                ownAppsIsDisabledDebug,
                 targetDebug
             });
         }
