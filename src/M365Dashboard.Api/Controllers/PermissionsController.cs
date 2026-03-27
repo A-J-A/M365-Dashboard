@@ -57,6 +57,9 @@ public class PermissionsController : ControllerBase
         
         permissions.Add(await CheckPermissionAsync("Mail.Read", "Read mail in all mailboxes", 
             "Required for mailbox information (delegated scenarios)", () => Task.FromResult(true))); // Can't easily test
+
+        permissions.Add(await CheckPermissionAsync("Mail.Send", "Send mail as any user", 
+            "Required for sending scheduled reports by email", CheckMailSendPermission));
         
         permissions.Add(await CheckPermissionAsync("Reports.Read.All", "Read all usage reports", 
             "Required for usage reports and analytics", CheckReportsPermission));
@@ -162,7 +165,7 @@ public class PermissionsController : ControllerBase
     {
         "User.Read.All" or "Group.Read.All" or "Directory.Read.All" or "Organization.Read.All" => "Core",
         "Device.Read.All" or "DeviceManagementManagedDevices.Read.All" or "DeviceManagementServiceConfig.Read.All" => "Devices",
-        "Mail.Read" or "Reports.Read.All" => "Mail & Reports",
+        "Mail.Read" or "Mail.Send" or "Reports.Read.All" => "Mail & Reports",
         "SecurityEvents.Read.All" or "IdentityRiskyUser.Read.All" or "AuditLog.Read.All" or "UserAuthenticationMethod.Read.All" or "AttackSimulation.Read.All" => "Security",
         "Machine.Read.All" or "Vulnerability.Read.All" or "Score.Read.All" => "Defender for Endpoint",
         "Sites.Read.All" => "SharePoint",
@@ -233,6 +236,45 @@ public class PermissionsController : ControllerBase
             .GetOffice365ActiveUserCountsWithPeriod("D7")
             .GetAsync();
         return report != null;
+    }
+
+    private async Task<bool> CheckMailSendPermission()
+    {
+        // Verify Mail.Send by checking the app's service principal has the role assigned.
+        // We do this by attempting to list messages in any mailbox — if Mail.Send is granted
+        // as an application permission the token will contain it. We can't actually send a
+        // test email, so instead we verify by checking the current app's app role assignments.
+        try
+        {
+            var tenantId  = _configuration["AzureAd:TenantId"];
+            var clientId  = _configuration["AzureAd:ClientId"];
+
+            // Get the service principal for this app
+            var sp = await _graphClient.ServicePrincipals
+                .GetAsync(config =>
+                {
+                    config.QueryParameters.Filter = $"appId eq '{clientId}'";
+                    config.QueryParameters.Select = new[] { "id", "appId" };
+                });
+
+            var spId = sp?.Value?.FirstOrDefault()?.Id;
+            if (spId == null) return false;
+
+            // Get the app role assignments for this SP
+            var assignments = await _graphClient.ServicePrincipals[spId]
+                .AppRoleAssignments
+                .GetAsync();
+
+            // Mail.Send application permission ID in Microsoft Graph
+            const string mailSendRoleId = "b633e1c5-b582-4048-a93e-9f11b44c7e96";
+
+            return assignments?.Value?.Any(a =>
+                string.Equals(a.AppRoleId?.ToString(), mailSendRoleId, StringComparison.OrdinalIgnoreCase)) == true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private async Task<bool> CheckSecureScorePermission()
