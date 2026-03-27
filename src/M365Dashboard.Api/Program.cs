@@ -110,6 +110,7 @@ builder.Services.AddScoped<IWidgetDataService, WidgetDataService>();
 builder.Services.AddScoped<ICacheService, CacheService>();
 builder.Services.AddScoped<IExecutiveReportService, ExecutiveReportService>();
 builder.Services.AddScoped<IReportService, ReportService>();
+builder.Services.AddHostedService<M365Dashboard.Api.Background.ReportSchedulerService>();
 builder.Services.AddScoped<IEmailService, GraphEmailService>();
 builder.Services.AddScoped<ITenantSettingsService, TenantSettingsService>();
 builder.Services.AddSingleton<IDomainSecurityService, DomainSecurityService>();
