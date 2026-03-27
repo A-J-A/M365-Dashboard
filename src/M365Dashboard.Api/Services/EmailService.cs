@@ -33,10 +33,8 @@ public class GraphEmailService : IEmailService
         string? attachmentName = null, 
         byte[]? attachmentContent = null)
     {
-        // Use configured sender email or fall back to provided email
-        var senderEmail = _configuration["ReportSettings:SenderEmail"] ?? fromEmail;
-        
-        _logger.LogInformation("Sending report email from {From} to {Recipients}", senderEmail, string.Join(", ", toEmails));
+        _logger.LogInformation("Sending report email from {From} to {Recipients}", fromEmail, string.Join(", ", toEmails));
+        var senderEmail = fromEmail;
 
         var message = new Message
         {
