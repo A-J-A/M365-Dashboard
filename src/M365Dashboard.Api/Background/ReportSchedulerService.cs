@@ -155,12 +155,11 @@ public class ReportSchedulerService : BackgroundService
         ReportSettings reportSettings,
         string senderEmail)
     {
-        var request = new GenerateReportRequest
-        {
-            ReportType = schedule.ReportType,
-            DateRange  = schedule.DateRange ?? "last30days",
-            Format     = "html"
-        };
+        var request = new GenerateReportRequest(
+            schedule.ReportType,
+            schedule.DateRange ?? "last30days",
+            "html"
+        );
 
         // Generate HTML body for email
         string htmlContent;
@@ -171,7 +170,7 @@ public class ReportSchedulerService : BackgroundService
         catch (NotImplementedException)
         {
             // Fall back to CSV attachment if HTML not implemented
-            var csvContent = await reportService.ExportReportToCsvAsync(request with { Format = "csv" });
+            var csvContent = await reportService.ExportReportToCsvAsync(request with { Format = "csv", DateRange = schedule.DateRange ?? "last30days" });
             var csvBytes   = System.Text.Encoding.UTF8.GetBytes(csvContent);
             var fileName   = $"{schedule.ReportType}_{DateTime.UtcNow:yyyy-MM-dd}.csv";
             var subject    = $"{reportSettings.CompanyName} – {schedule.DisplayName} – {DateTime.UtcNow:dd MMM yyyy}";
