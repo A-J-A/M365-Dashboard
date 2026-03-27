@@ -570,10 +570,9 @@ public class ApplicationConsentController : ControllerBase
                     daysUntilNextExpiry = nextExpiry.HasValue ? (int)(nextExpiry.Value - now).TotalDays : (int?)null,
                     requiresResourceAccess = a.RequiredResourceAccess?.Any() == true,
                     resourceAccessCount    = a.RequiredResourceAccess?.Sum(r => r.ResourceAccess?.Count ?? 0) ?? 0,
-                    // isDisabled is a beta-only field, comes back in AdditionalData
-                    accountEnabled = a.AdditionalData?.TryGetValue("isDisabled", out var isDisabledRaw) == true
-                        && isDisabledRaw is System.Text.Json.JsonElement el
-                        && el.ValueKind == System.Text.Json.JsonValueKind.True ? false : true,
+                    // isDisabled is a beta-only field, comes back in AdditionalData as a string "True"/"False"
+                    accountEnabled = !(a.AdditionalData?.TryGetValue("isDisabled", out var isDisabledRaw) == true
+                        && isDisabledRaw?.ToString()?.Equals("True", StringComparison.OrdinalIgnoreCase) == true),
                     appType = "Registration"
                 };
             }).ToList();
