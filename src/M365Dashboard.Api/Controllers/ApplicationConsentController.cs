@@ -393,7 +393,7 @@ public class ApplicationConsentController : ControllerBase
             {
                 config.QueryParameters.Top = 999;
                 config.QueryParameters.Filter = "servicePrincipalType eq 'Application'";
-                config.QueryParameters.Select = new[] { "id", "appId", "displayName", "appOwnerOrganizationId", "tags" };
+                config.QueryParameters.Select = new[] { "id", "appId", "displayName", "appOwnerOrganizationId", "tags", "accountEnabled" };
             });
             var spList = spPage?.Value ?? new List<ServicePrincipal>();
 
@@ -414,6 +414,21 @@ public class ApplicationConsentController : ControllerBase
                     accountEnabled = sp.AccountEnabled,
                     tags = sp.Tags
                 });
+
+            // Targeted debug: look up the specific deactivated app by object ID
+            var targetObjectId = "0bc2aa67-bf53-4660-9b2e-f83dab9e2e31";
+            ServicePrincipal? targetSp = null;
+            try { targetSp = await _graphClient.ServicePrincipals[targetObjectId].GetAsync(); } catch { }
+            var targetDebug = targetSp == null ? (object)"SP not found by object ID" : new
+            {
+                targetSp.DisplayName,
+                targetSp.AppId,
+                accountEnabled = targetSp.AccountEnabled,
+                tags = targetSp.Tags,
+                inSpList = spList.Any(sp => sp.Id == targetObjectId),
+                inSpListByAppId = targetSp.AppId != null && spList.Any(sp => sp.AppId == targetSp.AppId),
+                spListMatch = spList.FirstOrDefault(sp => sp.Id == targetObjectId) is { } match ? (object)new { match.DisplayName, accountEnabled = match.AccountEnabled } : "not in spList"
+            };
 
             var sample = spList.Take(5).Select(sp => new
             {
@@ -440,7 +455,8 @@ public class ApplicationConsentController : ControllerBase
                     sp.AppOwnerOrganizationId?.ToString() != "f8cdef31-a31e-4b4a-93e4-5f571e91255a" &&
                     sp.AppOwnerOrganizationId?.ToString() != "72f988bf-86f1-41af-91ab-2d7cd011db47"),
                 sample,
-                ownAppsDebug
+                ownAppsDebug,
+                targetDebug
             });
         }
         catch (Exception ex) { return StatusCode(500, new { error = ex.Message }); }
@@ -478,12 +494,18 @@ public class ApplicationConsentController : ControllerBase
 
             // ── Enterprise Apps (Service Principals, paged) ─────────────────
             var spList = new List<Microsoft.Graph.Models.ServicePrincipal>();
-            // Note: no $select here so that createdDateTime is returned in AdditionalData
-            // (it's not a typed property in the SDK v5 model but IS returned by the API)
+            // createdDateTime is not a typed property so must come via AdditionalData.
+            // We use $select to ensure accountEnabled is explicitly returned (Graph omits it without $select).
+            // createdDateTime is NOT listed in $select - Graph still returns it in AdditionalData.
             var spPage = await _graphClient.ServicePrincipals.GetAsync(config =>
             {
                 config.QueryParameters.Top = 999;
                 config.QueryParameters.Filter = "servicePrincipalType eq 'Application'";
+                config.QueryParameters.Select = new[]
+                {
+                    "id", "appId", "displayName", "description", "accountEnabled",
+                    "appOwnerOrganizationId", "tags", "verifiedPublisher", "homepage", "signInAudience"
+                };
             });
             while (spPage?.Value != null)
             {
