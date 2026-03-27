@@ -463,6 +463,30 @@ public class ApplicationConsentController : ControllerBase
                 appPage = await _graphClient.Applications.WithUrl(appPage.OdataNextLink).GetAsync();
             }
 
+            // ── Enterprise Apps (Service Principals, paged) ─────────────────
+            var spList = new List<Microsoft.Graph.Models.ServicePrincipal>();
+            // Note: no $select here so that createdDateTime is returned in AdditionalData
+            // (it's not a typed property in the SDK v5 model but IS returned by the API)
+            var spPage = await _graphClient.ServicePrincipals.GetAsync(config =>
+            {
+                config.QueryParameters.Top = 999;
+                config.QueryParameters.Filter = "servicePrincipalType eq 'Application'";
+            });
+            while (spPage?.Value != null)
+            {
+                spList.AddRange(spPage.Value);
+                if (spPage.OdataNextLink == null) break;
+                spPage = await _graphClient.ServicePrincipals.WithUrl(spPage.OdataNextLink).GetAsync();
+            }
+
+            // Build a set of appIds that are our own registrations (to flag them)
+            var ownAppIds = new HashSet<string>(appList.Select(a => a.AppId ?? ""), StringComparer.OrdinalIgnoreCase);
+
+            // Build lookup: appId -> accountEnabled from service principal
+            var spEnabledLookup = spList
+                .Where(sp => sp.AppId != null)
+                .ToDictionary(sp => sp.AppId!, sp => sp.AccountEnabled, StringComparer.OrdinalIgnoreCase);
+
             var registrations = appList.Select(a =>
             {
                 var hasSecret  = a.PasswordCredentials?.Any() == true;
@@ -503,30 +527,6 @@ public class ApplicationConsentController : ControllerBase
                 };
             }).ToList();
 
-            // ── Enterprise Apps (Service Principals, paged) ─────────────────
-            var spList = new List<Microsoft.Graph.Models.ServicePrincipal>();
-            // Note: no $select here so that createdDateTime is returned in AdditionalData
-            // (it's not a typed property in the SDK v5 model but IS returned by the API)
-            var spPage = await _graphClient.ServicePrincipals.GetAsync(config =>
-            {
-                config.QueryParameters.Top = 999;
-                config.QueryParameters.Filter = "servicePrincipalType eq 'Application'";
-            });
-            while (spPage?.Value != null)
-            {
-                spList.AddRange(spPage.Value);
-                if (spPage.OdataNextLink == null) break;
-                spPage = await _graphClient.ServicePrincipals.WithUrl(spPage.OdataNextLink).GetAsync();
-            }
-
-            // Build a set of appIds that are our own registrations (to flag them)
-            var ownAppIds = new HashSet<string>(appList.Select(a => a.AppId ?? ""), StringComparer.OrdinalIgnoreCase);
-
-            // Build lookup: appId -> accountEnabled from service principal
-            var spEnabledLookup = spList
-                .Where(sp => sp.AppId != null)
-                .ToDictionary(sp => sp.AppId!, sp => sp.AccountEnabled, StringComparer.OrdinalIgnoreCase);
-
             var enterpriseApps = spList.Select(sp =>
             {
                 var isOwn = ownAppIds.Contains(sp.AppId ?? "");
@@ -535,8 +535,8 @@ public class ApplicationConsentController : ControllerBase
                 // (Apple, Huntress, Atlassian, your own apps etc.)
                 // The 700+ untagged SPs are Microsoft's internal service principals (Azure AD, Graph etc.)
                 // which are NOT shown in the Entra portal enterprise apps list.
-                var isEnterpriseApp = sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") == true || isOwn;
-                var isMicrosoftApp = isEnterpriseApp &&
+                var isEntApp = sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") == true || isOwn;
+                var isMsApp = isEntApp &&
                     (sp.AppOwnerOrganizationId?.ToString() == "f8cdef31-a31e-4b4a-93e4-5f571e91255a" ||
                      sp.AppOwnerOrganizationId?.ToString() == "72f988bf-86f1-41af-91ab-2d7cd011db47") &&
                     !isOwn;
@@ -562,8 +562,8 @@ public class ApplicationConsentController : ControllerBase
                     accountEnabled = sp.AccountEnabled,
                     signInAudience = sp.SignInAudience,
                     isOwnRegistration = isOwn,
-                    isMicrosoftApp = isMicrosoftApp,
-                    isEnterpriseApp,
+                    isMicrosoftApp = isMsApp,
+                    isEnterpriseApp = isEntApp,
                     isVerified = sp.VerifiedPublisher != null,
                     publisherName = sp.VerifiedPublisher?.DisplayName,
                     homepage = sp.Homepage,
