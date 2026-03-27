@@ -483,9 +483,11 @@ public class ApplicationConsentController : ControllerBase
             var ownAppIds = new HashSet<string>(appList.Select(a => a.AppId ?? ""), StringComparer.OrdinalIgnoreCase);
 
             // Build lookup: appId -> accountEnabled from service principal
+            // Use GroupBy to handle rare duplicate appId cases, take first match
             var spEnabledLookup = spList
                 .Where(sp => sp.AppId != null)
-                .ToDictionary(sp => sp.AppId!, sp => sp.AccountEnabled, StringComparer.OrdinalIgnoreCase);
+                .GroupBy(sp => sp.AppId!, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First().AccountEnabled, StringComparer.OrdinalIgnoreCase);
 
             var registrations = appList.Select(a =>
             {
@@ -522,7 +524,8 @@ public class ApplicationConsentController : ControllerBase
                     daysUntilNextExpiry = nextExpiry.HasValue ? (int)(nextExpiry.Value - now).TotalDays : (int?)null,
                     requiresResourceAccess = a.RequiredResourceAccess?.Any() == true,
                     resourceAccessCount    = a.RequiredResourceAccess?.Sum(r => r.ResourceAccess?.Count ?? 0) ?? 0,
-                    accountEnabled = spEnabledLookup.TryGetValue(a.AppId ?? "", out var enabled) ? enabled : (bool?)null,
+                    // null AccountEnabled from Graph means enabled (default state) - treat as true
+                    accountEnabled = spEnabledLookup.TryGetValue(a.AppId ?? "", out var enabled) ? (enabled ?? true) : true,
                     appType = "Registration"
                 };
             }).ToList();
