@@ -353,22 +353,24 @@ const ApplicationConsentPage: React.FC = () => {
       {((riskyConsents?.summary?.highRisk ?? 0) > 0 || (auditData?.summary.allCredentialsExpired ?? 0) > 0) && (
         <div className="space-y-2">
           {(riskyConsents?.summary?.highRisk ?? 0) > 0 && (
-            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 flex items-start gap-3">
+            <button onClick={() => setActiveTab('risky')}
+              className="w-full text-left bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 flex items-start gap-3 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors">
               <Warning24Regular className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="font-medium text-red-800 dark:text-red-200">High-Risk App Consents Detected</p>
-                <p className="text-sm text-red-700 dark:text-red-300">{riskyConsents.summary.highRisk} applications have been granted high-risk permissions. Review immediately.</p>
+                <p className="text-sm text-red-700 dark:text-red-300">{riskyConsents.summary.highRisk} applications have been granted high-risk permissions.</p>
               </div>
-            </div>
+            </button>
           )}
           {(auditData?.summary.allCredentialsExpired ?? 0) > 0 && (
-            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 flex items-start gap-3">
+            <button onClick={() => setActiveTab('expiredCredentials')}
+              className="w-full text-left bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4 flex items-start gap-3 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors">
               <Clock24Regular className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="font-medium text-amber-800 dark:text-amber-200">Expired Application Credentials</p>
                 <p className="text-sm text-amber-700 dark:text-amber-300">{auditData!.summary.allCredentialsExpired} app registrations have all credentials expired.</p>
               </div>
-            </div>
+            </button>
           )}
         </div>
       )}
