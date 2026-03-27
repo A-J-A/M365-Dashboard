@@ -411,9 +411,7 @@ public class ApplicationConsentController : ControllerBase
                 ownerOrg = sp.AppOwnerOrganizationId?.ToString(),
                 tags = sp.Tags,
                 isOwn = ownIds.Contains(sp.AppId ?? ""),
-                isMicrosoft = sp.AppOwnerOrganizationId?.ToString() == "f8cdef31-a31e-4b4a-93e4-5f571e91255a"
-                           || sp.AppOwnerOrganizationId?.ToString() == "72f988bf-86f1-41af-91ab-2d7cd011db47"
-                           || sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") == true
+                isMicrosoft = sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") == true
             });
 
             return Ok(new
@@ -421,13 +419,8 @@ public class ApplicationConsentController : ControllerBase
                 totalSPs = spList.Count,
                 totalOwnRegistrations = ownIds.Count,
                 thirdPartyCount = spList.Count(sp =>
-                {
-                    var isOwn = ownIds.Contains(sp.AppId ?? "");
-                    var isMicrosoft = sp.AppOwnerOrganizationId?.ToString() == "f8cdef31-a31e-4b4a-93e4-5f571e91255a"
-                                   || sp.AppOwnerOrganizationId?.ToString() == "72f988bf-86f1-41af-91ab-2d7cd011db47"
-                                   || sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") == true;
-                    return !isMicrosoft && !isOwn;
-                }),
+                    !ownIds.Contains(sp.AppId ?? "") &&
+                    sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") != true),
                 sample
             });
         }
@@ -529,11 +522,11 @@ public class ApplicationConsentController : ControllerBase
             var enterpriseApps = spList.Select(sp =>
             {
                 var isOwn = ownAppIds.Contains(sp.AppId ?? "");
-                var ownerGuid = sp.AppOwnerOrganizationId?.ToString();
-                var isMicrosoft =
-                    ownerGuid == "f8cdef31-a31e-4b4a-93e4-5f571e91255a" ||
-                    ownerGuid == "72f988bf-86f1-41af-91ab-2d7cd011db47" ||
-                    sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") == true;
+                // Use tags to identify Microsoft's own service/infrastructure apps.
+                // appOwnerOrganizationId is NOT reliable - gallery apps (Apple, Huntress, Atlassian etc.)
+                // are all registered in Microsoft's tenant so they all share Microsoft's org ID.
+                // The WindowsAzureActiveDirectoryIntegratedApp tag is set on MS infrastructure SPs only.
+                var isMicrosoft = sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") == true;
 
                 // CreatedDateTime is not a typed property on ServicePrincipal in SDK v5 - read from AdditionalData
                 DateTimeOffset? createdDt = null;
