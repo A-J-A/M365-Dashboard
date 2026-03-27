@@ -154,11 +154,14 @@ const ReportsPage: React.FC = () => {
       setGeneratingReport(reportType);
       const token = await getAccessToken();
 
-      if (format === 'pdf') {
+      // If a PDF-only report is called with any format, always download PDF
+      const effectiveFormat = (reportType === 'executive-summary-pdf') ? 'pdf' : format;
+
+      if (effectiveFormat === 'pdf') {
         const response = await fetch('/api/reports/download', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reportType, dateRange, format }),
+          body: JSON.stringify({ reportType, dateRange, format: effectiveFormat }),
         });
         if (response.ok) {
           const blob = await response.blob();
