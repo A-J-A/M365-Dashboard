@@ -170,6 +170,8 @@ $applicationPermissions = @(
     @{ Id = "498476ce-e0fe-48b0-b801-37ba7e2685c6"; Type = "Role" }  # GroupMember.Read.All
     @{ Id = "dc5007c0-2d7d-4c42-879c-2dab87571379"; Type = "Role" }  # IdentityRiskyUser.Read.All
     @{ Id = "bf394140-e372-4bf9-a898-299cfc7564e5"; Type = "Role" }  # SecurityEvents.Read.All
+    @{ Id = "810c84a8-4a9e-49e6-bf7d-12d183f40d01"; Type = "Role" }  # Mail.Read
+    @{ Id = "b633e1c5-b582-4048-a93e-9f11b44c7e96"; Type = "Role" }  # Mail.Send
 )
 
 # Combined for RequiredResourceAccess

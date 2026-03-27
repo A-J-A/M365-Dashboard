@@ -116,6 +116,7 @@ $graphPermissions = @(
     @{ id = "06a5fe6d-c49d-46a7-b082-56b1b14103c7"; name = "DeviceManagementServiceConfig.Read.All" }
     # Mail & Reports
     @{ id = "810c84a8-4a9e-49e6-bf7d-12d183f40d01"; name = "Mail.Read" }
+    @{ id = "b633e1c5-b582-4048-a93e-9f11b44c7e96"; name = "Mail.Send" }
     @{ id = "230c1aed-a721-4c5d-9cb4-a90514e508ef"; name = "Reports.Read.All" }
     # Security
     @{ id = "bf394140-e372-4bf9-a898-299cfc7564e5"; name = "SecurityEvents.Read.All" }
