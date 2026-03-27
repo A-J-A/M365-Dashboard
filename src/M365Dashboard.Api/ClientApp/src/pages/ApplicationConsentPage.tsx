@@ -4,9 +4,7 @@ import {
   Warning24Regular,
   ArrowSync24Regular,
   ShieldCheckmark24Regular,
-  Key24Regular,
   Clock24Regular,
-  Building24Regular,
 } from '@fluentui/react-icons';
 import {
   AppsRegular,
@@ -72,7 +70,6 @@ const ApplicationConsentPage: React.FC = () => {
   // Consent/grants data
   const [oauth2Grants, setOauth2Grants]       = useState<any>(null);
   const [riskyConsents, setRiskyConsents]     = useState<any>(null);
-  const [enterpriseApps, setEnterpriseApps]   = useState<any>(null);
 
   // Audit data (registrations + enterprise app hygiene)
   const [auditData, setAuditData]             = useState<AuditData | null>(null);
@@ -90,15 +87,13 @@ const ApplicationConsentPage: React.FC = () => {
       const token = await getAccessToken();
       const h = { Authorization: `Bearer ${token}` };
 
-      const [grantsRes, appsRes, riskyRes, auditRes] = await Promise.all([
+      const [grantsRes, riskyRes, auditRes] = await Promise.all([
         fetch('/api/applicationconsent/oauth2-grants', { headers: h }),
-        fetch('/api/applicationconsent/enterprise-apps', { headers: h }),
         fetch('/api/applicationconsent/risky-consents', { headers: h }),
         fetch('/api/applicationconsent/enterprise-app-audit', { headers: h }),
       ]);
 
       if (grantsRes.ok) setOauth2Grants(await grantsRes.json());
-      if (appsRes.ok)   setEnterpriseApps(await appsRes.json());
       if (riskyRes.ok)  setRiskyConsents(await riskyRes.json());
       if (auditRes.ok)  setAuditData(await auditRes.json());
     } catch (err) {
@@ -290,7 +285,7 @@ const ApplicationConsentPage: React.FC = () => {
     { key: 'overview',           label: 'Overview',            section: 'consent' },
     { key: 'risky',              label: 'Risky Consents',      count: riskyConsents?.summary?.totalRiskyConsents, section: 'consent' },
     { key: 'grants',             label: 'OAuth Grants',        count: oauth2Grants?.summary?.totalGrants, section: 'consent' },
-    { key: 'enterpriseApps',     label: 'Enterprise Apps',     count: enterpriseApps?.summary?.totalApps, section: 'consent' },
+    { key: 'enterpriseApps',     label: 'Enterprise Apps',     count: auditData?.summary.totalEnterpriseApps, section: 'consent' },
     { key: 'registrations',      label: 'App Registrations',   count: auditData?.summary.totalRegistrations, section: 'hygiene' },
     { key: 'noCredentials',      label: 'No Credentials',      count: auditData?.summary.noCredentials, section: 'hygiene' },
     { key: 'expiredCredentials', label: 'Expired Credentials', count: auditData?.summary.allCredentialsExpired, section: 'hygiene' },
@@ -337,7 +332,7 @@ const ApplicationConsentPage: React.FC = () => {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
           { label: 'OAuth Grants',        value: oauth2Grants?.summary?.totalGrants ?? 0,              color: 'text-slate-900 dark:text-white' },
-          { label: 'Enterprise Apps',     value: enterpriseApps?.summary?.totalApps ?? 0,              color: 'text-blue-600' },
+          { label: 'Enterprise Apps',     value: auditData?.summary.totalEnterpriseApps ?? 0,          color: 'text-blue-600' },
           { label: 'App Registrations',   value: auditData?.summary.totalRegistrations ?? 0,           color: 'text-purple-600' },
           { label: 'Risky Consents',      value: riskyConsents?.summary?.totalRiskyConsents ?? 0,      color: (riskyConsents?.summary?.totalRiskyConsents ?? 0) > 0 ? 'text-red-600' : 'text-green-600' },
           { label: 'Expired Credentials', value: auditData?.summary.allCredentialsExpired ?? 0,        color: (auditData?.summary.allCredentialsExpired ?? 0) > 0 ? 'text-red-600' : 'text-green-600' },
@@ -578,38 +573,8 @@ const ApplicationConsentPage: React.FC = () => {
         </div>
       )}
 
-      {/* ── ENTERPRISE APPS (CONSENT VIEW) TAB ───────────────────────────── */}
-      {activeTab === 'enterpriseApps' && (
-        <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
-          <div className="p-4 border-b border-slate-200 dark:border-slate-700 flex items-center gap-2">
-            <Building24Regular className="w-5 h-5 text-blue-600" />
-            <h3 className="font-semibold text-slate-900 dark:text-white">Enterprise Applications</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 dark:bg-slate-700/50">
-                <tr>
-                  {['Application','Publisher','Verified','App Roles','Delegated','Status'].map(h => (
-                    <th key={h} className={`px-4 py-3 text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider ${['Verified','App Roles','Delegated','Status'].includes(h) ? 'text-center' : 'text-left'}`}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                {enterpriseApps?.apps?.slice(0, 50).map((app: any, i: number) => (
-                  <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-700/30">
-                    <td className="px-4 py-3"><p className="font-medium text-slate-900 dark:text-white">{app.displayName}</p><p className="text-xs text-slate-500 font-mono">{app.appId}</p></td>
-                    <td className="px-4 py-3 text-slate-600 dark:text-slate-300">{app.publisherName || '—'}</td>
-                    <td className="px-4 py-3 text-center">{app.isVerified ? <ShieldCheckmark24Regular className="w-5 h-5 text-green-500 mx-auto" /> : <span className="text-slate-400">—</span>}</td>
-                    <td className="px-4 py-3 text-center"><Badge appearance={app.appRoleAssignmentCount > 0 ? 'filled' : 'outline'} color="brand" size="small">{app.appRoleAssignmentCount || 0}</Badge></td>
-                    <td className="px-4 py-3 text-center"><Badge appearance={app.oauth2GrantCount > 0 ? 'filled' : 'outline'} color="success" size="small">{app.oauth2GrantCount || 0}</Badge></td>
-                    <td className="px-4 py-3 text-center"><Badge appearance="tint" color={app.accountEnabled ? 'success' : 'danger'} size="small">{app.accountEnabled ? 'Enabled' : 'Disabled'}</Badge></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      {/* ── ENTERPRISE APPS TAB ───────────────────────────────────────── */}
+      {activeTab === 'enterpriseApps' && auditData && <EnterpriseAuditTable apps={auditData.allEnterpriseApps} exportName="all-enterprise-apps.csv" />}
 
       {/* ── HYGIENE TABS ──────────────────────────────────────────────────── */}
       {activeTab === 'registrations'      && auditData && <RegistrationTable apps={auditData.allRegistrationsByDate}    exportName="all-registrations.csv" />}
