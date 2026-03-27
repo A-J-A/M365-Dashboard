@@ -174,6 +174,7 @@ const ApplicationConsentPage: React.FC = () => {
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Next Expiry</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Permissions</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Audience</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
@@ -209,6 +210,13 @@ const ApplicationConsentPage: React.FC = () => {
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300">
                       {app.signInAudience === 'AzureADMyOrg' ? 'Single tenant' : app.signInAudience === 'AzureADMultipleOrgs' ? 'Multi-tenant' : app.signInAudience ?? '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      {app.allCredentialsExpired
+                        ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">Expired</span>
+                        : app.noCredentials
+                          ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400">No Credentials</span>
+                          : <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">Active</span>}
                     </td>
                   </tr>
                 ))}
