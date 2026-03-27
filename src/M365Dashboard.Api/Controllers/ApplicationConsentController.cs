@@ -504,16 +504,12 @@ public class ApplicationConsentController : ControllerBase
 
             // ── Enterprise Apps (Service Principals, paged) ─────────────────
             var spList = new List<Microsoft.Graph.Models.ServicePrincipal>();
+            // Note: no $select here so that createdDateTime is returned in AdditionalData
+            // (it's not a typed property in the SDK v5 model but IS returned by the API)
             var spPage = await _graphClient.ServicePrincipals.GetAsync(config =>
             {
                 config.QueryParameters.Top = 999;
                 config.QueryParameters.Filter = "servicePrincipalType eq 'Application'";
-                config.QueryParameters.Select = new[]
-                {
-                    "id", "appId", "displayName", "description", "accountEnabled",
-                    "signInAudience", "tags", "verifiedPublisher", "appOwnerOrganizationId",
-                    "homepage", "servicePrincipalType"
-                };
             });
             while (spPage?.Value != null)
             {
