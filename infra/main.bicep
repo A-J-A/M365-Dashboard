@@ -25,6 +25,9 @@ param entraIdClientId string
 @description('Entra ID App Registration Client Secret')
 param entraIdClientSecret string
 
+@description('Object ID of the deploying user - granted Key Vault Secrets Officer for management access')
+param deployingUserObjectId string = ''
+
 @description('SQL Server Administrator Login')
 param sqlAdminLogin string = 'sqladmin'
 
@@ -63,6 +66,7 @@ module infrastructure 'modules/infrastructure.bicep' = {
     sqlAdminLogin: sqlAdminLogin
     sqlAdminPassword: sqlAdminPassword
     containerImage: containerImage
+    deployingUserObjectId: deployingUserObjectId
   }
 }
 

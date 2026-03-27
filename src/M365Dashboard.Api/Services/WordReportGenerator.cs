@@ -91,7 +91,7 @@ public class WordReportGenerator
             }
             
             // === WINDOWS PATCH STATUS ===
-            if (data.WindowsUpdateStats != null)
+            if (false) // Windows Patch Status removed
             {
                 AddWindowsPatchSection(body, data);
             }

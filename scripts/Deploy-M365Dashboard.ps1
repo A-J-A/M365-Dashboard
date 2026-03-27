@@ -21,6 +21,8 @@
     .\Deploy-M365Dashboard.ps1 -TenantId "xxx" -ClientId "xxx" -ClientSecret "xxx" -SqlPassword "xxx"
 #>
 
+# Update script is separate — see scripts/Update-M365Dashboard.ps1
+
 param(
     [string]$NamePrefix,
     [string]$Location,
@@ -749,9 +751,23 @@ if ($currentUser -and $spId) {
     }
 }
 
-# Update local dev config
+# Save deploy config for use by Update-M365Dashboard.ps1
 Write-Host ""
-Write-Host "Updating local development config..." -ForegroundColor Yellow
+Write-Host "Saving deploy config..." -ForegroundColor Yellow
+    $deployConfig = @{
+        ResourceGroup    = $resourceGroup
+        ContainerAppName = $containerAppName
+        AcrName          = $acrName
+        AppUrl           = $appUrl
+        DeployedAt       = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    }
+    $deployConfigPath = Join-Path (Split-Path $PSScriptRoot -Parent) "deploy-config.json"
+    $deployConfig | ConvertTo-Json | Out-File $deployConfigPath -Encoding UTF8
+    Write-Host "  Deploy config saved to deploy-config.json" -ForegroundColor Green
+
+    # Update local dev config
+    Write-Host ""
+    Write-Host "Updating local development config..." -ForegroundColor Yellow
 $devSettingsPath = Join-Path $PSScriptRoot "..\src\M365Dashboard.Api\appsettings.Development.json"
 if (Test-Path $devSettingsPath) {
     try {

@@ -31,6 +31,9 @@ param sqlAdminPassword string
 @description('Container image')
 param containerImage string
 
+@description('Object ID of the deploying user - granted Key Vault Secrets Officer for management access')
+param deployingUserObjectId string = ''
+
 // ============================================================================
 // Variables
 // ============================================================================
@@ -299,7 +302,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
   }
 }
 
-// Grant Container App access to Key Vault
+// Grant Container App managed identity access to Key Vault secrets (read-only)
 resource keyVaultRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: keyVault
   name: guid(keyVault.id, containerApp.id, 'Key Vault Secrets User')
@@ -307,6 +310,18 @@ resource keyVaultRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6') // Key Vault Secrets User
     principalId: containerApp.identity.principalId
     principalType: 'ServicePrincipal'
+  }
+}
+
+// Grant the deploying user Key Vault Secrets Officer access so they can view/manage secrets
+// This avoids needing to manually grant access after deployment
+resource keyVaultUserRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!empty(deployingUserObjectId)) {
+  scope: keyVault
+  name: guid(keyVault.id, deployingUserObjectId, 'Key Vault Secrets Officer')
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7') // Key Vault Secrets Officer
+    principalId: deployingUserObjectId
+    principalType: 'User'
   }
 }
 

@@ -103,3 +103,6 @@ coverage/
 *.log
 *.tmp
 *.temp
+
+deploy-config.json
+deploy.ps1
