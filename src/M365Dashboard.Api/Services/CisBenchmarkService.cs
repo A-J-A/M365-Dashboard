@@ -106,9 +106,14 @@ public class CisBenchmarkService : ICisBenchmarkService
         result.NotApplicableControls = controls.Count(c => c.Status == CisControlStatus.NotApplicable);
         result.ErrorControls = controls.Count(c => c.Status == CisControlStatus.Error);
         
+        // Compliance percentage is calculated over all non-error controls
+        // (Pass + Fail + Manual), treating Manual as not-yet-confirmed.
+        // This gives an honest picture rather than 100% when only auto-checked
+        // controls happen to all pass.
         var assessedControls = result.PassedControls + result.FailedControls;
-        result.CompliancePercentage = assessedControls > 0 
-            ? Math.Round((double)result.PassedControls / assessedControls * 100, 1) 
+        var totalScorable = result.PassedControls + result.FailedControls + result.ManualControls;
+        result.CompliancePercentage = totalScorable > 0
+            ? Math.Round((double)result.PassedControls / totalScorable * 100, 1)
             : 0;
 
         // Level breakdown
@@ -128,8 +133,8 @@ public class CisBenchmarkService : ICisBenchmarkService
                 PassedControls = g.Count(c => c.Status == CisControlStatus.Pass),
                 FailedControls = g.Count(c => c.Status == CisControlStatus.Fail),
                 ManualControls = g.Count(c => c.Status == CisControlStatus.Manual),
-                CompliancePercentage = g.Count(c => c.Status == CisControlStatus.Pass || c.Status == CisControlStatus.Fail) > 0
-                    ? Math.Round((double)g.Count(c => c.Status == CisControlStatus.Pass) / g.Count(c => c.Status == CisControlStatus.Pass || c.Status == CisControlStatus.Fail) * 100, 1)
+                CompliancePercentage = g.Count(c => c.Status == CisControlStatus.Pass || c.Status == CisControlStatus.Fail || c.Status == CisControlStatus.Manual) > 0
+                    ? Math.Round((double)g.Count(c => c.Status == CisControlStatus.Pass) / g.Count(c => c.Status == CisControlStatus.Pass || c.Status == CisControlStatus.Fail || c.Status == CisControlStatus.Manual) * 100, 1)
                     : 0
             })
             .OrderBy(c => c.CategoryId)
