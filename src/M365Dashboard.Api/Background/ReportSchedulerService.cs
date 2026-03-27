@@ -71,8 +71,8 @@ public class ReportSchedulerService : BackgroundService
             reportSettings = new ReportSettings();
         }
 
-        var senderEmail = configuration["ReportSettings:SenderEmail"]
-            ?? reportSettings.ReportTitle   // fallback chain
+        var senderEmail = reportSettings.SenderEmail
+            ?? configuration["ReportSettings:SenderEmail"]
             ?? "noreply@example.com";
 
         foreach (var schedule in due)

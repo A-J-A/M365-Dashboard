@@ -26,6 +26,13 @@ public class ReportSettings
     public bool ShowInfoGraphics { get; set; } = true;
     public bool ShowQuotes { get; set; } = true;
     public string? FooterText { get; set; }
+
+    /// <summary>
+    /// Email address used as the From address when sending scheduled reports.
+    /// Must be a licensed M365 mailbox with Mail.Send permission granted to the app.
+    /// </summary>
+    public string? SenderEmail { get; set; }
+
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     /// <summary>

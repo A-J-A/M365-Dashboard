@@ -33,6 +33,7 @@ interface ReportSettings {
   showInfoGraphics: boolean;
   showQuotes: boolean;
   footerText: string | null;
+  senderEmail: string | null;
   updatedAt: string;
   quotes: ReportQuote[];
   excludedDomains: string[];
@@ -95,6 +96,7 @@ const ReportSettingsPage: React.FC = () => {
     showInfoGraphics: true,
     showQuotes: true,
     footerText: null,
+    senderEmail: null,
     updatedAt: new Date().toISOString(),
     quotes: DEFAULT_QUOTES,
     excludedDomains: [],
@@ -404,6 +406,22 @@ const ReportSettingsPage: React.FC = () => {
               />
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                 Additional text to show in the footer (e.g., confidentiality notice)
+              </p>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                Scheduled Report Sender Email
+              </label>
+              <input
+                type="email"
+                value={settings.senderEmail || ''}
+                onChange={(e) => setSettings(prev => ({ ...prev, senderEmail: e.target.value || null }))}
+                placeholder="reports@yourdomain.com"
+                className="w-full px-4 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                The mailbox used to send scheduled reports. Must be a licensed M365 account with <strong>Mail.Send</strong> permission granted to this application.
               </p>
             </div>
           </div>
