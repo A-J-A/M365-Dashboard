@@ -190,15 +190,29 @@ public class ReportService : IReportService
             new List<string> { "json", "csv", "html" },
             false,
             true
+        ),
+
+        // Executive Summary
+        new ReportDefinitionDto(
+            "executive-summary-pdf",
+            "Executive Summary Report",
+            "Full executive summary PDF including secure score, devices, users, MFA, domain security and app credentials",
+            "Executive",
+            new List<string> { "pdf" },
+            false,
+            true
         )
     };
 
-    public ReportService(ApplicationDbContext dbContext, IGraphService graphService, ILogger<ReportService> logger, IWebHostEnvironment environment)
+    private readonly IExecutiveReportService _executiveReportService;
+
+    public ReportService(ApplicationDbContext dbContext, IGraphService graphService, ILogger<ReportService> logger, IWebHostEnvironment environment, IExecutiveReportService executiveReportService)
     {
         _dbContext = dbContext;
         _graphService = graphService;
         _logger = logger;
         _environment = environment;
+        _executiveReportService = executiveReportService;
     }
 
     // ─── Branding helpers ──────────────────────────────────────────────────────
@@ -569,6 +583,20 @@ public class ReportService : IReportService
                             { "configuredBreakGlassAccounts", caBreakGlass.ConfiguredBreakGlassAccounts.Count }
                         }
                     );
+                    break;
+
+                case "executive-summary-pdf":
+                    // PDF is generated on demand via /api/reports/download — return a lightweight summary here
+                    var execData = await _executiveReportService.GatherDataAsync();
+                    data = new { message = "Use the Download PDF button to get the full report.", generatedAt = execData.GeneratedAt, reportMonth = execData.ReportMonth };
+                    recordCount = 1;
+                    summary = new ReportSummaryDto(1, new Dictionary<string, object>
+                    {
+                        { "reportMonth", execData.ReportMonth },
+                        { "totalUsers", execData.UserStats?.TotalUsers ?? 0 },
+                        { "totalDevices", execData.DeviceStats?.TotalDevices ?? 0 },
+                        { "secureScore", execData.SecureScore?.PercentageScore ?? 0 }
+                    });
                     break;
 
                 default:

@@ -108,6 +108,7 @@ builder.Services.AddScoped<IGraphService, GraphService>();
 builder.Services.AddScoped<IUserSettingsService, UserSettingsService>();
 builder.Services.AddScoped<IWidgetDataService, WidgetDataService>();
 builder.Services.AddScoped<ICacheService, CacheService>();
+builder.Services.AddScoped<IExecutiveReportService, ExecutiveReportService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IEmailService, GraphEmailService>();
 builder.Services.AddScoped<ITenantSettingsService, TenantSettingsService>();

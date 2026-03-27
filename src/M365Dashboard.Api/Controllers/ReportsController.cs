@@ -12,15 +12,18 @@ public class ReportsController : ControllerBase
 {
     private readonly IGraphService _graphService;
     private readonly IReportService _reportService;
+    private readonly IExecutiveReportService _executiveReportService;
     private readonly ILogger<ReportsController> _logger;
 
     public ReportsController(
         IGraphService graphService, 
         IReportService reportService,
+        IExecutiveReportService executiveReportService,
         ILogger<ReportsController> logger)
     {
         _graphService = graphService;
         _reportService = reportService;
+        _executiveReportService = executiveReportService;
         _logger = logger;
     }
 
@@ -175,6 +178,28 @@ public class ReportsController : ControllerBase
         {
             _logger.LogError(ex, "Error deleting scheduled report {ScheduleId}", scheduleId);
             return StatusCode(500, new { error = "Failed to delete scheduled report", message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Download the executive summary as a PDF file
+    /// </summary>
+    [HttpPost("download")]
+    public async Task<IActionResult> DownloadReport([FromBody] GenerateReportRequest request)
+    {
+        try
+        {
+            if (request.ReportType != "executive-summary-pdf")
+                return BadRequest(new { error = "Only executive-summary-pdf supports PDF download" });
+
+            var pdfBytes = await _executiveReportService.GeneratePdfAsync();
+            var fileName = $"Executive_Summary_{DateTime.UtcNow:yyyy-MM-dd}.pdf";
+            return File(pdfBytes, "application/pdf", fileName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error generating executive summary PDF");
+            return StatusCode(500, new { error = "Failed to generate PDF", message = ex.Message });
         }
     }
 

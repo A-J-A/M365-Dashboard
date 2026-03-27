@@ -74,10 +74,12 @@ const categoryIcons: Record<string, React.ReactNode> = {
   'Security': <ShieldCheckmarkRegular className="w-5 h-5" />,
   'Devices': <LaptopRegular className="w-5 h-5" />,
   'Identity': <PeopleRegular className="w-5 h-5" />,
+  'Executive': <DocumentRegular className="w-5 h-5" />,
 };
 
 const categoryColors: Record<string, string> = {
   'Usage': 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400',
+  'Executive': 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400',
   'Security': 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400',
   'Devices': 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400',
   'Identity': 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400',
@@ -151,6 +153,24 @@ const ReportsPage: React.FC = () => {
     try {
       setGeneratingReport(reportType);
       const token = await getAccessToken();
+
+      if (format === 'pdf') {
+        const response = await fetch('/api/reports/download', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reportType, dateRange, format }),
+        });
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `Executive_Summary_${new Date().toISOString().split('T')[0]}.pdf`;
+          document.body.appendChild(a); a.click();
+          window.URL.revokeObjectURL(url); a.remove();
+        }
+        return;
+      }
       
       if (format === 'csv' || format === 'html') {
         const response = await fetch('/api/reports/export', {
@@ -660,6 +680,8 @@ interface ReportCardProps {
 const ReportCard: React.FC<ReportCardProps> = ({ report, isGenerating, onGenerate, onSchedule }) => {
   const [dateRange, setDateRange] = useState('last30days');
   const supportsHtml = report.availableFormats.includes('html');
+  const supportsPdf  = report.availableFormats.includes('pdf');
+  const pdfOnly      = supportsPdf && report.availableFormats.length === 1;
 
   return (
     <div className="px-6 py-4 hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors">
@@ -680,36 +702,55 @@ const ReportCard: React.FC<ReportCardProps> = ({ report, isGenerating, onGenerat
               <option value="last90days">90 days</option>
             </select>
           )}
-          {supportsHtml && (
+          {pdfOnly ? (
+            // PDF-only report: single prominent download button
             <button
-              onClick={() => onGenerate('html', dateRange)}
+              onClick={() => onGenerate('pdf', dateRange)}
               disabled={isGenerating}
-              className="p-2 text-slate-600 hover:text-orange-600 hover:bg-orange-50 dark:text-slate-400 dark:hover:text-orange-400 dark:hover:bg-orange-900/20 rounded-lg transition-colors disabled:opacity-50"
-              title="View HTML Report"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
+              title="Download PDF"
             >
-              <DocumentRegular className="w-5 h-5" />
+              {isGenerating ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <ArrowDownloadRegular className="w-4 h-4" />
+              )}
+              Download PDF
             </button>
+          ) : (
+            <>
+              {supportsHtml && (
+                <button
+                  onClick={() => onGenerate('html', dateRange)}
+                  disabled={isGenerating}
+                  className="p-2 text-slate-600 hover:text-orange-600 hover:bg-orange-50 dark:text-slate-400 dark:hover:text-orange-400 dark:hover:bg-orange-900/20 rounded-lg transition-colors disabled:opacity-50"
+                  title="View HTML Report"
+                >
+                  <DocumentRegular className="w-5 h-5" />
+                </button>
+              )}
+              <button
+                onClick={() => onGenerate('csv', dateRange)}
+                disabled={isGenerating}
+                className="p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 dark:text-slate-400 dark:hover:text-blue-400 dark:hover:bg-blue-900/20 rounded-lg transition-colors disabled:opacity-50"
+                title="Download CSV"
+              >
+                <ArrowDownloadRegular className="w-5 h-5" />
+              </button>
+              <button
+                onClick={() => onGenerate('json', dateRange)}
+                disabled={isGenerating}
+                className="p-2 text-slate-600 hover:text-green-600 hover:bg-green-50 dark:text-slate-400 dark:hover:text-green-400 dark:hover:bg-green-900/20 rounded-lg transition-colors disabled:opacity-50"
+                title="Generate Report"
+              >
+                {isGenerating ? (
+                  <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <PlayRegular className="w-5 h-5" />
+                )}
+              </button>
+            </>
           )}
-          <button
-            onClick={() => onGenerate('csv', dateRange)}
-            disabled={isGenerating}
-            className="p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 dark:text-slate-400 dark:hover:text-blue-400 dark:hover:bg-blue-900/20 rounded-lg transition-colors disabled:opacity-50"
-            title="Download CSV"
-          >
-            <ArrowDownloadRegular className="w-5 h-5" />
-          </button>
-          <button
-            onClick={() => onGenerate('json', dateRange)}
-            disabled={isGenerating}
-            className="p-2 text-slate-600 hover:text-green-600 hover:bg-green-50 dark:text-slate-400 dark:hover:text-green-400 dark:hover:bg-green-900/20 rounded-lg transition-colors disabled:opacity-50"
-            title="Generate Report"
-          >
-            {isGenerating ? (
-              <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <PlayRegular className="w-5 h-5" />
-            )}
-          </button>
           {report.supportsScheduling && (
             <button
               onClick={onSchedule}
