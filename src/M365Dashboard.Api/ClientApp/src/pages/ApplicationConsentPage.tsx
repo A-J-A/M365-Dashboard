@@ -377,11 +377,6 @@ const ApplicationConsentPage: React.FC = () => {
 
       {/* Tabs */}
       <div className="border-b border-slate-200 dark:border-slate-700">
-        <div className="flex items-center gap-4 px-1 pb-1">
-          <span className="text-xs font-semibold text-blue-600 uppercase tracking-wider">Consents & Permissions</span>
-          <div className="flex-1 border-t border-dashed border-slate-200 dark:border-slate-700 mx-2" />
-          <span className="text-xs font-semibold text-purple-600 uppercase tracking-wider">App Hygiene</span>
-        </div>
         <nav className="flex gap-1 overflow-x-auto">
           {tabs.map(t => (
             <button key={t.key} onClick={() => setActiveTab(t.key)}
