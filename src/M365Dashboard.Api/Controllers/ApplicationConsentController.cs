@@ -404,12 +404,24 @@ public class ApplicationConsentController : ControllerBase
             });
             var ownIds = new HashSet<string>((appPage?.Value ?? new List<Application>()).Select(a => a.AppId ?? ""), StringComparer.OrdinalIgnoreCase);
 
+            // Show own registrations with their accountEnabled status for debugging
+            var ownAppsDebug = spList
+                .Where(sp => ownIds.Contains(sp.AppId ?? ""))
+                .Select(sp => new
+                {
+                    sp.DisplayName,
+                    sp.AppId,
+                    accountEnabled = sp.AccountEnabled,
+                    tags = sp.Tags
+                });
+
             var sample = spList.Take(5).Select(sp => new
             {
                 sp.DisplayName,
                 sp.AppId,
                 ownerOrg = sp.AppOwnerOrganizationId?.ToString(),
                 tags = sp.Tags,
+                accountEnabled = sp.AccountEnabled,
                 isOwn = ownIds.Contains(sp.AppId ?? ""),
                 isEnterpriseApp = sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") == true || ownIds.Contains(sp.AppId ?? ""),
                 isMicrosoft = (sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") == true || ownIds.Contains(sp.AppId ?? "")) &&
@@ -427,7 +439,8 @@ public class ApplicationConsentController : ControllerBase
                     !ownIds.Contains(sp.AppId ?? "") &&
                     sp.AppOwnerOrganizationId?.ToString() != "f8cdef31-a31e-4b4a-93e4-5f571e91255a" &&
                     sp.AppOwnerOrganizationId?.ToString() != "72f988bf-86f1-41af-91ab-2d7cd011db47"),
-                sample
+                sample,
+                ownAppsDebug
             });
         }
         catch (Exception ex) { return StatusCode(500, new { error = ex.Message }); }
