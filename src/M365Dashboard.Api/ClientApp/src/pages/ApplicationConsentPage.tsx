@@ -255,10 +255,7 @@ const ApplicationConsentPage: React.FC = () => {
                       <div>{fmtDate(app.createdDateTime)}</div>
                       {app.createdDaysAgo !== undefined && <div className="text-xs text-slate-400">{app.createdDaysAgo}d ago</div>}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="text-sm text-slate-600 dark:text-slate-300">{app.publisherName ?? '—'}</div>
-                      {app.isVerified && <span className="text-xs text-blue-600 dark:text-blue-400">✓ Verified</span>}
-                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-300">{app.publisherName ?? '—'}</td>
                     <td className="px-4 py-3">
                       {app.isMicrosoftApp
                         ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"><BuildingRegular className="w-3 h-3" /> Microsoft</span>
