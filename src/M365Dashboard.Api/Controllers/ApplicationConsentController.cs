@@ -381,6 +381,60 @@ public class ApplicationConsentController : ControllerBase
     }
 
     /// <summary>
+    /// Debug: show raw SP counts and sample data
+    /// </summary>
+    [HttpGet("enterprise-app-debug")]
+    [Microsoft.AspNetCore.Authorization.AllowAnonymous]
+    public async Task<IActionResult> DebugEnterpriseApps()
+    {
+        try
+        {
+            var spPage = await _graphClient.ServicePrincipals.GetAsync(config =>
+            {
+                config.QueryParameters.Top = 999;
+                config.QueryParameters.Filter = "servicePrincipalType eq 'Application'";
+                config.QueryParameters.Select = new[] { "id", "appId", "displayName", "appOwnerOrganizationId", "tags" };
+            });
+            var spList = spPage?.Value ?? new List<ServicePrincipal>();
+
+            var appPage = await _graphClient.Applications.GetAsync(config =>
+            {
+                config.QueryParameters.Top = 999;
+                config.QueryParameters.Select = new[] { "id", "appId", "displayName" };
+            });
+            var ownIds = new HashSet<string>((appPage?.Value ?? new List<Application>()).Select(a => a.AppId ?? ""), StringComparer.OrdinalIgnoreCase);
+
+            var sample = spList.Take(5).Select(sp => new
+            {
+                sp.DisplayName,
+                sp.AppId,
+                ownerOrg = sp.AppOwnerOrganizationId?.ToString(),
+                tags = sp.Tags,
+                isOwn = ownIds.Contains(sp.AppId ?? ""),
+                isMicrosoft = sp.AppOwnerOrganizationId?.ToString() == "f8cdef31-a31e-4b4a-93e4-5f571e91255a"
+                           || sp.AppOwnerOrganizationId?.ToString() == "72f988bf-86f1-41af-91ab-2d7cd011db47"
+                           || sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") == true
+            });
+
+            return Ok(new
+            {
+                totalSPs = spList.Count,
+                totalOwnRegistrations = ownIds.Count,
+                thirdPartyCount = spList.Count(sp =>
+                {
+                    var isOwn = ownIds.Contains(sp.AppId ?? "");
+                    var isMicrosoft = sp.AppOwnerOrganizationId?.ToString() == "f8cdef31-a31e-4b4a-93e4-5f571e91255a"
+                                   || sp.AppOwnerOrganizationId?.ToString() == "72f988bf-86f1-41af-91ab-2d7cd011db47"
+                                   || sp.Tags?.Contains("WindowsAzureActiveDirectoryIntegratedApp") == true;
+                    return !isMicrosoft && !isOwn;
+                }),
+                sample
+            });
+        }
+        catch (Exception ex) { return StatusCode(500, new { error = ex.Message }); }
+    }
+
+    /// <summary>
     /// Enterprise app audit - covers both app registrations and enterprise apps (service principals)
     /// </summary>
     [HttpGet("enterprise-app-audit")]
