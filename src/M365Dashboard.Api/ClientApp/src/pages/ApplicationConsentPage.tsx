@@ -36,6 +36,7 @@ interface AppRegistration {
   hasCredentials: boolean; noCredentials: boolean; allCredentialsExpired: boolean;
   secretCount: number; certCount: number; nextExpiry?: string;
   daysUntilNextExpiry?: number; requiresResourceAccess: boolean; resourceAccessCount: number;
+  accountEnabled?: boolean;
 }
 interface EnterpriseAppAudit {
   id: string; appId: string; displayName: string; description?: string;
@@ -212,11 +213,9 @@ const ApplicationConsentPage: React.FC = () => {
                       {app.signInAudience === 'AzureADMyOrg' ? 'Single tenant' : app.signInAudience === 'AzureADMultipleOrgs' ? 'Multi-tenant' : app.signInAudience ?? '—'}
                     </td>
                     <td className="px-4 py-3">
-                      {app.allCredentialsExpired
-                        ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">Expired</span>
-                        : app.noCredentials
-                          ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400">No Credentials</span>
-                          : <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">Active</span>}
+                      {app.accountEnabled === false
+                        ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400">Deactivated</span>
+                        : <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">Activated</span>}
                     </td>
                   </tr>
                 ))}

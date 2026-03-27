@@ -498,6 +498,7 @@ public class ApplicationConsentController : ControllerBase
                     daysUntilNextExpiry = nextExpiry.HasValue ? (int)(nextExpiry.Value - now).TotalDays : (int?)null,
                     requiresResourceAccess = a.RequiredResourceAccess?.Any() == true,
                     resourceAccessCount    = a.RequiredResourceAccess?.Sum(r => r.ResourceAccess?.Count ?? 0) ?? 0,
+                    accountEnabled = spEnabledLookup.TryGetValue(a.AppId ?? "", out var enabled) ? enabled : (bool?)null,
                     appType = "Registration"
                 };
             }).ToList();
@@ -520,6 +521,11 @@ public class ApplicationConsentController : ControllerBase
 
             // Build a set of appIds that are our own registrations (to flag them)
             var ownAppIds = new HashSet<string>(appList.Select(a => a.AppId ?? ""), StringComparer.OrdinalIgnoreCase);
+
+            // Build lookup: appId -> accountEnabled from service principal
+            var spEnabledLookup = spList
+                .Where(sp => sp.AppId != null)
+                .ToDictionary(sp => sp.AppId!, sp => sp.AccountEnabled, StringComparer.OrdinalIgnoreCase);
 
             var enterpriseApps = spList.Select(sp =>
             {
