@@ -600,26 +600,16 @@ public class CisBenchmarkService : ICisBenchmarkService
             if (hasDefenderPlan)
             {
                 checkedItems.Add("Microsoft Defender for Office 365 license: Found");
-                checkedItems.Add("Built-in protection preset policy: Enabled by default for all Defender licenses");
+                checkedItems.Add("licence is present but actual policy configuration cannot be verified via Graph API.");
+                checkedItems.Add("");
+                checkedItems.Add("Verify Safe Links is configured via PowerShell:");
+                checkedItems.Add("  Get-SafeLinksPolicy | Format-List Name,IsEnabled");
+                checkedItems.Add("  Get-SafeLinksRule | Format-List Name,State");
                 
-                // List relevant service plans found
-                var defenderPlans = subscribedSkus?.Value?
-                    .SelectMany(s => s.ServicePlans ?? new List<ServicePlanInfo>())
-                    .Where(p => p.ServicePlanName?.Contains("ATP", StringComparison.OrdinalIgnoreCase) == true ||
-                               p.ServicePlanName?.Contains("THREAT_INTELLIGENCE", StringComparison.OrdinalIgnoreCase) == true ||
-                               p.ServicePlanName?.Contains("DEFENDER", StringComparison.OrdinalIgnoreCase) == true)
-                    .Select(p => p.ServicePlanName)
-                    .Distinct()
-                    .ToList() ?? new List<string?>();
-                
-                foreach (var plan in defenderPlans)
-                {
-                    checkedItems.Add($"  - {plan}");
-                }
-                
-                control.Status = CisControlStatus.Pass;
-                control.CurrentValue = "Defender for Office 365 licensed - Built-in Safe Links protection active";
-                control.StatusReason = "Safe Links is enabled via Built-in protection preset security policy";
+                control.Status = CisControlStatus.Manual;
+                control.CurrentValue = "Defender for Office 365 licensed — policy configuration requires manual verification";
+                control.StatusReason = "Licence present but Safe Links policy enablement cannot be verified via Graph API. Check Defender portal or PowerShell.";
+                control.IsAutomated = false;
             }
             else
             {
@@ -731,19 +721,16 @@ public class CisBenchmarkService : ICisBenchmarkService
             if (hasDefenderPlan)
             {
                 checkedItems.Add("Microsoft Defender for Office 365 license: Found");
-                checkedItems.Add("Built-in protection preset policy: Enabled by default for all Defender licenses");
+                checkedItems.Add("Licence is present but actual policy configuration cannot be verified via Graph API.");
                 checkedItems.Add("");
-                checkedItems.Add("Safe Attachments provides:");
-                checkedItems.Add("  - Sandbox detonation of suspicious attachments");
-                checkedItems.Add("  - Zero-day malware detection");
-                checkedItems.Add("  - Protection for SharePoint, OneDrive, and Teams");
-                checkedItems.Add("");
-                checkedItems.Add("Verification via PowerShell:");
+                checkedItems.Add("Verify Safe Attachments is configured via PowerShell:");
                 checkedItems.Add("  Get-SafeAttachmentPolicy | FL Name,Enable,Action");
+                checkedItems.Add("  Get-SafeAttachmentRule | FL Name,State");
                 
-                control.Status = CisControlStatus.Pass;
-                control.CurrentValue = "Defender for Office 365 licensed - Built-in Safe Attachments protection active";
-                control.StatusReason = "Safe Attachments is enabled via Built-in protection preset security policy";
+                control.Status = CisControlStatus.Manual;
+                control.CurrentValue = "Defender for Office 365 licensed — policy configuration requires manual verification";
+                control.StatusReason = "Licence present but Safe Attachments policy enablement cannot be verified via Graph API. Check Defender portal or PowerShell.";
+                control.IsAutomated = false;
             }
             else
             {
@@ -810,14 +797,16 @@ public class CisBenchmarkService : ICisBenchmarkService
             if (hasDefenderPlan)
             {
                 checkedItems.Add("Defender for Office 365 (enhanced) - LICENSED:");
-                checkedItems.Add("  - Impersonation protection (users and domains)");
-                checkedItems.Add("  - Mailbox intelligence");
-                checkedItems.Add("  - Advanced phishing thresholds");
-                checkedItems.Add("  - First contact safety tip");
+                checkedItems.Add("Licence is present but actual policy configuration cannot be verified via Graph API.");
+                checkedItems.Add("");
+                checkedItems.Add("Verify anti-phishing policy is configured via PowerShell:");
+                checkedItems.Add("  Get-AntiPhishPolicy | FL Name,Enabled,EnableMailboxIntelligence");
+                checkedItems.Add("  Get-AntiPhishRule | FL Name,State");
                 
-                control.Status = CisControlStatus.Pass;
-                control.CurrentValue = "Anti-phishing available via EOP + Defender for Office 365";
-                control.StatusReason = "Enhanced anti-phishing protection is available";
+                control.Status = CisControlStatus.Manual;
+                control.CurrentValue = "Defender for Office 365 licensed — policy configuration requires manual verification";
+                control.StatusReason = "Licence present but anti-phishing policy configuration cannot be verified via Graph API. Check Defender portal or PowerShell.";
+                control.IsAutomated = false;
             }
             else
             {
