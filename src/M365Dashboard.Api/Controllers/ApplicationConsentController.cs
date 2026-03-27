@@ -389,13 +389,19 @@ public class ApplicationConsentController : ControllerBase
     {
         try
         {
+            var spList = new List<ServicePrincipal>();
             var spPage = await _graphClient.ServicePrincipals.GetAsync(config =>
             {
                 config.QueryParameters.Top = 999;
                 config.QueryParameters.Filter = "servicePrincipalType eq 'Application'";
                 config.QueryParameters.Select = new[] { "id", "appId", "displayName", "appOwnerOrganizationId", "tags", "accountEnabled" };
             });
-            var spList = spPage?.Value ?? new List<ServicePrincipal>();
+            while (spPage?.Value != null)
+            {
+                spList.AddRange(spPage.Value);
+                if (spPage.OdataNextLink == null) break;
+                spPage = await _graphClient.ServicePrincipals.WithUrl(spPage.OdataNextLink).GetAsync();
+            }
 
             var appPage = await _graphClient.Applications.GetAsync(config =>
             {
@@ -415,40 +421,30 @@ public class ApplicationConsentController : ControllerBase
                     tags = sp.Tags
                 });
 
-            // Targeted debug: find the SP for app registration object ID 0bc2aa67
-            // First find the app registration to get its appId, then find the matching SP
-            var targetAppRegId = "0bc2aa67-bf53-4660-9b2e-f83dab9e2e31";
-            Microsoft.Graph.Models.Application? targetApp = null;
-            try { targetApp = await _graphClient.Applications[targetAppRegId].GetAsync(); } catch { }
-
-            ServicePrincipal? targetSpByAppId = null;
-            if (targetApp?.AppId != null)
+            // Targeted debug: look up SP directly by its object ID
+            var targetSpId = "0bc2aa67-bf53-4660-9b2e-f83dab9e2e31";
+            ServicePrincipal? targetSp = null;
+            try
             {
-                try
+                targetSp = await _graphClient.ServicePrincipals[targetSpId].GetAsync(config =>
                 {
-                    var spSearch = await _graphClient.ServicePrincipals.GetAsync(config =>
-                    {
-                        config.QueryParameters.Filter = $"appId eq '{targetApp.AppId}'";
-                        config.QueryParameters.Select = new[] { "id", "appId", "displayName", "accountEnabled", "tags" };
-                    });
-                    targetSpByAppId = spSearch?.Value?.FirstOrDefault();
-                }
-                catch { }
+                    config.QueryParameters.Select = new[] { "id", "appId", "displayName", "accountEnabled", "tags" };
+                });
             }
+            catch { }
 
             var targetDebug = new
             {
-                appRegistrationFound = targetApp != null,
-                appId = targetApp?.AppId,
-                displayName = targetApp?.DisplayName,
-                spFound = targetSpByAppId != null,
-                spObjectId = targetSpByAppId?.Id,
-                spAccountEnabled = targetSpByAppId?.AccountEnabled,
-                spTags = targetSpByAppId?.Tags,
-                inSpList = targetApp?.AppId != null && spList.Any(sp => sp.AppId == targetApp.AppId),
-                spListAccountEnabled = targetApp?.AppId != null
-                    ? spList.FirstOrDefault(sp => sp.AppId == targetApp.AppId)?.AccountEnabled
-                    : null
+                spFound = targetSp != null,
+                spObjectId = targetSp?.Id,
+                appId = targetSp?.AppId,
+                displayName = targetSp?.DisplayName,
+                spAccountEnabled = targetSp?.AccountEnabled,
+                spTags = targetSp?.Tags,
+                // Check if it appears in our paged SP list
+                inSpList = spList.Any(sp => sp.Id == targetSpId),
+                inSpListByAppId = targetSp?.AppId != null && spList.Any(sp => sp.AppId == targetSp.AppId),
+                spListAccountEnabled = spList.FirstOrDefault(sp => sp.Id == targetSpId)?.AccountEnabled
             };
 
             var sample = spList.Take(5).Select(sp => new
