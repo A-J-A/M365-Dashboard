@@ -415,19 +415,40 @@ public class ApplicationConsentController : ControllerBase
                     tags = sp.Tags
                 });
 
-            // Targeted debug: look up the specific deactivated app by object ID
-            var targetObjectId = "0bc2aa67-bf53-4660-9b2e-f83dab9e2e31";
-            ServicePrincipal? targetSp = null;
-            try { targetSp = await _graphClient.ServicePrincipals[targetObjectId].GetAsync(); } catch { }
-            var targetDebug = targetSp == null ? (object)"SP not found by object ID" : new
+            // Targeted debug: find the SP for app registration object ID 0bc2aa67
+            // First find the app registration to get its appId, then find the matching SP
+            var targetAppRegId = "0bc2aa67-bf53-4660-9b2e-f83dab9e2e31";
+            Microsoft.Graph.Models.Application? targetApp = null;
+            try { targetApp = await _graphClient.Applications[targetAppRegId].GetAsync(); } catch { }
+
+            ServicePrincipal? targetSpByAppId = null;
+            if (targetApp?.AppId != null)
             {
-                targetSp.DisplayName,
-                targetSp.AppId,
-                accountEnabled = targetSp.AccountEnabled,
-                tags = targetSp.Tags,
-                inSpList = spList.Any(sp => sp.Id == targetObjectId),
-                inSpListByAppId = targetSp.AppId != null && spList.Any(sp => sp.AppId == targetSp.AppId),
-                spListMatch = spList.FirstOrDefault(sp => sp.Id == targetObjectId) is { } match ? (object)new { match.DisplayName, accountEnabled = match.AccountEnabled } : "not in spList"
+                try
+                {
+                    var spSearch = await _graphClient.ServicePrincipals.GetAsync(config =>
+                    {
+                        config.QueryParameters.Filter = $"appId eq '{targetApp.AppId}'";
+                        config.QueryParameters.Select = new[] { "id", "appId", "displayName", "accountEnabled", "tags" };
+                    });
+                    targetSpByAppId = spSearch?.Value?.FirstOrDefault();
+                }
+                catch { }
+            }
+
+            var targetDebug = new
+            {
+                appRegistrationFound = targetApp != null,
+                appId = targetApp?.AppId,
+                displayName = targetApp?.DisplayName,
+                spFound = targetSpByAppId != null,
+                spObjectId = targetSpByAppId?.Id,
+                spAccountEnabled = targetSpByAppId?.AccountEnabled,
+                spTags = targetSpByAppId?.Tags,
+                inSpList = targetApp?.AppId != null && spList.Any(sp => sp.AppId == targetApp.AppId),
+                spListAccountEnabled = targetApp?.AppId != null
+                    ? spList.FirstOrDefault(sp => sp.AppId == targetApp.AppId)?.AccountEnabled
+                    : null
             };
 
             var sample = spList.Take(5).Select(sp => new
