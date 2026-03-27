@@ -1,6 +1,7 @@
 using Microsoft.Graph;
 using M365Dashboard.Api.Models;
 using M365Dashboard.Api.Services;
+using M365Dashboard.Api.Controllers;
 using System.Text.Json;
 
 namespace M365Dashboard.Api.Services;
