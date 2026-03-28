@@ -701,7 +701,7 @@ public class PdfReportGenerator : IDocument
                     var pct = totalSignIns > 0
                         ? Math.Round((double)loc.SignInCount / totalSignIns * 100, 1)
                         : 0;
-                    var bg = rank % 2 == 0 ? LightGray : Colors.White;
+                    var bg = rank % 2 == 0 ? LightGray : "#FFFFFF";
 
                     t.Cell().Background(bg).Border(1).BorderColor(BorderCol).Padding(6)
                         .AlignCenter().Text(rank.ToString()).FontSize(9);
