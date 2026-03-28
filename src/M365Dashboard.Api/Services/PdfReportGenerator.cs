@@ -139,6 +139,10 @@ public class PdfReportGenerator : IDocument
         // 13. Sign-in Locations Map
         if (_data.SignInMapImageBytes != null)
             ContentPage(c, SignInLocationsPage);
+
+        // 14. Failed Sign-in Locations Map
+        if (_data.FailedSignInMapImageBytes != null)
+            ContentPage(c, FailedSignInLocationsPage);
     }
 
     private void CoverPage(ColumnDescriptor col)
@@ -709,6 +713,93 @@ public class PdfReportGenerator : IDocument
                         .Text(loc.Country ?? "Unknown").FontSize(9);
                     t.Cell().Background(bg).Border(1).BorderColor(BorderCol).Padding(6)
                         .AlignRight().Text(loc.SignInCount.ToString("N0")).FontSize(9);
+                    t.Cell().Background(bg).Border(1).BorderColor(BorderCol).Padding(6)
+                        .AlignRight().Text($"{pct}%").FontSize(9);
+                    rank++;
+                }
+            });
+        }
+    }
+
+    private void FailedSignInLocationsPage(ColumnDescriptor col)
+    {
+        col.Item().Text("Failed Sign-in Locations \u2013 Last 30 Days")
+            .FontSize(16).FontColor(Crit).Bold();
+        col.Item().Height(6);
+        col.Item().Text("Geographic distribution of failed authentication attempts against your Microsoft 365 tenant. " +
+            "Unusual concentrations in unexpected regions may indicate credential stuffing or brute-force attacks.")
+            .FontSize(10).FontColor(BodyText).Italic();
+        col.Item().Height(16);
+
+        // Map image
+        col.Item().Border(1).BorderColor(BorderCol)
+            .Image(_data.FailedSignInMapImageBytes!).FitWidth();
+        col.Item().Height(4);
+        col.Item().AlignRight()
+            .Text("Powered by Azure Maps").FontSize(7).FontColor("#9CA3AF").Italic();
+        col.Item().Height(20);
+
+        if (_data.FailedSignInLocations?.Any() == true)
+        {
+            var totalFailed    = _data.FailedSignInLocations.Sum(l => l.SignInCount);
+            var totalCountries = _data.FailedSignInLocations.Count;
+            var topCountry     = _data.FailedSignInLocations.First();
+
+            // Stats row
+            col.Item().Row(row =>
+            {
+                void StatBox(string value, string label, string color) =>
+                    row.RelativeItem().Border(1).BorderColor(BorderCol)
+                        .Background(LightGray).Padding(12).Column(c =>
+                        {
+                            c.Item().AlignCenter().Text(value).FontSize(22).Bold().FontColor(color);
+                            c.Item().Height(4);
+                            c.Item().AlignCenter().Text(label).FontSize(9).FontColor(BodyText);
+                        });
+
+                StatBox(totalFailed.ToString("N0"),  "Total Failed Attempts", Crit);
+                row.ConstantItem(8);
+                StatBox(totalCountries.ToString(),    "Countries / Regions",  _accent);
+                row.ConstantItem(8);
+                StatBox(topCountry.Country ?? "\u2014", "Top Failure Origin",   Crit);
+            });
+
+            col.Item().Height(20);
+
+            // Top 10 countries table
+            col.Item().Text("Top Failure Origins").FontSize(12).FontColor(Crit).Bold();
+            col.Item().Height(8);
+            col.Item().Table(t =>
+            {
+                t.ColumnsDefinition(cd =>
+                {
+                    cd.ConstantColumn(20);
+                    cd.RelativeColumn(4);
+                    cd.RelativeColumn(2);
+                    cd.RelativeColumn(2);
+                });
+
+                t.Header(h =>
+                {
+                    foreach (var hdr in new[] { "#", "Country", "Failures", "% of Total" })
+                        h.Cell().Background(Crit).Padding(6)
+                            .Text(hdr).FontColor(Colors.White).FontSize(9).Bold();
+                });
+
+                var rank = 1;
+                foreach (var loc in _data.FailedSignInLocations.Take(10))
+                {
+                    var pct = totalFailed > 0
+                        ? Math.Round((double)loc.SignInCount / totalFailed * 100, 1)
+                        : 0;
+                    var bg = rank % 2 == 0 ? LightGray : "#FFFFFF";
+
+                    t.Cell().Background(bg).Border(1).BorderColor(BorderCol).Padding(6)
+                        .AlignCenter().Text(rank.ToString()).FontSize(9);
+                    t.Cell().Background(bg).Border(1).BorderColor(BorderCol).Padding(6)
+                        .Text(loc.Country ?? "Unknown").FontSize(9);
+                    t.Cell().Background(bg).Border(1).BorderColor(BorderCol).Padding(6)
+                        .AlignRight().Text(loc.SignInCount.ToString("N0")).FontSize(9).FontColor(Crit);
                     t.Cell().Background(bg).Border(1).BorderColor(BorderCol).Padding(6)
                         .AlignRight().Text($"{pct}%").FontSize(9);
                     rank++;
