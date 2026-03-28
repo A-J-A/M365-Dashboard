@@ -409,6 +409,8 @@ try {
             "498476ce-e0fe-48b0-b801-37ba7e2685c6"  # GroupMember.Read.All
             "dc5007c0-2d7d-4c42-879c-2dab87571379"  # IdentityRiskyUser.Read.All
             "bf394140-e372-4bf9-a898-299cfc7564e5"  # SecurityEvents.Read.All
+            "810c84a8-4a9e-49e6-bf7d-12d183f40d01"  # Mail.Read
+            "b633e1c5-b582-4048-a93e-9f11b44c7e96"  # Mail.Send
         )
         
         $grantedCount = 0
@@ -509,6 +511,8 @@ Write-Host "    - Policy.Read.All"
 Write-Host "    - UserAuthenticationMethod.Read.All"
 Write-Host "    - IdentityRiskyUser.Read.All"
 Write-Host "    - SecurityEvents.Read.All"
+Write-Host "    - Mail.Read"
+Write-Host "    - Mail.Send"
 Write-Host "----------------------------------------------------------------"
 
 # Update configuration files
