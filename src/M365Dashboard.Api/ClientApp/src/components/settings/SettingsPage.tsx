@@ -1300,7 +1300,7 @@ export function SettingsPage() {
                       <p className="mt-1 text-xs text-gray-500">Additional confidentiality notice</p>
                     </div>
                     <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Scheduled Report Sender Email</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Scheduled Report Sender Email (Optional)</label>
                       <input type="email" value={reportSettings.senderEmail || ''} onChange={(e) => setReportSettings(p => ({ ...p, senderEmail: e.target.value || null }))} placeholder="reports@yourdomain.com" className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500" />
                       <p className="mt-1 text-xs text-gray-500">The From address for all scheduled report emails. Must be a licensed M365 mailbox with <strong>Mail.Send</strong> permission granted to this application.</p>
                     </div>

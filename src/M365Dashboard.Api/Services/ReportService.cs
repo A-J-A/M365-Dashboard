@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using M365Dashboard.Api.Data;
@@ -215,7 +215,7 @@ public class ReportService : IReportService
         _executiveReportService = executiveReportService;
     }
 
-    // ─── Branding helpers ──────────────────────────────────────────────────────
+    // --- Branding helpers ------------------------------------------------------
 
     private ReportSettings LoadReportSettings()
     {
@@ -279,7 +279,7 @@ public class ReportService : IReportService
         return $"<div class='footer'><p>{footer}</p>{extra}</div>";
     }
 
-    // ──────────────────────────────────────────────────────────────────────────
+    // --------------------------------------------------------------------------
 
     public List<ReportDefinitionDto> GetReportDefinitions() => _reportDefinitions;
 
@@ -586,7 +586,7 @@ public class ReportService : IReportService
                     break;
 
                 case "executive-summary-pdf":
-                    // PDF is generated on demand via /api/reports/download — return a lightweight summary here
+                    // PDF is generated on demand via /api/reports/download � return a lightweight summary here
                     var execData = await _executiveReportService.GatherDataAsync();
                     data = new { message = "Use the Download PDF button to get the full report.", generatedAt = execData.GeneratedAt, reportMonth = execData.ReportMonth };
                     recordCount = 1;
@@ -779,7 +779,7 @@ public class ReportService : IReportService
         sb.AppendLine("        .control-card.apps { border-left-color: #dc3545; }");
         sb.AppendLine("        .control-card.infrastructure { border-left-color: #17a2b8; }");
         sb.AppendLine("        .control-card.completed { opacity: 0.7; }");
-        sb.AppendLine("        .control-card.completed .control-name::after { content: ' ✓'; color: #28a745; }");
+        sb.AppendLine("        .control-card.completed .control-name::after { content: ' ?'; color: #28a745; }");
         sb.AppendLine("        .control-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }");
         sb.AppendLine("        .control-name { font-weight: 600; font-size: 15px; color: #333; margin: 0; }");
         sb.AppendLine("        .control-score { display: flex; align-items: center; gap: 8px; }");
@@ -1228,10 +1228,10 @@ public class ReportService : IReportService
         sb.AppendLine("    </div>");
         
         // Expired Secrets
-        sb.AppendLine("    <h2 class='danger'>❌ Expired Secrets</h2>");
+        sb.AppendLine("    <h2 class='danger'>? Expired Secrets</h2>");
         if (data.ExpiredSecrets.Count == 0)
         {
-            sb.AppendLine("    <div class='empty-message'>✓ No expired secrets found</div>");
+            sb.AppendLine("    <div class='empty-message'>? No expired secrets found</div>");
         }
         else
         {
@@ -1239,10 +1239,10 @@ public class ReportService : IReportService
         }
         
         // Expiring Secrets
-        sb.AppendLine("    <h2 class='warning'>⚠️ Expiring Secrets</h2>");
+        sb.AppendLine("    <h2 class='warning'>?? Expiring Secrets</h2>");
         if (data.ExpiringSecrets.Count == 0)
         {
-            sb.AppendLine("    <div class='empty-message'>✓ No secrets expiring within the threshold period</div>");
+            sb.AppendLine("    <div class='empty-message'>? No secrets expiring within the threshold period</div>");
         }
         else
         {
@@ -1250,10 +1250,10 @@ public class ReportService : IReportService
         }
         
         // Expired Certificates
-        sb.AppendLine("    <h2 class='danger'>❌ Expired Certificates</h2>");
+        sb.AppendLine("    <h2 class='danger'>? Expired Certificates</h2>");
         if (data.ExpiredCertificates.Count == 0)
         {
-            sb.AppendLine("    <div class='empty-message'>✓ No expired certificates found</div>");
+            sb.AppendLine("    <div class='empty-message'>? No expired certificates found</div>");
         }
         else
         {
@@ -1261,10 +1261,10 @@ public class ReportService : IReportService
         }
         
         // Expiring Certificates
-        sb.AppendLine("    <h2 class='warning'>⚠️ Expiring Certificates</h2>");
+        sb.AppendLine("    <h2 class='warning'>?? Expiring Certificates</h2>");
         if (data.ExpiringCertificates.Count == 0)
         {
-            sb.AppendLine("    <div class='empty-message'>✓ No certificates expiring within the threshold period</div>");
+            sb.AppendLine("    <div class='empty-message'>? No certificates expiring within the threshold period</div>");
         }
         else
         {
@@ -1530,7 +1530,7 @@ public class ReportService : IReportService
         sb.AppendLine("    </div>");
         
         // Summary Cards
-        sb.AppendLine("    <p style='color: #666; font-size: 13px; margin-bottom: 10px;'>💡 Click on the cards below to filter the table</p>");
+        sb.AppendLine("    <p style='color: #666; font-size: 13px; margin-bottom: 10px;'>?? Click on the cards below to filter the table</p>");
         sb.AppendLine("    <div class='summary'>");
         sb.AppendLine($"        <div class='summary-card' onclick=\"filterByType(this,'all')\"><div class='summary-value'>{data.TotalPrivilegedUsers}</div><div class='summary-label'>Total Privileged Users</div></div>");
         
@@ -2767,13 +2767,13 @@ public class ReportService : IReportService
 
     private static string FormatCellValue(object? value, string propertyName)
     {
-        if (value == null) return "<span style='color:#999'>—</span>";
+        if (value == null) return "<span style='color:#999'>�</span>";
         
         // Handle List<string> - join with commas
         if (value is IEnumerable<string> stringList)
         {
             var items = stringList.ToList();
-            if (items.Count == 0) return "<span style='color:#999'>—</span>";
+            if (items.Count == 0) return "<span style='color:#999'>�</span>";
             return System.Net.WebUtility.HtmlEncode(string.Join(", ", items));
         }
         
@@ -2781,7 +2781,7 @@ public class ReportService : IReportService
         if (value is System.Collections.IEnumerable enumerable && !(value is string))
         {
             var items = enumerable.Cast<object>().ToList();
-            if (items.Count == 0) return "<span style='color:#999'>—</span>";
+            if (items.Count == 0) return "<span style='color:#999'>�</span>";
             return System.Net.WebUtility.HtmlEncode(string.Join(", ", items.Select(i => i?.ToString() ?? "")));
         }
         
