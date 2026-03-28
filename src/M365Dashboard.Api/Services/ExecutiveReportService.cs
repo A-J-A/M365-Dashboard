@@ -521,12 +521,16 @@ public class ExecutiveReportService : IExecutiveReportService
         {
             var since = DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-ddTHH:mm:ssZ");
 
+            _logger.LogInformation("Fetching sign-in locations since {Since}", since);
+
             var signIns = await _graphClient.AuditLogs.SignIns.GetAsync(config =>
             {
                 config.QueryParameters.Filter = $"createdDateTime ge {since}";
-                config.QueryParameters.Select = new[] { "location", "status", "createdDateTime" };
+                config.QueryParameters.Select = new[] { "location", "createdDateTime" };
                 config.QueryParameters.Top = 1000;
             });
+
+            _logger.LogInformation("Sign-ins returned: {Count}", signIns?.Value?.Count ?? 0);
 
             // Aggregate by country — use centroid coordinates per country
             var byCountry = new Dictionary<string, (int count, double lat, double lon, string code)>(StringComparer.OrdinalIgnoreCase);
@@ -555,6 +559,8 @@ public class ExecutiveReportService : IExecutiveReportService
                 Longitude   = kvp.Value.lon,
                 SignInCount = kvp.Value.count
             }).OrderByDescending(l => l.SignInCount).ToList();
+
+            _logger.LogInformation("Sign-in locations aggregated: {Count} countries", result.Count);
         }
         catch (Exception ex) { _logger.LogWarning(ex, "Error fetching sign-in locations"); }
         return result;
@@ -597,34 +603,49 @@ public class ExecutiveReportService : IExecutiveReportService
 
         try
         {
-            // Build pushpin markers — orange dots for each sign-in location
-            // Azure Maps static image API: pins=style|label|iconColour||lon+lat
-            var pins = locations
+            // Azure Maps Render v2 static image API
+            // Pins format: default|coE07C3A||lon lat  (space-separated, NOT +)
+            // Each pin is a separate &pins= query param — do NOT URI-encode the values
+            var validPins = locations
                 .Where(l => l.Latitude != 0 || l.Longitude != 0)
                 .Take(50)
-                .Select(l => $"default||{l.Longitude}+{l.Latitude}")
                 .ToList();
 
-            if (!pins.Any()) return null;
+            if (!validPins.Any()) return null;
 
-            var pinsParam = string.Join("&pins=", pins.Select(Uri.EscapeDataString));
+            // Build URL manually to avoid HttpClient encoding the pipe/space chars
+            var sb = new System.Text.StringBuilder();
+            sb.Append("https://atlas.microsoft.com/map/static");
+            sb.Append("?api-version=2024-04-01");
+            sb.Append($"&subscription-key={Uri.EscapeDataString(mapsKey)}");
+            sb.Append("&zoom=1");
+            sb.Append("&width=800");
+            sb.Append("&height=400");
+            sb.Append("&tilesetId=microsoft.base.road");
 
-            var url = $"https://atlas.microsoft.com/map/static/png" +
-                      $"?api-version=1.0" +
-                      $"&subscription-key={mapsKey}" +
-                      $"&zoom=1" +
-                      $"&width=800" +
-                      $"&height=400" +
-                      $"&language=en-US" +
-                      $"&pins={pinsParam}";
+            foreach (var loc in validPins)
+            {
+                // Format: default|coE07C3A||lon lat
+                var lon = loc.Longitude.ToString("F4", System.Globalization.CultureInfo.InvariantCulture);
+                var lat = loc.Latitude.ToString("F4", System.Globalization.CultureInfo.InvariantCulture);
+                sb.Append($"&pins=default|coE07C3A||{lon} {lat}");
+            }
 
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            var url = sb.ToString();
+            _logger.LogInformation("Calling Azure Maps: {Url}", url.Replace(mapsKey, "***"));
+
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
             var response = await http.GetAsync(url);
 
             if (response.IsSuccessStatusCode)
-                return await response.Content.ReadAsByteArrayAsync();
+            {
+                var bytes = await response.Content.ReadAsByteArrayAsync();
+                _logger.LogInformation("Azure Maps returned {Bytes} bytes", bytes.Length);
+                return bytes;
+            }
 
-            _logger.LogWarning("Azure Maps static image returned {Status}", response.StatusCode);
+            var errorBody = await response.Content.ReadAsStringAsync();
+            _logger.LogWarning("Azure Maps static image returned {Status}: {Body}", response.StatusCode, errorBody);
             return null;
         }
         catch (Exception ex)
