@@ -135,6 +135,10 @@ public class PdfReportGenerator : IDocument
             (_data.AppCredentialStatus.ExpiringSecrets.Any() || _data.AppCredentialStatus.ExpiredSecrets.Any() ||
              _data.AppCredentialStatus.ExpiringCertificates.Any() || _data.AppCredentialStatus.ExpiredCertificates.Any()))
             ContentPage(c, AppCredentialsPage);
+
+        // 13. Sign-in Locations Map
+        if (_data.SignInMapImageBytes != null && _data.SignInLocations?.Any() == true)
+            ContentPage(c, SignInLocationsPage);
     }
 
     private void CoverPage(ColumnDescriptor col)
@@ -624,6 +628,93 @@ public class PdfReportGenerator : IDocument
             .Text(c1).FontSize(9).Bold();
         t.Cell().Background(LightGray).Border(1).BorderColor(BorderCol).Padding(6).AlignRight()
             .Text(c2).FontSize(9).Bold();
+    }
+
+    private void SignInLocationsPage(ColumnDescriptor col)
+    {
+        col.Item().Text("Sign-in Locations – Last 30 Days")
+            .FontSize(16).FontColor(_primary).Bold();
+        col.Item().Height(6);
+        col.Item().Text("Geographic distribution of authentication activity across your Microsoft 365 tenant.")
+            .FontSize(10).FontColor(BodyText).Italic();
+        col.Item().Height(16);
+
+        // Map image
+        col.Item().Border(1).BorderColor(BorderCol)
+            .Image(_data.SignInMapImageBytes!).FitWidth();
+        col.Item().Height(4);
+        col.Item().AlignRight()
+            .Text("Powered by Azure Maps").FontSize(7).FontColor("#9CA3AF").Italic();
+        col.Item().Height(20);
+
+        // Summary stats + top countries side by side
+        if (_data.SignInLocations?.Any() == true)
+        {
+            var totalSignIns  = _data.SignInLocations.Sum(l => l.SignInCount);
+            var totalCountries = _data.SignInLocations.Count;
+            var topCountry    = _data.SignInLocations.First();
+
+            // Stats row
+            col.Item().Row(row =>
+            {
+                void StatBox(string value, string label, string color) =>
+                    row.RelativeItem().Border(1).BorderColor(BorderCol)
+                        .Background(LightGray).Padding(12).Column(c =>
+                        {
+                            c.Item().AlignCenter().Text(value).FontSize(22).Bold().FontColor(color);
+                            c.Item().Height(4);
+                            c.Item().AlignCenter().Text(label).FontSize(9).FontColor(BodyText);
+                        });
+
+                StatBox(totalSignIns.ToString("N0"),   "Total Sign-ins",    _primary);
+                row.ConstantItem(8);
+                StatBox(totalCountries.ToString(),      "Countries / Regions", _accent);
+                row.ConstantItem(8);
+                StatBox(topCountry.Country ?? "—",     "Top Sign-in Country", Compliant);
+            });
+
+            col.Item().Height(20);
+
+            // Top 10 countries table
+            col.Item().Text("Top Sign-in Countries").FontSize(12).FontColor(_primary).Bold();
+            col.Item().Height(8);
+            col.Item().Table(t =>
+            {
+                t.ColumnsDefinition(cd =>
+                {
+                    cd.ConstantColumn(20);   // Rank
+                    cd.RelativeColumn(4);    // Country
+                    cd.RelativeColumn(2);    // Sign-ins
+                    cd.RelativeColumn(2);    // % of total
+                });
+
+                t.Header(h =>
+                {
+                    foreach (var hdr in new[] { "#", "Country", "Sign-ins", "% of Total" })
+                        h.Cell().Background(_primary).Padding(6)
+                            .Text(hdr).FontColor(Colors.White).FontSize(9).Bold();
+                });
+
+                var rank = 1;
+                foreach (var loc in _data.SignInLocations.Take(10))
+                {
+                    var pct = totalSignIns > 0
+                        ? Math.Round((double)loc.SignInCount / totalSignIns * 100, 1)
+                        : 0;
+                    var bg = rank % 2 == 0 ? LightGray : Colors.White;
+
+                    t.Cell().Background(bg).Border(1).BorderColor(BorderCol).Padding(6)
+                        .AlignCenter().Text(rank.ToString()).FontSize(9);
+                    t.Cell().Background(bg).Border(1).BorderColor(BorderCol).Padding(6)
+                        .Text(loc.Country ?? "Unknown").FontSize(9);
+                    t.Cell().Background(bg).Border(1).BorderColor(BorderCol).Padding(6)
+                        .AlignRight().Text(loc.SignInCount.ToString("N0")).FontSize(9);
+                    t.Cell().Background(bg).Border(1).BorderColor(BorderCol).Padding(6)
+                        .AlignRight().Text($"{pct}%").FontSize(9);
+                    rank++;
+                }
+            });
+        }
     }
 
     private static void TR(TableDescriptor t, string label, string value, string? colour = null)

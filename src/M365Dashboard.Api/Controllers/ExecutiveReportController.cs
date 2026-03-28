@@ -2642,6 +2642,8 @@ public class ExecutiveReportData
     public AppCredentialStatusData? AppCredentialStatus { get; set; }
     public List<DomainSecurityResult>? DomainSecurityResults { get; set; }
     public DomainSecuritySummary? DomainSecuritySummary { get; set; }
+    public List<SignInLocationData>? SignInLocations { get; set; }
+    public byte[]? SignInMapImageBytes { get; set; }
 }
 
 public class SecureScoreData
@@ -2865,4 +2867,13 @@ public class AppCredentialDetail
     public DateTime? ExpiryDate { get; set; }
     public int DaysUntilExpiry { get; set; }
     public string? Status { get; set; }
+}
+
+public class SignInLocationData
+{
+    public string? Country { get; set; }
+    public string? CountryCode { get; set; }
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public int SignInCount { get; set; }
 }

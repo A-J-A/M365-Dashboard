@@ -171,6 +171,12 @@ public class ExecutiveReportService : IExecutiveReportService
 
         tasks.Add(Task.Run(async () =>
         {
+            try { reportData.SignInLocations = await GetSignInLocationsAsync(); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Failed to get Sign-in Locations"); }
+        }));
+
+        tasks.Add(Task.Run(async () =>
+        {
             try
             {
                 var tenantDomains = await _graphClient.Domains.GetAsync(config =>
@@ -205,6 +211,13 @@ public class ExecutiveReportService : IExecutiveReportService
         var tenantId = _configuration["AzureAd:TenantId"] ?? "default";
         var settings = await _tenantSettingsService.GetReportSettingsAsync(tenantId);
         var data = await GatherDataAsync();
+
+        // Generate sign-in map image after all data is collected
+        if (data.SignInLocations?.Any() == true)
+        {
+            try { data.SignInMapImageBytes = await GenerateSignInMapAsync(data.SignInLocations); }
+            catch (Exception ex) { _logger.LogWarning(ex, "Failed to generate sign-in map image"); }
+        }
 
         try
         {
@@ -499,6 +512,126 @@ public class ExecutiveReportService : IExecutiveReportService
         }
         catch (Exception ex) { _logger.LogWarning(ex, "Error fetching app credential status"); }
         return result;
+    }
+
+    private async Task<List<SignInLocationData>> GetSignInLocationsAsync()
+    {
+        var result = new List<SignInLocationData>();
+        try
+        {
+            var since = DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-ddTHH:mm:ssZ");
+
+            var signIns = await _graphClient.AuditLogs.SignIns.GetAsync(config =>
+            {
+                config.QueryParameters.Filter = $"createdDateTime ge {since}";
+                config.QueryParameters.Select = new[] { "location", "status", "createdDateTime" };
+                config.QueryParameters.Top = 1000;
+            });
+
+            // Aggregate by country — use centroid coordinates per country
+            var byCountry = new Dictionary<string, (int count, double lat, double lon, string code)>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var signIn in signIns?.Value ?? new List<Microsoft.Graph.Models.SignIn>())
+            {
+                var country = signIn.Location?.CountryOrRegion;
+                if (string.IsNullOrEmpty(country)) continue;
+
+                // Use Graph-provided coordinates if available, otherwise use country centroid
+                var lat = signIn.Location?.GeoCoordinates?.Latitude ?? GetCountryCentroid(country).lat;
+                var lon = signIn.Location?.GeoCoordinates?.Longitude ?? GetCountryCentroid(country).lon;
+                var code = signIn.Location?.CountryOrRegion ?? "";
+
+                if (byCountry.TryGetValue(country, out var existing))
+                    byCountry[country] = (existing.count + 1, existing.lat, existing.lon, existing.code);
+                else
+                    byCountry[country] = (1, lat, lon, code);
+            }
+
+            result = byCountry.Select(kvp => new SignInLocationData
+            {
+                Country     = kvp.Key,
+                CountryCode = kvp.Value.code,
+                Latitude    = kvp.Value.lat,
+                Longitude   = kvp.Value.lon,
+                SignInCount = kvp.Value.count
+            }).OrderByDescending(l => l.SignInCount).ToList();
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "Error fetching sign-in locations"); }
+        return result;
+    }
+
+    private static (double lat, double lon) GetCountryCentroid(string country) => country.ToUpperInvariant() switch
+    {
+        "UNITED KINGDOM" or "UK" or "GB"         => (55.3781, -3.4360),
+        "UNITED STATES" or "USA" or "US"         => (37.0902, -95.7129),
+        "GERMANY" or "DE"                        => (51.1657,  10.4515),
+        "FRANCE" or "FR"                         => (46.2276,   2.2137),
+        "NETHERLANDS" or "NL"                    => (52.1326,   5.2913),
+        "IRELAND" or "IE"                        => (53.4129,  -8.2439),
+        "AUSTRALIA" or "AU"                      => (-25.2744, 133.7751),
+        "CANADA" or "CA"                         => (56.1304, -106.3468),
+        "INDIA" or "IN"                          => (20.5937,  78.9629),
+        "JAPAN" or "JP"                          => (36.2048, 138.2529),
+        "BRAZIL" or "BR"                         => (-14.2350, -51.9253),
+        "SOUTH AFRICA" or "ZA"                   => (-30.5595,  22.9375),
+        "CHINA" or "CN"                          => (35.8617, 104.1954),
+        "SPAIN" or "ES"                          => (40.4637,  -3.7492),
+        "ITALY" or "IT"                          => (41.8719,  12.5674),
+        "POLAND" or "PL"                         => (51.9194,  19.1451),
+        "SWEDEN" or "SE"                         => (60.1282,  18.6435),
+        "NORWAY" or "NO"                         => (60.4720,   8.4689),
+        "DENMARK" or "DK"                        => (56.2639,   9.5018),
+        "SWITZERLAND" or "CH"                    => (46.8182,   8.2275),
+        "BELGIUM" or "BE"                        => (50.5039,   4.4699),
+        "PORTUGAL" or "PT"                       => (39.3999,  -8.2245),
+        "NEW ZEALAND" or "NZ"                    => (-40.9006, 174.8860),
+        "SINGAPORE" or "SG"                      => (1.3521,  103.8198),
+        "UAE" or "UNITED ARAB EMIRATES" or "AE"  => (23.4241,  53.8478),
+        _                                        => (20.0, 0.0)  // Default to mid-Atlantic
+    };
+
+    private async Task<byte[]?> GenerateSignInMapAsync(List<SignInLocationData> locations)
+    {
+        var mapsKey = _configuration["AzureMaps:SubscriptionKey"];
+        if (string.IsNullOrEmpty(mapsKey) || !locations.Any()) return null;
+
+        try
+        {
+            // Build pushpin markers — orange dots for each sign-in location
+            // Azure Maps static image API: pins=style|label|iconColour||lon+lat
+            var pins = locations
+                .Where(l => l.Latitude != 0 || l.Longitude != 0)
+                .Take(50)
+                .Select(l => $"default||{l.Longitude}+{l.Latitude}")
+                .ToList();
+
+            if (!pins.Any()) return null;
+
+            var pinsParam = string.Join("&pins=", pins.Select(Uri.EscapeDataString));
+
+            var url = $"https://atlas.microsoft.com/map/static/png" +
+                      $"?api-version=1.0" +
+                      $"&subscription-key={mapsKey}" +
+                      $"&zoom=1" +
+                      $"&width=800" +
+                      $"&height=400" +
+                      $"&language=en-US" +
+                      $"&pins={pinsParam}";
+
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            var response = await http.GetAsync(url);
+
+            if (response.IsSuccessStatusCode)
+                return await response.Content.ReadAsByteArrayAsync();
+
+            _logger.LogWarning("Azure Maps static image returned {Status}", response.StatusCode);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error generating sign-in map image");
+            return null;
+        }
     }
 
     private static string FormatCompliance(string? state) => state?.ToLower() switch
