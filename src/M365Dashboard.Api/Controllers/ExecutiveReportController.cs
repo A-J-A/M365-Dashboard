@@ -421,6 +421,84 @@ public class ExecutiveReportController : ControllerBase
                 return BadRequest(new { error = "Failed to generate report data" });
             }
 
+            // Fetch sign-in locations and generate map image for PDF
+            try
+            {
+                var since = DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-ddTHH:mm:ssZ");
+                var signIns = await _graphClient.AuditLogs.SignIns.GetAsync(config =>
+                {
+                    config.QueryParameters.Filter = $"createdDateTime ge {since}";
+                    config.QueryParameters.Select = new[] { "location", "createdDateTime" };
+                    config.QueryParameters.Top = 1000;
+                });
+
+                _logger.LogInformation("Sign-in locations: {Count} sign-ins returned", signIns?.Value?.Count ?? 0);
+
+                var byCountry = new Dictionary<string, (int count, double lat, double lon)>(StringComparer.OrdinalIgnoreCase);
+                foreach (var s in signIns?.Value ?? new())
+                {
+                    var country = s.Location?.CountryOrRegion;
+                    if (string.IsNullOrEmpty(country)) continue;
+                    var lat = s.Location?.GeoCoordinates?.Latitude ?? 20.0;
+                    var lon = s.Location?.GeoCoordinates?.Longitude ?? 0.0;
+                    if (byCountry.TryGetValue(country, out var ex))
+                        byCountry[country] = (ex.count + 1, ex.lat, ex.lon);
+                    else
+                        byCountry[country] = (1, lat, lon);
+                }
+
+                reportData.SignInLocations = byCountry.Select(kvp => new SignInLocationData
+                {
+                    Country = kvp.Key, CountryCode = kvp.Key,
+                    Latitude = kvp.Value.lat, Longitude = kvp.Value.lon,
+                    SignInCount = kvp.Value.count
+                }).OrderByDescending(l => l.SignInCount).ToList();
+
+                _logger.LogInformation("Sign-in locations aggregated: {Count} countries", reportData.SignInLocations.Count);
+
+                // Generate Azure Maps static image
+                var mapsKey = _configuration["AzureMaps:SubscriptionKey"];
+                _logger.LogInformation("AzureMaps key present: {HasKey}", !string.IsNullOrEmpty(mapsKey));
+
+                if (!string.IsNullOrEmpty(mapsKey))
+                {
+                    var inv = System.Globalization.CultureInfo.InvariantCulture;
+                    var validPins = reportData.SignInLocations
+                        .Where(l => l.Latitude != 0 || l.Longitude != 0).Take(50).ToList();
+
+                    var mapUrl = "https://atlas.microsoft.com/map/static" +
+                                 "?api-version=2024-04-01" +
+                                 $"&subscription-key={Uri.EscapeDataString(mapsKey)}" +
+                                 "&zoom=1&width=800&height=400" +
+                                 "&tilesetId=microsoft.base.road&center=0,20";
+
+                    if (validPins.Any())
+                    {
+                        var coords = string.Join("|", validPins.Select(l =>
+                            $"{l.Longitude.ToString("F4", inv)} {l.Latitude.ToString("F4", inv)}"));
+                        mapUrl += $"&pins=default|coFF6600||{coords}||";
+                    }
+
+                    _logger.LogInformation("Calling Azure Maps (pins: {Count})", validPins.Count);
+                    using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+                    var mapResp = await http.GetAsync(mapUrl);
+                    if (mapResp.IsSuccessStatusCode)
+                    {
+                        reportData.SignInMapImageBytes = await mapResp.Content.ReadAsByteArrayAsync();
+                        _logger.LogInformation("Azure Maps returned {Bytes} bytes", reportData.SignInMapImageBytes.Length);
+                    }
+                    else
+                    {
+                        var body = await mapResp.Content.ReadAsStringAsync();
+                        _logger.LogWarning("Azure Maps returned {Status}: {Body}", mapResp.StatusCode, body);
+                    }
+                }
+            }
+            catch (Exception mapEx)
+            {
+                _logger.LogWarning(mapEx, "Failed to generate sign-in map, continuing without it");
+            }
+
             try
             {
                 var pdfBytes = _pdfReportGenerator.GenerateReport(reportData, reportSettings);
