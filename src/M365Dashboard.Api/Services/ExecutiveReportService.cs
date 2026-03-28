@@ -213,11 +213,9 @@ public class ExecutiveReportService : IExecutiveReportService
         var data = await GatherDataAsync();
 
         // Generate sign-in map image after all data is collected
-        if (data.SignInLocations?.Any() == true)
-        {
-            try { data.SignInMapImageBytes = await GenerateSignInMapAsync(data.SignInLocations); }
-            catch (Exception ex) { _logger.LogWarning(ex, "Failed to generate sign-in map image"); }
-        }
+        // Always attempt map generation — even with no locations we can show a plain world map
+        try { data.SignInMapImageBytes = await GenerateSignInMapAsync(data.SignInLocations ?? new()); }
+        catch (Exception ex) { _logger.LogWarning(ex, "Failed to generate sign-in map image"); }
 
         try
         {
@@ -603,36 +601,37 @@ public class ExecutiveReportService : IExecutiveReportService
 
         try
         {
-            // Azure Maps Render v2 static image API
-            // Pins format: default|coE07C3A||lon lat  (space-separated, NOT +)
-            // Each pin is a separate &pins= query param — do NOT URI-encode the values
             var validPins = locations
                 .Where(l => l.Latitude != 0 || l.Longitude != 0)
                 .Take(50)
                 .ToList();
 
-            if (!validPins.Any()) return null;
+            // Azure Maps Render v2 static image API
+            // Correct pin format: default||lon lat||  (space between lon/lat, double pipe before AND after coords)
+            // All pins for a given style go in ONE &pins= parameter, coords separated by |
+            // e.g. &pins=default|coFF6600||0.0 51.5||-3.4 55.3||
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
 
-            // Build URL manually to avoid HttpClient encoding the pipe/space chars
-            var sb = new System.Text.StringBuilder();
-            sb.Append("https://atlas.microsoft.com/map/static");
-            sb.Append("?api-version=2024-04-01");
-            sb.Append($"&subscription-key={Uri.EscapeDataString(mapsKey)}");
-            sb.Append("&zoom=1");
-            sb.Append("&width=800");
-            sb.Append("&height=400");
-            sb.Append("&tilesetId=microsoft.base.road");
+            // Build the URL string manually — do NOT let HttpClient encode pipes/spaces
+            var url = "https://atlas.microsoft.com/map/static" +
+                      "?api-version=2024-04-01" +
+                      $"&subscription-key={Uri.EscapeDataString(mapsKey)}" +
+                      "&zoom=1" +
+                      "&width=800" +
+                      "&height=400" +
+                      "&tilesetId=microsoft.base.road" +
+                      "&center=0,20";
 
-            foreach (var loc in validPins)
+            // Add pins only if we have locations with valid coordinates
+            if (validPins.Any())
             {
-                // Format: default|coE07C3A||lon lat
-                var lon = loc.Longitude.ToString("F4", System.Globalization.CultureInfo.InvariantCulture);
-                var lat = loc.Latitude.ToString("F4", System.Globalization.CultureInfo.InvariantCulture);
-                sb.Append($"&pins=default|coE07C3A||{lon} {lat}");
+                // Format: default|coFF6600||lon1 lat1|lon2 lat2||  (trailing || required)
+                var coords = string.Join("|", validPins.Select(l =>
+                    $"{l.Longitude.ToString("F4", inv)} {l.Latitude.ToString("F4", inv)}"));
+                url += $"&pins=default|coFF6600||{coords}||";
             }
 
-            var url = sb.ToString();
-            _logger.LogInformation("Calling Azure Maps: {Url}", url.Replace(mapsKey, "***"));
+            _logger.LogInformation("Calling Azure Maps static image (pins: {Count})", validPins.Count);
 
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
             var response = await http.GetAsync(url);

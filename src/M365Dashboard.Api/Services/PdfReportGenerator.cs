@@ -137,7 +137,7 @@ public class PdfReportGenerator : IDocument
             ContentPage(c, AppCredentialsPage);
 
         // 13. Sign-in Locations Map
-        if (_data.SignInMapImageBytes != null && _data.SignInLocations?.Any() == true)
+        if (_data.SignInMapImageBytes != null)
             ContentPage(c, SignInLocationsPage);
     }
 
