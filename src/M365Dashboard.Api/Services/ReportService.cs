@@ -814,17 +814,17 @@ public class ReportService : IReportService
         sb.AppendLine("            });");
         sb.AppendLine("        }");
         sb.AppendLine("        ");
-        sb.AppendLine("        function filterByCategory(category) {");
+        sb.AppendLine("        function filterByCategory(el, category) {");
         sb.AppendLine("            currentCategory = category;");
         sb.AppendLine("            document.querySelectorAll('.category-btn').forEach(btn => btn.classList.remove('active'));");
-        sb.AppendLine("            event.target.classList.add('active');");
+        sb.AppendLine("            el.classList.add('active');");
         sb.AppendLine("            applyFilters();");
         sb.AppendLine("        }");
         sb.AppendLine("        ");
-        sb.AppendLine("        function filterByStatus(status) {");
+        sb.AppendLine("        function filterByStatus(el, status) {");
         sb.AppendLine("            currentStatus = status;");
         sb.AppendLine("            document.querySelectorAll('.status-btn').forEach(btn => btn.classList.remove('active'));");
-        sb.AppendLine("            event.target.classList.add('active');");
+        sb.AppendLine("            el.classList.add('active');");
         sb.AppendLine("            applyFilters();");
         sb.AppendLine("        }");
         sb.AppendLine("    </script>");
@@ -863,10 +863,10 @@ public class ReportService : IReportService
             .ToList();
         
         sb.AppendLine("    <div class='category-filter'>");
-        sb.AppendLine("        <button class='category-btn active' onclick=\"filterByCategory('all')\">All Controls</button>");
+        sb.AppendLine("        <button class='category-btn active' onclick=\"filterByCategory(this,'all')\">All Controls</button>");
         foreach (var category in categories)
         {
-            sb.AppendLine($"        <button class='category-btn' onclick=\"filterByCategory('{System.Net.WebUtility.HtmlEncode(category.ToLower())}')\">{ System.Net.WebUtility.HtmlEncode(category)}</button>");
+            sb.AppendLine($"        <button class='category-btn' onclick=\"filterByCategory(this,'{System.Net.WebUtility.HtmlEncode(category.ToLower())}')\">{ System.Net.WebUtility.HtmlEncode(category)}</button>");
         }
         sb.AppendLine("    </div>");
         
@@ -877,12 +877,12 @@ public class ReportService : IReportService
         
         sb.AppendLine("    <div class='status-filter'>");
         sb.AppendLine("        <label class='filter-label'>Status:</label>");
-        sb.AppendLine($"        <button class='status-btn active' onclick=\"filterByStatus('all')\">All ({data.ControlScores.Count})</button>");
-        sb.AppendLine($"        <button class='status-btn' onclick=\"filterByStatus('incomplete')\">Incomplete ({incompleteCount})</button>");
-        sb.AppendLine($"        <button class='status-btn' onclick=\"filterByStatus('completed')\">Completed ({completedCount})</button>");
+        sb.AppendLine($"        <button class='status-btn active' onclick=\"filterByStatus(this,'all')\">All ({data.ControlScores.Count})</button>");
+        sb.AppendLine($"        <button class='status-btn' onclick=\"filterByStatus(this,'incomplete')\">Incomplete ({incompleteCount})</button>");
+        sb.AppendLine($"        <button class='status-btn' onclick=\"filterByStatus(this,'completed')\">Completed ({completedCount})</button>");
         if (notApplicableCount > 0)
         {
-            sb.AppendLine($"        <button class='status-btn' onclick=\"filterByStatus('na')\">Not Scored ({notApplicableCount})</button>");
+            sb.AppendLine($"        <button class='status-btn' onclick=\"filterByStatus(this,'na')\">Not Scored ({notApplicableCount})</button>");
         }
         sb.AppendLine("    </div>");
         
