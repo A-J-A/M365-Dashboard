@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using M365Dashboard.Api.Data;
@@ -1182,10 +1182,10 @@ public class ReportService : IReportService
         sb.AppendLine("        @media print { body { background: white; } .container { box-shadow: none; } }");
         sb.AppendLine("    </style>");
         sb.AppendLine("    <script>");
-        sb.AppendLine("        function filterByType(type) {");
+        sb.AppendLine("        function filterByType(el, type) {");
         sb.AppendLine("            document.querySelectorAll('.summary-card').forEach(card => card.classList.remove('active'));");
         sb.AppendLine("            if (type !== 'all') {");
-        sb.AppendLine("                event.target.closest('.summary-card').classList.add('active');");
+        sb.AppendLine("                el.closest('.summary-card').classList.add('active');");
         sb.AppendLine("            }");
         sb.AppendLine("            document.querySelectorAll('tbody tr').forEach(row => {");
         sb.AppendLine("                if (type === 'all') {");
@@ -1503,6 +1503,18 @@ public class ReportService : IReportService
         sb.AppendLine("        .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee; color: #666; font-size: 12px; text-align: center; }");
         sb.AppendLine("        @media print { body { background: white; } .container { box-shadow: none; } }");
         sb.AppendLine("    </style>");
+        sb.AppendLine("    <script>");
+        sb.AppendLine("        function filterByType(el, type) {");
+        sb.AppendLine("            document.querySelectorAll('.summary-card').forEach(function(c) { c.classList.remove('active'); });");
+        sb.AppendLine("            if (type !== 'all') el.classList.add('active');");
+        sb.AppendLine("            document.querySelectorAll('tbody tr').forEach(function(row) {");
+        sb.AppendLine("                if (type === 'all') { row.style.display = ''; }");
+        sb.AppendLine("                else if (type === 'stale') { row.style.display = row.classList.contains('stale') ? '' : 'none'; }");
+        sb.AppendLine("                else if (type === 'never') { row.style.display = row.classList.contains('never-signed-in') ? '' : 'none'; }");
+        sb.AppendLine("                else if (type === 'disabled') { row.style.display = row.dataset.status === 'Disabled' ? '' : 'none'; }");
+        sb.AppendLine("            });");
+        sb.AppendLine("        }");
+        sb.AppendLine("    </script>");
         sb.AppendLine("</head>");
         sb.AppendLine("<body>");
         sb.AppendLine("<div class='container'>");
@@ -1520,16 +1532,16 @@ public class ReportService : IReportService
         // Summary Cards
         sb.AppendLine("    <p style='color: #666; font-size: 13px; margin-bottom: 10px;'>💡 Click on the cards below to filter the table</p>");
         sb.AppendLine("    <div class='summary'>");
-        sb.AppendLine($"        <div class='summary-card' onclick=\"filterByType('all')\"><div class='summary-value'>{data.TotalPrivilegedUsers}</div><div class='summary-label'>Total Privileged Users</div></div>");
+        sb.AppendLine($"        <div class='summary-card' onclick=\"filterByType(this,'all')\"><div class='summary-value'>{data.TotalPrivilegedUsers}</div><div class='summary-label'>Total Privileged Users</div></div>");
         
         var staleClass = data.TotalStaleAccounts > 0 ? "danger" : "success";
-        sb.AppendLine($"        <div class='summary-card {staleClass}' onclick=\"filterByType('stale')\"><div class='summary-value'>{data.TotalStaleAccounts}</div><div class='summary-label'>Stale Accounts</div></div>");
+        sb.AppendLine($"        <div class='summary-card {staleClass}' onclick=\"filterByType(this,'stale')\"><div class='summary-value'>{data.TotalStaleAccounts}</div><div class='summary-label'>Stale Accounts</div></div>");
         
         var neverClass = data.AccountsNeverSignedIn > 0 ? "danger" : "success";
-        sb.AppendLine($"        <div class='summary-card {neverClass}' onclick=\"filterByType('never')\"><div class='summary-value'>{data.AccountsNeverSignedIn}</div><div class='summary-label'>Never Signed In</div></div>");
+        sb.AppendLine($"        <div class='summary-card {neverClass}' onclick=\"filterByType(this,'never')\"><div class='summary-value'>{data.AccountsNeverSignedIn}</div><div class='summary-label'>Never Signed In</div></div>");
         
         var disabledClass = data.AccountsDisabled > 0 ? "warning" : "";
-        sb.AppendLine($"        <div class='summary-card {disabledClass}' onclick=\"filterByType('disabled')\"><div class='summary-value'>{data.AccountsDisabled}</div><div class='summary-label'>Disabled Accounts</div></div>");
+        sb.AppendLine($"        <div class='summary-card {disabledClass}' onclick=\"filterByType(this,'disabled')\"><div class='summary-value'>{data.AccountsDisabled}</div><div class='summary-label'>Disabled Accounts</div></div>");
         sb.AppendLine("    </div>");
         
         // Monitored Roles
@@ -1753,10 +1765,10 @@ public class ReportService : IReportService
         sb.AppendLine("        @media print { body { background: white; } .container { box-shadow: none; } }");
         sb.AppendLine("    </style>");
         sb.AppendLine("    <script>");
-        sb.AppendLine("        function filterByType(type) {");
+        sb.AppendLine("        function filterByType(el, type) {");
         sb.AppendLine("            document.querySelectorAll('.summary-card').forEach(card => card.classList.remove('active'));");
         sb.AppendLine("            if (type !== 'all') {");
-        sb.AppendLine("                event.target.closest('.summary-card').classList.add('active');");
+        sb.AppendLine("                el.closest('.summary-card').classList.add('active');");
         sb.AppendLine("            }");
         sb.AppendLine("            document.querySelectorAll('tbody tr').forEach(row => {");
         sb.AppendLine("                if (type === 'all') {");
@@ -1793,22 +1805,22 @@ public class ReportService : IReportService
         // Summary Cards
         sb.AppendLine("    <p style='color: #666; font-size: 13px; margin-bottom: 10px;'>\ud83d\udca1 Click on the cards below to filter the table</p>");
         sb.AppendLine("    <div class='summary'>");
-        sb.AppendLine($"        <div class='summary-card' onclick=\"filterByType('all')\"><div class='summary-value'>{users.Count}</div><div class='summary-label'>Total Inactive</div></div>");
+        sb.AppendLine($"        <div class='summary-card' onclick=\"filterByType(this,'all')\"><div class='summary-value'>{users.Count}</div><div class='summary-label'>Total Inactive</div></div>");
         
         var neverClass = neverSignedIn > 0 ? "danger" : "success";
-        sb.AppendLine($"        <div class='summary-card {neverClass}' onclick=\"filterByType('never')\"><div class='summary-value'>{neverSignedIn}</div><div class='summary-label'>Never Signed In</div></div>");
+        sb.AppendLine($"        <div class='summary-card {neverClass}' onclick=\"filterByType(this,'never')\"><div class='summary-value'>{neverSignedIn}</div><div class='summary-label'>Never Signed In</div></div>");
         
         var staleClass = staleUsers > 0 ? "warning" : "success";
-        sb.AppendLine($"        <div class='summary-card {staleClass}' onclick=\"filterByType('stale')\"><div class='summary-value'>{staleUsers}</div><div class='summary-label'>Stale Users</div></div>");
+        sb.AppendLine($"        <div class='summary-card {staleClass}' onclick=\"filterByType(this,'stale')\"><div class='summary-value'>{staleUsers}</div><div class='summary-label'>Stale Users</div></div>");
         
         var disabledClass = disabledUsers > 0 ? "info" : "";
-        sb.AppendLine($"        <div class='summary-card {disabledClass}' onclick=\"filterByType('disabled')\"><div class='summary-value'>{disabledUsers}</div><div class='summary-label'>Disabled</div></div>");
+        sb.AppendLine($"        <div class='summary-card {disabledClass}' onclick=\"filterByType(this,'disabled')\"><div class='summary-value'>{disabledUsers}</div><div class='summary-label'>Disabled</div></div>");
         
-        sb.AppendLine($"        <div class='summary-card' onclick=\"filterByType('enabled')\"><div class='summary-value'>{enabledUsers}</div><div class='summary-label'>Enabled</div></div>");
+        sb.AppendLine($"        <div class='summary-card' onclick=\"filterByType(this,'enabled')\"><div class='summary-value'>{enabledUsers}</div><div class='summary-label'>Enabled</div></div>");
         
         if (guestUsers > 0)
         {
-            sb.AppendLine($"        <div class='summary-card info' onclick=\"filterByType('guest')\"><div class='summary-value'>{guestUsers}</div><div class='summary-label'>Guest Users</div></div>");
+            sb.AppendLine($"        <div class='summary-card info' onclick=\"filterByType(this,'guest')\"><div class='summary-value'>{guestUsers}</div><div class='summary-label'>Guest Users</div></div>");
         }
         
         sb.AppendLine("    </div>");
@@ -2470,10 +2482,10 @@ public class ReportService : IReportService
         sb.AppendLine("        @media print { body { background: white; } .container { box-shadow: none; } }");
         sb.AppendLine("    </style>");
         sb.AppendLine("    <script>");
-        sb.AppendLine("        function filterByType(type) {");
+        sb.AppendLine("        function filterByType(el, type) {");
         sb.AppendLine("            document.querySelectorAll('.summary-card').forEach(card => card.classList.remove('active'));");
         sb.AppendLine("            if (type !== 'all') {");
-        sb.AppendLine("                event.target.closest('.summary-card').classList.add('active');");
+        sb.AppendLine("                el.closest('.summary-card').classList.add('active');");
         sb.AppendLine("            }");
         sb.AppendLine("            document.querySelectorAll('tbody tr').forEach(row => {");
         sb.AppendLine("                if (type === 'all') {");
@@ -2512,22 +2524,22 @@ public class ReportService : IReportService
         // Summary Cards
         sb.AppendLine("    <p style='color: #666; font-size: 13px; margin-bottom: 10px;'>\ud83d\udca1 Click on the cards below to filter the table</p>");
         sb.AppendLine("    <div class='summary'>");
-        sb.AppendLine($"        <div class='summary-card' onclick=\"filterByType('all')\"><div class='summary-value'>{totalGroups}</div><div class='summary-label'>Total Groups</div></div>");
-        sb.AppendLine($"        <div class='summary-card m365' onclick=\"filterByType('m365')\"><div class='summary-value'>{m365Groups}</div><div class='summary-label'>Microsoft 365</div></div>");
-        sb.AppendLine($"        <div class='summary-card security' onclick=\"filterByType('security')\"><div class='summary-value'>{securityGroups}</div><div class='summary-label'>Security</div></div>");
+        sb.AppendLine($"        <div class='summary-card' onclick=\"filterByType(this,'all')\"><div class='summary-value'>{totalGroups}</div><div class='summary-label'>Total Groups</div></div>");
+        sb.AppendLine($"        <div class='summary-card m365' onclick=\"filterByType(this,'m365')\"><div class='summary-value'>{m365Groups}</div><div class='summary-label'>Microsoft 365</div></div>");
+        sb.AppendLine($"        <div class='summary-card security' onclick=\"filterByType(this,'security')\"><div class='summary-value'>{securityGroups}</div><div class='summary-label'>Security</div></div>");
         
         if (distributionGroups > 0)
         {
-            sb.AppendLine($"        <div class='summary-card distribution' onclick=\"filterByType('distribution')\"><div class='summary-value'>{distributionGroups}</div><div class='summary-label'>Distribution</div></div>");
+            sb.AppendLine($"        <div class='summary-card distribution' onclick=\"filterByType(this,'distribution')\"><div class='summary-value'>{distributionGroups}</div><div class='summary-label'>Distribution</div></div>");
         }
         
-        sb.AppendLine($"        <div class='summary-card teams' onclick=\"filterByType('teams')\"><div class='summary-value'>{teamsEnabled}</div><div class='summary-label'>Teams Enabled</div></div>");
-        sb.AppendLine($"        <div class='summary-card public' onclick=\"filterByType('public')\"><div class='summary-value'>{publicGroups}</div><div class='summary-label'>Public</div></div>");
-        sb.AppendLine($"        <div class='summary-card private' onclick=\"filterByType('private')\"><div class='summary-value'>{privateGroups}</div><div class='summary-label'>Private</div></div>");
+        sb.AppendLine($"        <div class='summary-card teams' onclick=\"filterByType(this,'teams')\"><div class='summary-value'>{teamsEnabled}</div><div class='summary-label'>Teams Enabled</div></div>");
+        sb.AppendLine($"        <div class='summary-card public' onclick=\"filterByType(this,'public')\"><div class='summary-value'>{publicGroups}</div><div class='summary-label'>Public</div></div>");
+        sb.AppendLine($"        <div class='summary-card private' onclick=\"filterByType(this,'private')\"><div class='summary-value'>{privateGroups}</div><div class='summary-label'>Private</div></div>");
         
         if (noOwnerGroups > 0)
         {
-            sb.AppendLine($"        <div class='summary-card danger' onclick=\"filterByType('noowner')\"><div class='summary-value'>{noOwnerGroups}</div><div class='summary-label'>No Owner</div></div>");
+            sb.AppendLine($"        <div class='summary-card danger' onclick=\"filterByType(this,'noowner')\"><div class='summary-value'>{noOwnerGroups}</div><div class='summary-label'>No Owner</div></div>");
         }
         
         sb.AppendLine("    </div>");
