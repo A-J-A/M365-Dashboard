@@ -212,10 +212,44 @@ public class ExecutiveReportService : IExecutiveReportService
         var settings = await _tenantSettingsService.GetReportSettingsAsync(tenantId);
         var data = await GatherDataAsync();
 
-        // Generate sign-in map image after all data is collected
-        // Always attempt map generation — even with no locations we can show a plain world map
+        // ── Sign-in locations map (orange pins) ──────────────────────────────
         try { data.SignInMapImageBytes = await GenerateSignInMapAsync(data.SignInLocations ?? new()); }
         catch (Exception ex) { _logger.LogWarning(ex, "Failed to generate sign-in map image"); }
+
+        // ── Failed sign-in locations map (red pins) ──────────────────────────
+        try
+        {
+            var since = DateTime.UtcNow.AddDays(-30).ToString("yyyy-MM-ddTHH:mm:ssZ");
+            var failedSignIns = await _graphClient.AuditLogs.SignIns.GetAsync(config =>
+            {
+                config.QueryParameters.Filter = $"createdDateTime ge {since} and status/errorCode ne 0";
+                config.QueryParameters.Select = new[] { "location", "createdDateTime", "status" };
+                config.QueryParameters.Top = 1000;
+            });
+
+            var byCountry = new Dictionary<string, (int count, double lat, double lon)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var s in failedSignIns?.Value ?? new())
+            {
+                var country = s.Location?.CountryOrRegion;
+                if (string.IsNullOrEmpty(country)) continue;
+                var lat = s.Location?.GeoCoordinates?.Latitude ?? 20.0;
+                var lon = s.Location?.GeoCoordinates?.Longitude ?? 0.0;
+                if (byCountry.TryGetValue(country, out var ex))
+                    byCountry[country] = (ex.count + 1, ex.lat, ex.lon);
+                else
+                    byCountry[country] = (1, lat, lon);
+            }
+
+            data.FailedSignInLocations = byCountry.Select(kvp => new SignInLocationData
+            {
+                Country = kvp.Key, CountryCode = kvp.Key,
+                Latitude = kvp.Value.lat, Longitude = kvp.Value.lon,
+                SignInCount = kvp.Value.count
+            }).OrderByDescending(l => l.SignInCount).ToList();
+
+            data.FailedSignInMapImageBytes = await GenerateFailedSignInMapAsync(data.FailedSignInLocations);
+        }
+        catch (Exception ex) { _logger.LogWarning(ex, "Failed to generate failed sign-in map"); }
 
         try
         {
@@ -597,7 +631,11 @@ public class ExecutiveReportService : IExecutiveReportService
     private async Task<byte[]?> GenerateSignInMapAsync(List<SignInLocationData> locations)
     {
         var mapsKey = _configuration["AzureMaps:SubscriptionKey"];
-        if (string.IsNullOrEmpty(mapsKey) || !locations.Any()) return null;
+        _logger.LogInformation("AzureMaps key present: {HasKey}, locations: {Count}",
+            !string.IsNullOrEmpty(mapsKey), locations.Count);
+
+        if (string.IsNullOrEmpty(mapsKey)) return null;
+        // Continue even with no locations — we still render a plain world map
 
         try
         {
@@ -650,6 +688,44 @@ public class ExecutiveReportService : IExecutiveReportService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error generating sign-in map image");
+            return null;
+        }
+    }
+
+    private async Task<byte[]?> GenerateFailedSignInMapAsync(List<SignInLocationData> locations)
+    {
+        var mapsKey = _configuration["AzureMaps:SubscriptionKey"];
+        if (string.IsNullOrEmpty(mapsKey)) return null;
+
+        try
+        {
+            var validPins = locations.Where(l => l.Latitude != 0 || l.Longitude != 0).Take(50).ToList();
+            var inv = System.Globalization.CultureInfo.InvariantCulture;
+
+            var url = "https://atlas.microsoft.com/map/static" +
+                      "?api-version=2024-04-01" +
+                      $"&subscription-key={Uri.EscapeDataString(mapsKey)}" +
+                      "&zoom=1&width=800&height=400" +
+                      "&tilesetId=microsoft.base.road&center=0,20";
+
+            if (validPins.Any())
+            {
+                var coords = string.Join("|", validPins.Select(l =>
+                    $"{l.Longitude.ToString("F4", inv)} {l.Latitude.ToString("F4", inv)}"));
+                url += $"&pins=default|coFF0000||{coords}||";
+            }
+
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+            var response = await http.GetAsync(url);
+            if (response.IsSuccessStatusCode)
+                return await response.Content.ReadAsByteArrayAsync();
+
+            _logger.LogWarning("Azure Maps (failed sign-ins) returned {Status}", response.StatusCode);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error generating failed sign-in map image");
             return null;
         }
     }

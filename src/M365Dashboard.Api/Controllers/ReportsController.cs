@@ -13,17 +13,23 @@ public class ReportsController : ControllerBase
     private readonly IGraphService _graphService;
     private readonly IReportService _reportService;
     private readonly IExecutiveReportService _executiveReportService;
+    private readonly ITenantSettingsService _tenantSettingsService;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<ReportsController> _logger;
 
     public ReportsController(
         IGraphService graphService, 
         IReportService reportService,
         IExecutiveReportService executiveReportService,
+        ITenantSettingsService tenantSettingsService,
+        IConfiguration configuration,
         ILogger<ReportsController> logger)
     {
         _graphService = graphService;
         _reportService = reportService;
         _executiveReportService = executiveReportService;
+        _tenantSettingsService = tenantSettingsService;
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -207,8 +213,12 @@ public class ReportsController : ControllerBase
             if (request.ReportType != "executive-summary-pdf")
                 return BadRequest(new { error = "Only executive-summary-pdf supports PDF download" });
 
+            var tenantId = _configuration["AzureAd:TenantId"] ?? "default";
+            var settings = await _tenantSettingsService.GetReportSettingsAsync(tenantId);
+            var companySlug = settings.CompanyName.Replace(" ", "_");
+
             var pdfBytes = await _executiveReportService.GeneratePdfAsync();
-            var fileName = $"Executive_Summary_{DateTime.UtcNow:yyyy-MM-dd}.pdf";
+            var fileName = $"{companySlug}_Executive_Summary_{DateTime.UtcNow:yyyy-MM-dd}.pdf";
             return File(pdfBytes, "application/pdf", fileName);
         }
         catch (Exception ex)
