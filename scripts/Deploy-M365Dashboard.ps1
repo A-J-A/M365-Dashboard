@@ -63,22 +63,24 @@ if ($isMspMode) {
     Read-Host "  Press Enter to open browser login for the CLIENT tenant"
     cmd /c "az logout 2>nul"
     Write-Host "  Opening browser for client tenant login..." -ForegroundColor Yellow
-    # Run az login without suppressing output so errors are visible
+    Write-Host "  (Client tenants often have no Azure subscription - that is normal)" -ForegroundColor Gray
+    # --allow-no-subscriptions is required for M365-only client tenants
     $ErrorActionPreference = "Continue"
-    az login
+    az login --allow-no-subscriptions
     $loginExit = $LASTEXITCODE
     $ErrorActionPreference = "Stop"
     
-    # Verify we got a valid account
+    # Verify we got a valid account - check account show rather than exit code
+    # (exit code may be non-zero if tenant has no subscriptions even on success)
     $clientTenantAccountJson = cmd /c "az account show 2>nul"
-    if ($loginExit -ne 0 -or -not $clientTenantAccountJson) {
+    if (-not $clientTenantAccountJson) {
         Write-Host "" 
         Write-Host "  Login failed. Common causes:" -ForegroundColor Red
         Write-Host "    - Browser blocked or no browser available" -ForegroundColor Yellow
         Write-Host "    - Wrong account selected (must be Global Admin in the client tenant)" -ForegroundColor Yellow
         Write-Host "    - MFA challenge not completed" -ForegroundColor Yellow
         Write-Host ""
-        Write-Host "  Try running manually first: az login" -ForegroundColor Cyan
+        Write-Host "  Try running manually first: az login --allow-no-subscriptions" -ForegroundColor Cyan
         exit 1
     }
     $clientTenantAccount = $clientTenantAccountJson | ConvertFrom-Json
