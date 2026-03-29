@@ -73,9 +73,9 @@ function Invoke-AzLogin {
     $loginExit = $LASTEXITCODE
     $ErrorActionPreference = "Stop"
 
-    $accountRaw = cmd /c "az account show 2>nul"
-    # Join multi-line output into a single string before parsing
-    $accountJson = ($accountRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
+    # Use -o json to get clean single-object output; strip WARNING lines and trim
+    $accountRaw = cmd /c "az account show -o json 2>nul"
+    $accountJson = ($accountRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n" | ForEach-Object { $_.Trim() }
     if (-not $accountJson -or $accountJson -notmatch '"tenantId"') {
         Write-Host "  Login failed." -ForegroundColor Red
         if (-not $useDeviceCode) {
@@ -123,7 +123,7 @@ if ($isMspMode) {
     Write-Host ""
     Write-Host "Checking Azure CLI login..." -ForegroundColor Yellow
     $ErrorActionPreference = "Continue"
-    $currentAccountJson = cmd /c "az account show 2>nul"
+    $currentAccountJson = (cmd /c "az account show -o json 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
     $ErrorActionPreference = "Stop"
 
     if ($currentAccountJson) {
