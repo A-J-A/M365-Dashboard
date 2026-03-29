@@ -58,24 +58,26 @@ function Invoke-AzLogin {
         Write-Host "  Starting device code login..." -ForegroundColor Yellow
         Write-Host "  Watch for the code and URL to appear below, then open https://microsoft.com/devicelogin" -ForegroundColor Gray
         if ($AllowNoSubscriptions) {
-            az login --use-device-code --allow-no-subscriptions
+            az login --use-device-code --allow-no-subscriptions | Out-Null
         } else {
-            az login --use-device-code
+            az login --use-device-code | Out-Null
         }
     } else {
         Write-Host "  Opening browser..." -ForegroundColor Yellow
         if ($AllowNoSubscriptions) {
-            az login --allow-no-subscriptions
+            az login --allow-no-subscriptions | Out-Null
         } else {
-            az login
+            az login | Out-Null
         }
     }
     $loginExit = $LASTEXITCODE
     $ErrorActionPreference = "Stop"
 
-    # Use -o json to get clean single-object output; strip WARNING lines and trim
-    $accountRaw = cmd /c "az account show -o json 2>nul"
-    $accountJson = ($accountRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n" | ForEach-Object { $_.Trim() }
+    # Fetch account details separately with explicit JSON output
+    $ErrorActionPreference = "Continue"
+    $accountRaw = az account show -o json 2>$null
+    $ErrorActionPreference = "Stop"
+    $accountJson = ($accountRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
     if (-not $accountJson -or $accountJson -notmatch '"tenantId"') {
         Write-Host "  Login failed." -ForegroundColor Red
         if (-not $useDeviceCode) {
