@@ -289,22 +289,46 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
                 $newSecretRaw = cmd /c "az ad app credential reset --id $ClientId --append --display-name M365Dashboard-Secret --years 2 2>&1"
                 $newSecretJson = ($newSecretRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
                 if ($LASTEXITCODE -ne 0 -or -not $newSecretJson -or $newSecretJson -notmatch '"password"') {
-                    Write-Host "  Failed to create client secret. Error details:" -ForegroundColor Red
-                    Write-Host ($newSecretRaw -join "`n") -ForegroundColor Red
                     Write-Host ""
-                    Write-Host "  The signed-in account needs 'Application Administrator' role in this tenant." -ForegroundColor Yellow
-                    Write-Host "  You can create the secret manually in Entra Portal and re-run with option [3]." -ForegroundColor Yellow
-                    exit 1
+                    Write-Host "  Automatic secret creation failed:" -ForegroundColor Yellow
+                    Write-Host "  $(($newSecretRaw | Where-Object { $_ -match 'ERROR:' }) -join '')" -ForegroundColor Yellow
+                    Write-Host ""
+                    # Check if it's a tenant policy restriction
+                    if (($newSecretRaw -join '') -match 'policy|Credential type not allowed') {
+                        Write-Host "  This tenant has a policy restricting automated secret creation." -ForegroundColor Yellow
+                        Write-Host "  Please create the secret manually:" -ForegroundColor White
+                        Write-Host "  1. Open: https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Credentials/appId/$ClientId" -ForegroundColor Cyan
+                        Write-Host "  2. Click 'New client secret'" -ForegroundColor White
+                        Write-Host "  3. Set description: M365Dashboard-Secret, Expires: 24 months" -ForegroundColor White
+                        Write-Host "  4. Copy the VALUE (not the ID) immediately after creation" -ForegroundColor White
+                        Write-Host ""
+                    } else {
+                        Write-Host "  The signed-in account may need 'Application Administrator' role in this tenant." -ForegroundColor Yellow
+                        Write-Host "  Alternatively, create the secret manually in Entra Portal:" -ForegroundColor White
+                        Write-Host "  https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Credentials/appId/$ClientId" -ForegroundColor Cyan
+                        Write-Host ""
+                    }
+                    $secureInput = Read-Host "  Paste the client secret value here (or press Ctrl+C to cancel)"
+                    $ClientSecret = $secureInput
+                    if ([string]::IsNullOrWhiteSpace($ClientSecret)) {
+                        Write-Host "  No secret provided. Exiting." -ForegroundColor Red
+                        exit 1
+                    }
+                    Write-Host "  Client secret accepted." -ForegroundColor Green
                 }
             }
-            $newSecret = $newSecretJson | ConvertFrom-Json
-            $ClientSecret = $newSecret.password
+            if ([string]::IsNullOrWhiteSpace($ClientSecret)) {
+                $newSecret = $newSecretJson | ConvertFrom-Json
+                $ClientSecret = $newSecret.password
+            }
             if ([string]::IsNullOrWhiteSpace($ClientSecret)) {
                 Write-Host "  Failed to extract client secret from response" -ForegroundColor Red
                 Write-Host "  Raw response: $newSecretRaw" -ForegroundColor Red
                 exit 1
             }
-            Write-Host "  Client secret created (valid 2 years)" -ForegroundColor Green
+            if ($newSecretJson -match '"password"') {
+                Write-Host "  Client secret created (valid 2 years)" -ForegroundColor Green
+            }
 
             # Set Application ID URI and expose access_as_user scope
             # The identifier URI must be set first so Entra can resolve api://<clientId> as a resource
