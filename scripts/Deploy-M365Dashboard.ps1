@@ -36,6 +36,55 @@ param(
 $ErrorActionPreference = "Stop"
 
 # ============================================================================
+# Helper: Interactive Azure Login (browser or device code)
+# ============================================================================
+function Invoke-AzLogin {
+    param(
+        [string]$Prompt = "Login",
+        [switch]$AllowNoSubscriptions
+    )
+    Write-Host ""
+    Write-Host "  Login method" -ForegroundColor Cyan
+    Write-Host "  [1] Browser  - opens a browser window (default)" -ForegroundColor White
+    Write-Host "  [2] Device code - visit https://microsoft.com/devicelogin and enter a code" -ForegroundColor White
+    Write-Host ""
+    $loginMethod = Read-Host "  Select login method (1-2, default 1)"
+    $useDeviceCode = ($loginMethod -eq "2")
+
+    cmd /c "az logout 2>nul"
+
+    $ErrorActionPreference = "Continue"
+    if ($useDeviceCode) {
+        Write-Host "  Starting device code login..." -ForegroundColor Yellow
+        Write-Host "  Watch for the code and URL to appear below, then open https://microsoft.com/devicelogin" -ForegroundColor Gray
+        if ($AllowNoSubscriptions) {
+            az login --use-device-code --allow-no-subscriptions
+        } else {
+            az login --use-device-code
+        }
+    } else {
+        Write-Host "  Opening browser..." -ForegroundColor Yellow
+        if ($AllowNoSubscriptions) {
+            az login --allow-no-subscriptions
+        } else {
+            az login
+        }
+    }
+    $loginExit = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+
+    $accountJson = cmd /c "az account show 2>nul"
+    if (-not $accountJson) {
+        Write-Host "  Login failed." -ForegroundColor Red
+        if (-not $useDeviceCode) {
+            Write-Host "  Tip: try again and select option [2] (device code) if the browser is not working." -ForegroundColor Yellow
+        }
+        exit 1
+    }
+    return $accountJson
+}
+
+# ============================================================================
 # Deployment Mode & Login
 # ============================================================================
 Write-Host ""
@@ -60,29 +109,9 @@ if ($isMspMode) {
     Write-Host "  A browser window will open. Sign in with the client's Global Admin account." -ForegroundColor White
     Write-Host "  If you see a tenant picker, make sure to select the CLIENT tenant." -ForegroundColor White
     Write-Host ""
-    Read-Host "  Press Enter to open browser login for the CLIENT tenant"
-    cmd /c "az logout 2>nul"
-    Write-Host "  Opening browser for client tenant login..." -ForegroundColor Yellow
     Write-Host "  (Client tenants often have no Azure subscription - that is normal)" -ForegroundColor Gray
-    # --allow-no-subscriptions is required for M365-only client tenants
-    $ErrorActionPreference = "Continue"
-    az login --allow-no-subscriptions
-    $loginExit = $LASTEXITCODE
-    $ErrorActionPreference = "Stop"
-    
-    # Verify we got a valid account - check account show rather than exit code
-    # (exit code may be non-zero if tenant has no subscriptions even on success)
-    $clientTenantAccountJson = cmd /c "az account show 2>nul"
-    if (-not $clientTenantAccountJson) {
-        Write-Host "" 
-        Write-Host "  Login failed. Common causes:" -ForegroundColor Red
-        Write-Host "    - Browser blocked or no browser available" -ForegroundColor Yellow
-        Write-Host "    - Wrong account selected (must be Global Admin in the client tenant)" -ForegroundColor Yellow
-        Write-Host "    - MFA challenge not completed" -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "  Try running manually first: az login --allow-no-subscriptions" -ForegroundColor Cyan
-        exit 1
-    }
+    Read-Host "  Press Enter when ready to log in to the CLIENT tenant"
+    $clientTenantAccountJson = Invoke-AzLogin -AllowNoSubscriptions
     $clientTenantAccount = $clientTenantAccountJson | ConvertFrom-Json
     Write-Host "  Logged in as: $($clientTenantAccount.user.name) (tenant: $($clientTenantAccount.tenantId))" -ForegroundColor Green
     $clientTenantId = $clientTenantAccount.tenantId
@@ -639,17 +668,8 @@ if ($isMspMode) {
     Write-Host "  (The app registration in the client tenant is complete)" -ForegroundColor Gray
     Write-Host "  Now logging in to your Azure subscription for resource deployment..." -ForegroundColor Gray
     Write-Host ""
-    Read-Host "  Press Enter to open browser login for YOUR Azure subscription"
-    cmd /c "az logout 2>nul"
-    Write-Host "  Opening browser for your subscription login..." -ForegroundColor Yellow
-    $ErrorActionPreference = "Continue"
-    az login
-    $loginExit2 = $LASTEXITCODE
-    $ErrorActionPreference = "Stop"
-    $yourAccountJson = cmd /c "az account show 2>nul"
-    if ($loginExit2 -ne 0 -or -not $yourAccountJson) {
-        Write-Host "  Login to your Azure subscription failed." -ForegroundColor Red; exit 1
-    }
+    Read-Host "  Press Enter when ready to log in to YOUR Azure subscription"
+    $yourAccountJson = Invoke-AzLogin
     $yourAccount = $yourAccountJson | ConvertFrom-Json
     Write-Host "  Logged in as: $($yourAccount.user.name) (tenant: $($yourAccount.tenantId))" -ForegroundColor Green
     Write-Host ""
