@@ -168,7 +168,10 @@ const ReportsPage: React.FC = () => {
           const url = window.URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `Executive_Summary_${new Date().toISOString().split('T')[0]}.pdf`;
+          // Use filename from Content-Disposition header if available
+          const disposition = response.headers.get('content-disposition');
+          const match = disposition?.match(/filename\*?=(?:UTF-8'')?([^;\r\n"]+)/i);
+          a.download = match?.[1] ? decodeURIComponent(match[1].replace(/"/g, '')) : `Executive_Summary_${new Date().toISOString().split('T')[0]}.pdf`;
           document.body.appendChild(a); a.click();
           window.URL.revokeObjectURL(url); a.remove();
         }
