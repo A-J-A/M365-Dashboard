@@ -577,8 +577,12 @@ public class ExecutiveReportController : ControllerBase
             try
             {
                 var pdfBytes = _pdfReportGenerator.GenerateReport(reportData, reportSettings);
-                var companySlug = reportSettings.CompanyName.Replace(" ", "_");
-                var pdfFileName = $"{companySlug}_Executive_Summary_{reportData.GeneratedAt:yyyy-MM-dd}.pdf";
+                var company2 = reportSettings.CompanyName?.Trim();
+                var isDefault2 = string.IsNullOrEmpty(company2)
+                    || company2.Equals("M365 Dashboard", StringComparison.OrdinalIgnoreCase)
+                    || company2.Equals("My Organisation", StringComparison.OrdinalIgnoreCase);
+                var companySlug2 = isDefault2 ? "" : company2!.Replace(" ", "_") + "_";
+                var pdfFileName = $"{companySlug2}Executive_Summary_{reportData.GeneratedAt:yyyy-MM-dd}.pdf";
                 return File(pdfBytes, "application/pdf", pdfFileName);
             }
             catch (Exception pdfEx)
@@ -586,8 +590,12 @@ public class ExecutiveReportController : ControllerBase
                 _logger.LogError(pdfEx, "PDF generation failed: {Message}", pdfEx.Message);
                 // Fall back to Word if PDF fails
                 var documentBytes = _wordReportGenerator.GenerateReport(reportData, reportSettings);
-                var companySlugFb = reportSettings.CompanyName.Replace(" ", "_");
-                var fileName = $"{companySlugFb}_Executive_Summary_{reportData.GeneratedAt:yyyy-MM-dd}.docx";
+                var companyFb = reportSettings.CompanyName?.Trim();
+                var isDefaultFb = string.IsNullOrEmpty(companyFb)
+                    || companyFb.Equals("M365 Dashboard", StringComparison.OrdinalIgnoreCase)
+                    || companyFb.Equals("My Organisation", StringComparison.OrdinalIgnoreCase);
+                var companySlugFb = isDefaultFb ? "" : companyFb!.Replace(" ", "_") + "_";
+                var fileName = $"{companySlugFb}Executive_Summary_{reportData.GeneratedAt:yyyy-MM-dd}.docx";
                 return File(documentBytes, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", fileName);
             }
         }

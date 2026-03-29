@@ -170,8 +170,15 @@ const ReportsPage: React.FC = () => {
           a.href = url;
           // Use filename from Content-Disposition header if available
           const disposition = response.headers.get('content-disposition');
-          const match = disposition?.match(/filename\*?=(?:UTF-8'')?([^;\r\n"]+)/i);
-          a.download = match?.[1] ? decodeURIComponent(match[1].replace(/"/g, '')) : `Executive_Summary_${new Date().toISOString().split('T')[0]}.pdf`;
+          let fileName = `Executive_Summary_${new Date().toISOString().split('T')[0]}.pdf`;
+          if (disposition) {
+            // Prefer filename*= (RFC 5987) over filename=
+            const rfc5987 = disposition.match(/filename\*=UTF-8''([^;\r\n]+)/i);
+            const plain   = disposition.match(/filename="?([^"\r\n;]+)"?/i);
+            if (rfc5987?.[1]) fileName = decodeURIComponent(rfc5987[1]);
+            else if (plain?.[1]) fileName = plain[1];
+          }
+          a.download = fileName;
           document.body.appendChild(a); a.click();
           window.URL.revokeObjectURL(url); a.remove();
         }

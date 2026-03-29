@@ -215,10 +215,16 @@ public class ReportsController : ControllerBase
 
             var tenantId = _configuration["AzureAd:TenantId"] ?? "default";
             var settings = await _tenantSettingsService.GetReportSettingsAsync(tenantId);
-            var companySlug = settings.CompanyName.Replace(" ", "_");
+
+            // Build a clean slug from the company name, skipping the default placeholder
+            var company = settings.CompanyName?.Trim();
+            var isDefault = string.IsNullOrEmpty(company)
+                || company.Equals("M365 Dashboard", StringComparison.OrdinalIgnoreCase)
+                || company.Equals("My Organisation", StringComparison.OrdinalIgnoreCase);
+            var companySlug = isDefault ? "" : company!.Replace(" ", "_") + "_";
 
             var pdfBytes = await _executiveReportService.GeneratePdfAsync();
-            var fileName = $"{companySlug}_Executive_Summary_{DateTime.UtcNow:yyyy-MM-dd}.pdf";
+            var fileName = $"{companySlug}Executive_Summary_{DateTime.UtcNow:yyyy-MM-dd}.pdf";
             return File(pdfBytes, "application/pdf", fileName);
         }
         catch (Exception ex)
