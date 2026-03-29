@@ -583,7 +583,8 @@ public class ExecutiveReportController : ControllerBase
                     || company2.Equals("My Organisation", StringComparison.OrdinalIgnoreCase);
                 var companySlug2 = isDefault2 ? "" : company2!.Replace(" ", "_") + "_";
                 var pdfFileName = $"{companySlug2}Executive_Summary_{reportData.GeneratedAt:yyyy-MM-dd}.pdf";
-                return File(pdfBytes, "application/pdf", pdfFileName);
+                Response.Headers["Content-Disposition"] = $"attachment; filename=\"{pdfFileName}\"";
+                return File(pdfBytes, "application/pdf");
             }
             catch (Exception pdfEx)
             {

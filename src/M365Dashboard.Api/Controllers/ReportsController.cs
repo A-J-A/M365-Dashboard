@@ -225,7 +225,8 @@ public class ReportsController : ControllerBase
 
             var pdfBytes = await _executiveReportService.GeneratePdfAsync();
             var fileName = $"{companySlug}Executive_Summary_{DateTime.UtcNow:yyyy-MM-dd}.pdf";
-            return File(pdfBytes, "application/pdf", fileName);
+            Response.Headers["Content-Disposition"] = $"attachment; filename=\"{fileName}\"";
+            return File(pdfBytes, "application/pdf");
         }
         catch (Exception ex)
         {
