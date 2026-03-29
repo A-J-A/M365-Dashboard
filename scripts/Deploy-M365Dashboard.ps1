@@ -57,16 +57,35 @@ if ($isMspMode) {
     Write-Host "  Step 1 of 2: Login as a Global Admin in the CLIENT'S Microsoft 365 tenant" -ForegroundColor Yellow
     Write-Host "  (This is used to create the app registration in their tenant)" -ForegroundColor Gray
     Write-Host ""
+    Write-Host "  A browser window will open. Sign in with the client's Global Admin account." -ForegroundColor White
+    Write-Host "  If you see a tenant picker, make sure to select the CLIENT tenant." -ForegroundColor White
+    Write-Host ""
     Read-Host "  Press Enter to open browser login for the CLIENT tenant"
-    cmd /c "az logout 2>nul" | Out-Null
-    cmd /c "az login" | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  Login failed." -ForegroundColor Red; exit 1
-    }
+    cmd /c "az logout 2>nul"
+    Write-Host "  Opening browser for client tenant login..." -ForegroundColor Yellow
+    # Run az login without suppressing output so errors are visible
+    $ErrorActionPreference = "Continue"
+    az login
+    $loginExit = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
+    
+    # Verify we got a valid account
     $clientTenantAccountJson = cmd /c "az account show 2>nul"
+    if ($loginExit -ne 0 -or -not $clientTenantAccountJson) {
+        Write-Host "" 
+        Write-Host "  Login failed. Common causes:" -ForegroundColor Red
+        Write-Host "    - Browser blocked or no browser available" -ForegroundColor Yellow
+        Write-Host "    - Wrong account selected (must be Global Admin in the client tenant)" -ForegroundColor Yellow
+        Write-Host "    - MFA challenge not completed" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "  Try running manually first: az login" -ForegroundColor Cyan
+        exit 1
+    }
     $clientTenantAccount = $clientTenantAccountJson | ConvertFrom-Json
     Write-Host "  Logged in as: $($clientTenantAccount.user.name) (tenant: $($clientTenantAccount.tenantId))" -ForegroundColor Green
     $clientTenantId = $clientTenantAccount.tenantId
+    # Also set currentAccountJson so later subscription code works
+    $currentAccountJson = $clientTenantAccountJson
 } else {
     Write-Host ""
     Write-Host "Checking Azure CLI login..." -ForegroundColor Yellow
@@ -579,15 +598,19 @@ if ($isMspMode) {
     Write-Host ""
     Write-Host "Step 2 of 2: Login to YOUR Azure subscription for infrastructure deployment" -ForegroundColor Yellow
     Write-Host "  (The app registration in the client tenant is complete)" -ForegroundColor Gray
-    Write-Host "  Now logging in to your Cloud1st Azure subscription..." -ForegroundColor Gray
+    Write-Host "  Now logging in to your Azure subscription for resource deployment..." -ForegroundColor Gray
     Write-Host ""
     Read-Host "  Press Enter to open browser login for YOUR Azure subscription"
-    cmd /c "az logout 2>nul" | Out-Null
-    cmd /c "az login" | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  Login failed." -ForegroundColor Red; exit 1
-    }
+    cmd /c "az logout 2>nul"
+    Write-Host "  Opening browser for your subscription login..." -ForegroundColor Yellow
+    $ErrorActionPreference = "Continue"
+    az login
+    $loginExit2 = $LASTEXITCODE
+    $ErrorActionPreference = "Stop"
     $yourAccountJson = cmd /c "az account show 2>nul"
+    if ($loginExit2 -ne 0 -or -not $yourAccountJson) {
+        Write-Host "  Login to your Azure subscription failed." -ForegroundColor Red; exit 1
+    }
     $yourAccount = $yourAccountJson | ConvertFrom-Json
     Write-Host "  Logged in as: $($yourAccount.user.name) (tenant: $($yourAccount.tenantId))" -ForegroundColor Green
     Write-Host ""
