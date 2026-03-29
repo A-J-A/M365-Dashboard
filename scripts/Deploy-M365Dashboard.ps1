@@ -224,6 +224,7 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
                 @{ id = "06a5fe6d-c49d-46a7-b082-56b1b14103c7"; name = "DeviceManagementServiceConfig.Read.All" }
                 # Mail & Reports
                 @{ id = "810c84a8-4a9e-49e6-bf7d-12d183f40d01"; name = "Mail.Read" }
+                @{ id = "b633e1c5-b582-4048-a93e-9f11b44c7e96"; name = "Mail.Send" }
                 @{ id = "230c1aed-a721-4c5d-9cb4-a90514e508ef"; name = "Reports.Read.All" }
                 # Security
                 @{ id = "bf394140-e372-4bf9-a898-299cfc7564e5"; name = "SecurityEvents.Read.All" }
@@ -241,7 +242,7 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
                 cmd /c "az ad app permission add --id $ClientId --api $graphAppId --api-permissions $($perm.id)=Role 2>nul" | Out-Null
                 Write-Host "    + $($perm.name)" -ForegroundColor Gray
             }
-            Write-Host "  Graph permissions added (21 permissions)" -ForegroundColor Green
+            Write-Host "  Graph permissions added (22 permissions)" -ForegroundColor Green
 
             # Add Microsoft Defender for Endpoint permissions (separate API)
             Write-Host "  Adding Microsoft Defender for Endpoint permissions..." -ForegroundColor Gray
@@ -276,13 +277,25 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             Remove-Item $rolesFile -ErrorAction SilentlyContinue
             Write-Host "  App roles added" -ForegroundColor Green
 
-            # Create client secret
+            # Create client secret - wait briefly for app to propagate in Entra
             Write-Host "  Creating client secret..." -ForegroundColor Gray
+            Start-Sleep -Seconds 5
             $newSecretRaw = cmd /c "az ad app credential reset --id $ClientId --append --display-name M365Dashboard-Secret --years 2 2>&1"
             $newSecretJson = ($newSecretRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
             if ($LASTEXITCODE -ne 0 -or -not $newSecretJson -or $newSecretJson -notmatch '"password"') {
-                Write-Host "  Failed to create client secret" -ForegroundColor Red
-                exit 1
+                # Retry once after a longer wait - Entra sometimes needs more time
+                Write-Host "  Retrying secret creation (Entra propagation delay)..." -ForegroundColor Yellow
+                Start-Sleep -Seconds 10
+                $newSecretRaw = cmd /c "az ad app credential reset --id $ClientId --append --display-name M365Dashboard-Secret --years 2 2>&1"
+                $newSecretJson = ($newSecretRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
+                if ($LASTEXITCODE -ne 0 -or -not $newSecretJson -or $newSecretJson -notmatch '"password"') {
+                    Write-Host "  Failed to create client secret. Error details:" -ForegroundColor Red
+                    Write-Host ($newSecretRaw -join "`n") -ForegroundColor Red
+                    Write-Host ""
+                    Write-Host "  The signed-in account needs 'Application Administrator' role in this tenant." -ForegroundColor Yellow
+                    Write-Host "  You can create the secret manually in Entra Portal and re-run with option [3]." -ForegroundColor Yellow
+                    exit 1
+                }
             }
             $newSecret = $newSecretJson | ConvertFrom-Json
             $ClientSecret = $newSecret.password
