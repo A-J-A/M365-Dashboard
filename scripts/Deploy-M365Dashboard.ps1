@@ -73,8 +73,10 @@ function Invoke-AzLogin {
     $loginExit = $LASTEXITCODE
     $ErrorActionPreference = "Stop"
 
-    $accountJson = cmd /c "az account show 2>nul"
-    if (-not $accountJson) {
+    $accountRaw = cmd /c "az account show 2>nul"
+    # Join multi-line output into a single string before parsing
+    $accountJson = ($accountRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
+    if (-not $accountJson -or $accountJson -notmatch '"tenantId"') {
         Write-Host "  Login failed." -ForegroundColor Red
         if (-not $useDeviceCode) {
             Write-Host "  Tip: try again and select option [2] (device code) if the browser is not working." -ForegroundColor Yellow
