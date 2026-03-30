@@ -524,6 +524,7 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
                 ClientSecret     = $ClientSecret
                 UseCertAuth      = $useCertAuth
                 CertThumbprint   = $certThumbprint
+                AppObjectId      = $appObjectIdNew
                 AppName          = $appNameInput
                 CreatedAt        = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
             }
@@ -740,6 +741,23 @@ if ($confirm -eq "n" -or $confirm -eq "N") {
 }
 Write-Host ""
 
+# In MSP mode, capture a Graph token for the client tenant NOW before we log out of it.
+# az logout in Invoke-AzLogin will clear all cached credentials, so we must get this token first.
+$mspGraphToken = $null
+if ($isMspMode) {
+    Write-Host "Capturing Graph token for client tenant (needed for post-deployment config)..." -ForegroundColor Yellow
+    $ErrorActionPreference = "Continue"
+    $tokenRaw = cmd /c "az account get-access-token --resource https://graph.microsoft.com -o json 2>nul"
+    $tokenJson = ($tokenRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
+    if ($tokenJson -match '"accessToken"') {
+        $mspGraphToken = ($tokenJson | ConvertFrom-Json).accessToken
+        Write-Host "  Graph token obtained for client tenant" -ForegroundColor Green
+    } else {
+        Write-Host "  Warning: Could not obtain Graph token - redirect URI will need to be set manually" -ForegroundColor Yellow
+    }
+    $ErrorActionPreference = "Stop"
+}
+
 # In MSP mode, switch from client tenant to your own Azure subscription for infrastructure deployment
 if ($isMspMode) {
     Write-Host ""
@@ -889,52 +907,97 @@ Write-Host "Updating Container App with new image..." -ForegroundColor Yellow
 cmd /c "az containerapp update --name $NamePrefix-$Environment-app --resource-group $resourceGroup --image $acrServer/m365dashboard:latest 2>nul"
 
 # Configure redirect URI and enable tokens
-# In MSP mode these calls target the CLIENT tenant - pass --tenant explicitly so
-# they work correctly even though the CLI is now logged into the MSP subscription.
-$entraTarget = if ($isMspMode) { "--tenant $TenantId" } else { "" }
-
 Write-Host ""
 Write-Host "Configuring App Registration..." -ForegroundColor Yellow
 
 $appUrlClean = $appUrl.TrimEnd('/')
 Write-Host "  Setting redirect URI: $appUrlClean" -ForegroundColor Gray
 
-# Get the app's object ID using the correct tenant
+# In MSP mode use the Graph token captured before Step 2 login (before az logout cleared credentials).
 $ErrorActionPreference = "Continue"
-$appObjectIdRaw = cmd /c "az ad app show --id $ClientId --query id -o tsv $entraTarget 2>nul"
-$appObjectId = ($appObjectIdRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
-$ErrorActionPreference = "Stop"
+if ($isMspMode) {
+    $graphToken = $mspGraphToken
 
-if ([string]::IsNullOrWhiteSpace($appObjectId)) {
-    Write-Host "  Warning: Could not retrieve app object ID - redirect URI and token config may need to be set manually." -ForegroundColor Yellow
-} else {
-    $redirectBodyFile = [System.IO.Path]::GetTempFileName()
-    $redirectBody = "{`"spa`":{`"redirectUris`":[`"$appUrlClean`"]}}"
-    [System.IO.File]::WriteAllText($redirectBodyFile, $redirectBody, [System.Text.Encoding]::UTF8)
+    if ($graphToken) {
+        # Use the app object ID we saved during registration
+        $appObjectId = if ($appObjectIdNew) { $appObjectIdNew } else { $null }
 
-    $ErrorActionPreference = "Continue"
-    $uriUpdateResult = cmd /c "az rest --method PATCH --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectId`" --body @`"$redirectBodyFile`" --headers Content-Type=application/json $entraTarget 2>&1"
-    Remove-Item $redirectBodyFile -ErrorAction SilentlyContinue
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "  Redirect URI configured" -ForegroundColor Green
+        if ($appObjectId) {
+            # Set redirect URI
+            $redirectBody = "{`"spa`":{`"redirectUris`":[`"$appUrlClean`"]}}"
+            $redirectFile = [System.IO.Path]::GetTempFileName() + ".json"
+            [System.IO.File]::WriteAllText($redirectFile, $redirectBody, [System.Text.Encoding]::UTF8)
+            $redirectResult = cmd /c "az rest --method PATCH --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectId`" --body @`"$redirectFile`" --headers Content-Type=application/json Authorization=`"Bearer $graphToken`" 2>&1"
+            Remove-Item $redirectFile -ErrorAction SilentlyContinue
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "  Redirect URI configured" -ForegroundColor Green
+            } else {
+                Write-Host "  Warning: Could not set redirect URI: $redirectResult" -ForegroundColor Yellow
+            }
+
+            # Enable access tokens and ID tokens
+            $tokenBody = '{"web":{"implicitGrantSettings":{"enableAccessTokenIssuance":true,"enableIdTokenIssuance":true}},"spa":{"redirectUris":["' + $appUrlClean + '"]}}'
+            $tokenFile = [System.IO.Path]::GetTempFileName() + ".json"
+            [System.IO.File]::WriteAllText($tokenFile, $tokenBody, [System.Text.Encoding]::UTF8)
+            cmd /c "az rest --method PATCH --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectId`" --body @`"$tokenFile`" --headers Content-Type=application/json Authorization=`"Bearer $graphToken`" 2>nul" | Out-Null
+            Remove-Item $tokenFile -ErrorAction SilentlyContinue
+            Write-Host "  Tokens enabled" -ForegroundColor Green
+        } else {
+            Write-Host "  Warning: app object ID not available - redirect URI must be set manually." -ForegroundColor Yellow
+            Write-Host "  https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Authentication/appId/$ClientId" -ForegroundColor Cyan
+        }
+
+        # Grant admin consent via Graph token
+        Write-Host "  Granting admin consent..." -ForegroundColor Gray
+        $spIdRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals?`$filter=appId eq '$ClientId'`" --headers Authorization=`"Bearer $graphToken`" --query value[0].id -o tsv 2>nul"
+        $spIdForConsent = ($spIdRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+        if ($spIdForConsent) {
+            $consentBody = "{`"clientId`":`"$spIdForConsent`",`"consentType`":`"AllPrincipals`",`"resourceId`":`"$spIdForConsent`",`"scope`":`"openid profile`"}"
+            $consentFile = [System.IO.Path]::GetTempFileName() + ".json"
+            [System.IO.File]::WriteAllText($consentFile, $consentBody, [System.Text.Encoding]::UTF8)
+            $consentResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/oauth2PermissionGrants`" --body @`"$consentFile`" --headers Content-Type=application/json Authorization=`"Bearer $graphToken`" 2>&1"
+            Remove-Item $consentFile -ErrorAction SilentlyContinue
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "  Admin consent granted" -ForegroundColor Green
+            } else {
+                Write-Host "  Could not grant admin consent automatically - grant manually:" -ForegroundColor Yellow
+                Write-Host "  https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/CallAnAPI/appId/$ClientId" -ForegroundColor Cyan
+            }
+        }
     } else {
-        Write-Host "  Warning: Could not set redirect URI: $uriUpdateResult" -ForegroundColor Yellow
+        Write-Host "  Could not obtain Graph token for client tenant." -ForegroundColor Yellow
+        Write-Host "  Set redirect URI manually: https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Authentication/appId/$ClientId" -ForegroundColor Cyan
     }
-    $ErrorActionPreference = "Stop"
-}
-
-Write-Host "  Enabling access tokens and ID tokens..." -ForegroundColor Gray
-cmd /c "az ad app update --id $ClientId --enable-access-token-issuance true --enable-id-token-issuance true $entraTarget 2>nul"
-Write-Host "  Tokens enabled" -ForegroundColor Green
-
-Write-Host "  Granting admin consent for API permissions..." -ForegroundColor Gray
-$ErrorActionPreference = "Continue"
-$consentResult = cmd /c "az ad app permission admin-consent --id $ClientId $entraTarget 2>&1"
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "  Admin consent granted" -ForegroundColor Green
 } else {
-    Write-Host "  Could not grant admin consent automatically - grant manually:" -ForegroundColor Yellow
-    Write-Host "  Azure Portal > Entra ID > App registrations > $ClientId > API permissions > Grant admin consent" -ForegroundColor Yellow
+    # Standard mode - CLI is in the correct tenant
+    $appObjectIdRaw = cmd /c "az ad app show --id $ClientId --query id -o tsv 2>nul"
+    $appObjectId = ($appObjectIdRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+
+    if ($appObjectId) {
+        $redirectBodyFile = [System.IO.Path]::GetTempFileName()
+        $redirectBody = "{`"spa`":{`"redirectUris`":[`"$appUrlClean`"]}}"
+        [System.IO.File]::WriteAllText($redirectBodyFile, $redirectBody, [System.Text.Encoding]::UTF8)
+        $uriUpdateResult = cmd /c "az rest --method PATCH --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectId`" --body @`"$redirectBodyFile`" --headers Content-Type=application/json 2>&1"
+        Remove-Item $redirectBodyFile -ErrorAction SilentlyContinue
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "  Redirect URI configured" -ForegroundColor Green
+        } else {
+            Write-Host "  Warning: Could not set redirect URI: $uriUpdateResult" -ForegroundColor Yellow
+        }
+    }
+
+    Write-Host "  Enabling access tokens and ID tokens..." -ForegroundColor Gray
+    cmd /c "az ad app update --id $ClientId --enable-access-token-issuance true --enable-id-token-issuance true 2>nul"
+    Write-Host "  Tokens enabled" -ForegroundColor Green
+
+    Write-Host "  Granting admin consent for API permissions..." -ForegroundColor Gray
+    $consentResult = cmd /c "az ad app permission admin-consent --id $ClientId 2>&1"
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  Admin consent granted" -ForegroundColor Green
+    } else {
+        Write-Host "  Could not grant admin consent automatically - grant manually:" -ForegroundColor Yellow
+        Write-Host "  Azure Portal > Entra ID > App registrations > $ClientId > API permissions > Grant admin consent" -ForegroundColor Yellow
+    }
 }
 $ErrorActionPreference = "Stop"
 
