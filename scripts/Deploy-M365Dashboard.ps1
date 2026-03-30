@@ -593,47 +593,46 @@ if (-not $Location) {
     }
 }
 
-# Select subscription
-Write-Host ""
-Write-Host "Azure Subscription" -ForegroundColor Cyan
-Write-Host "------------------" -ForegroundColor Cyan
-
-$accountJson = $currentAccountJson
-
-# Get all subscriptions
-$subscriptionsJson = cmd /c "az account list --query [?state=='Enabled'] -o json 2>nul"
-$subscriptions = $subscriptionsJson | ConvertFrom-Json
+# In MSP mode, subscription selection happens after the Step 2 login (below).
+# In standard mode, select subscription now.
 $selectedSubscriptionName = ""
 
-if ($subscriptions.Count -gt 1) {
-    Write-Host "Multiple subscriptions found. Select one for deployment:"
+if (-not $isMspMode) {
     Write-Host ""
-    
-    $i = 1
-    foreach ($sub in $subscriptions) {
-        $isDefault = if ($sub.isDefault) { " (current)" } else { "" }
-        Write-Host "  [$i] $($sub.name)$isDefault" -ForegroundColor White
-        Write-Host "      $($sub.id)" -ForegroundColor Gray
-        $i++
-    }
-    Write-Host ""
-    $subChoice = Read-Host "Enter number (1-$($subscriptions.Count))"
-    
-    $selectedIndex = [int]$subChoice - 1
-    if ($selectedIndex -ge 0 -and $selectedIndex -lt $subscriptions.Count) {
-        $selectedSub = $subscriptions[$selectedIndex]
-        $selectedSubscriptionName = $selectedSub.name
-        Write-Host "  Selected: $selectedSubscriptionName" -ForegroundColor Green
-        cmd /c "az account set --subscription $($selectedSub.id) 2>nul"
+    Write-Host "Azure Subscription" -ForegroundColor Cyan
+    Write-Host "------------------" -ForegroundColor Cyan
+
+    $subscriptionsJson = cmd /c "az account list --query [?state=='Enabled'] -o json 2>nul"
+    $subscriptions = $subscriptionsJson | ConvertFrom-Json
+
+    if ($subscriptions.Count -gt 1) {
+        Write-Host "Multiple subscriptions found. Select one for deployment:"
+        Write-Host ""
+        $i = 1
+        foreach ($sub in $subscriptions) {
+            $isDefault = if ($sub.isDefault) { " (current)" } else { "" }
+            Write-Host "  [$i] $($sub.name)$isDefault" -ForegroundColor White
+            Write-Host "      $($sub.id)" -ForegroundColor Gray
+            $i++
+        }
+        Write-Host ""
+        $subChoice = Read-Host "Enter number (1-$($subscriptions.Count))"
+        $selectedIndex = [int]$subChoice - 1
+        if ($selectedIndex -ge 0 -and $selectedIndex -lt $subscriptions.Count) {
+            $selectedSub = $subscriptions[$selectedIndex]
+            $selectedSubscriptionName = $selectedSub.name
+            Write-Host "  Selected: $selectedSubscriptionName" -ForegroundColor Green
+            cmd /c "az account set --subscription $($selectedSub.id) 2>nul"
+        } else {
+            $currentAccount = $currentAccountJson | ConvertFrom-Json
+            $selectedSubscriptionName = $currentAccount.name
+            Write-Host "  Invalid choice. Using current: $selectedSubscriptionName" -ForegroundColor Yellow
+        }
     } else {
-        $currentAccount = $accountJson | ConvertFrom-Json
+        $currentAccount = $currentAccountJson | ConvertFrom-Json
         $selectedSubscriptionName = $currentAccount.name
-        Write-Host "  Invalid choice. Using current: $selectedSubscriptionName" -ForegroundColor Yellow
+        Write-Host "Using subscription: $selectedSubscriptionName" -ForegroundColor Green
     }
-} else {
-    $currentAccount = $accountJson | ConvertFrom-Json
-    $selectedSubscriptionName = $currentAccount.name
-    Write-Host "Using subscription: $selectedSubscriptionName" -ForegroundColor Green
 }
 
 # Prompt for SQL password
@@ -752,6 +751,40 @@ if ($isMspMode) {
     $yourAccountJson = Invoke-AzLogin
     $yourAccount = $yourAccountJson | ConvertFrom-Json
     Write-Host "  Logged in as: $($yourAccount.user.name) (tenant: $($yourAccount.tenantId))" -ForegroundColor Green
+    Write-Host ""
+
+    # Select subscription from the MSP's Azure account
+    Write-Host "Azure Subscription" -ForegroundColor Cyan
+    Write-Host "------------------" -ForegroundColor Cyan
+    $subscriptionsJson = cmd /c "az account list --query [?state=='Enabled'] -o json 2>nul"
+    $subscriptions = $subscriptionsJson | ConvertFrom-Json
+
+    if ($subscriptions.Count -gt 1) {
+        Write-Host "Multiple subscriptions found. Select one for deployment:"
+        Write-Host ""
+        $i = 1
+        foreach ($sub in $subscriptions) {
+            $isDefault = if ($sub.isDefault) { " (current)" } else { "" }
+            Write-Host "  [$i] $($sub.name)$isDefault" -ForegroundColor White
+            Write-Host "      $($sub.id)" -ForegroundColor Gray
+            $i++
+        }
+        Write-Host ""
+        $subChoice = Read-Host "Enter number (1-$($subscriptions.Count))"
+        $selectedIndex = [int]$subChoice - 1
+        if ($selectedIndex -ge 0 -and $selectedIndex -lt $subscriptions.Count) {
+            $selectedSub = $subscriptions[$selectedIndex]
+            $selectedSubscriptionName = $selectedSub.name
+            Write-Host "  Selected: $selectedSubscriptionName" -ForegroundColor Green
+            cmd /c "az account set --subscription $($selectedSub.id) 2>nul"
+        } else {
+            $selectedSubscriptionName = $yourAccount.name
+            Write-Host "  Invalid choice. Using current: $selectedSubscriptionName" -ForegroundColor Yellow
+        }
+    } else {
+        $selectedSubscriptionName = $yourAccount.name
+        Write-Host "Using subscription: $selectedSubscriptionName" -ForegroundColor Green
+    }
     Write-Host ""
 }
 
