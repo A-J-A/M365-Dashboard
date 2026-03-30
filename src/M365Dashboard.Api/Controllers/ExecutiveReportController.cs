@@ -637,18 +637,39 @@ public class ExecutiveReportController : ControllerBase
         }
     }
 
+    private Azure.Core.TokenCredential GetAppCredential()
+    {
+        var tenantId  = _configuration["AzureAd:TenantId"]  ?? throw new InvalidOperationException("AzureAd:TenantId not configured");
+        var clientId  = _configuration["AzureAd:ClientId"]  ?? throw new InvalidOperationException("AzureAd:ClientId not configured");
+        var certThumbprint = _configuration["AzureAd:ClientCertificateThumbprint"];
+        var certPfxBase64  = _configuration["AzureAd:ClientCertificatePfx"];
+        var clientSecret   = _configuration["AzureAd:ClientSecret"];
+        if (!string.IsNullOrEmpty(certThumbprint) && !string.IsNullOrEmpty(certPfxBase64))
+        {
+            try
+            {
+                var pfxBytes = Convert.FromBase64String(certPfxBase64);
+                var cert = new System.Security.Cryptography.X509Certificates.X509Certificate2(
+                    pfxBytes, (string?)null,
+                    System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.MachineKeySet |
+                    System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.EphemeralKeySet);
+                return new Azure.Identity.ClientCertificateCredential(tenantId, clientId, cert);
+            }
+            catch (Exception ex) { _logger.LogWarning(ex, "Failed to load certificate, falling back to secret"); }
+        }
+        if (!string.IsNullOrWhiteSpace(clientSecret))
+            return new Azure.Identity.ClientSecretCredential(tenantId, clientId, clientSecret.Trim());
+        throw new InvalidOperationException("No valid credential configured.");
+    }
+
     private async Task<DefenderStatsData?> GetDefenderStatsAsync()
     {
         try
         {
-            var tenantId = _configuration["AzureAd:TenantId"];
-            var clientId = _configuration["AzureAd:ClientId"];
-            var clientSecret = _configuration["AzureAd:ClientSecret"];
-            
-            var credential = new Azure.Identity.ClientSecretCredential(tenantId, clientId, clientSecret);
+            var credential = GetAppCredential();
             var scopes = new[] { "https://api.securitycenter.microsoft.com/.default" };
             
-            var token = await credential.GetTokenAsync(new Azure.Core.TokenRequestContext(scopes));
+            var token = await credential.GetTokenAsync(new Azure.Core.TokenRequestContext(scopes), CancellationToken.None);
             
             using var httpClient = new HttpClient();
             httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
@@ -757,7 +778,7 @@ public class ExecutiveReportController : ControllerBase
                     ExposureScore = "N/A",
                     VulnerabilitiesDetected = 0,
                     CriticalVulnerabilities = 0,
-                    Note = "Defender for Endpoint API not accessible. Grant WindowsDefenderATP permissions in Azure AD."
+                    Note = "Microsoft Defender for Endpoint data is not available for this tenant. This feature requires a Defender for Endpoint P1 or P2 licence."
                 };
             }
             catch
@@ -849,11 +870,7 @@ public class ExecutiveReportController : ControllerBase
     {
         try
         {
-            var tenantId = _configuration["AzureAd:TenantId"];
-            var clientId = _configuration["AzureAd:ClientId"];
-            var clientSecret = _configuration["AzureAd:ClientSecret"];
-            
-            var credential = new Azure.Identity.ClientSecretCredential(tenantId, clientId, clientSecret);
+            var credential = GetAppCredential();
             var betaClient = new GraphServiceClient(credential, new[] { "https://graph.microsoft.com/.default" }, "https://graph.microsoft.com/beta");
             
             var requestInfo = new Microsoft.Kiota.Abstractions.RequestInformation
@@ -918,11 +935,7 @@ public class ExecutiveReportController : ControllerBase
     {
         try
         {
-            var tenantId = _configuration["AzureAd:TenantId"];
-            var clientId = _configuration["AzureAd:ClientId"];
-            var clientSecret = _configuration["AzureAd:ClientSecret"];
-            
-            var credential = new Azure.Identity.ClientSecretCredential(tenantId, clientId, clientSecret);
+            var credential = GetAppCredential();
             var betaClient = new GraphServiceClient(credential, new[] { "https://graph.microsoft.com/.default" }, "https://graph.microsoft.com/beta");
 
             // Try to get Windows Update for Business reports
@@ -1132,11 +1145,7 @@ public class ExecutiveReportController : ControllerBase
         
         try
         {
-            var tenantId = _configuration["AzureAd:TenantId"];
-            var clientId = _configuration["AzureAd:ClientId"];
-            var clientSecret = _configuration["AzureAd:ClientSecret"];
-            
-            var credential = new Azure.Identity.ClientSecretCredential(tenantId, clientId, clientSecret);
+            var credential = GetAppCredential();
             var graphClient = new GraphServiceClient(credential, new[] { "https://graph.microsoft.com/.default" });
             
             // Get deleted users from directory (without sorting - deletedDateTime sort not supported)
