@@ -1697,6 +1697,9 @@ export function SettingsPage() {
               )}
             </SettingsSection>
 
+            {/* Update Source Section */}
+            <UpdateSourceSection getAccessToken={getAccessToken} />
+
             {/* Application Updates Section */}
             <SettingsSection
               icon={ArrowDownload24Regular}
@@ -2291,6 +2294,97 @@ const widgetLabels: Record<string, { name: string; description: string }> = {
   'mail-activity': { name: 'Mail Activity', description: 'Email sent and received trends' },
   'teams-activity': { name: 'Teams Activity', description: 'Messages, calls, and meetings' },
 };
+
+function UpdateSourceSection({ getAccessToken }: { getAccessToken: () => Promise<string> }) {
+  const [repo, setRepo] = React.useState('');
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [message, setMessage] = React.useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const token = await getAccessToken();
+        const res = await fetch('/api/update/source', { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) { const data = await res.json(); setRepo(data.repo ?? ''); }
+      } catch { /* ignore */ } finally { setLoading(false); }
+    })();
+  }, [getAccessToken]);
+
+  const save = async () => {
+    if (!repo.trim() || !repo.includes('/')) {
+      setMessage({ type: 'error', text: 'Repo must be in the format owner/repo-name' });
+      return;
+    }
+    setSaving(true);
+    setMessage(null);
+    try {
+      const token = await getAccessToken();
+      const res = await fetch('/api/update/source', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo: repo.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok) setMessage({ type: 'success', text: data.message ?? 'Saved successfully' });
+      else setMessage({ type: 'error', text: data.error ?? 'Failed to save' });
+    } catch (err) {
+      setMessage({ type: 'error', text: 'Failed to save update source' });
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <section className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg">
+            <Globe24Regular className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+          </div>
+          <div>
+            <h2 className="font-semibold text-gray-900 dark:text-white">Update Source</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">GitHub repository to check for new releases</p>
+          </div>
+        </div>
+      </div>
+      <div className="p-6 space-y-4">
+        {message && (
+          <div className={`p-3 rounded-lg text-sm ${
+            message.type === 'success'
+              ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 text-green-700 dark:text-green-400'
+              : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 text-red-700 dark:text-red-400'
+          }`}>{message.text}</div>
+        )}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">GitHub Repository</label>
+          <div className="flex gap-2">
+            <div className="flex-1 flex items-center border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 overflow-hidden">
+              <span className="px-3 text-sm text-gray-400 border-r border-gray-300 dark:border-gray-600 py-2 bg-gray-50 dark:bg-gray-800">github.com/</span>
+              <input
+                type="text"
+                value={loading ? 'Loading...' : repo}
+                onChange={e => setRepo(e.target.value)}
+                disabled={loading || saving}
+                placeholder="owner/repo-name"
+                className="flex-1 px-3 py-2 text-sm bg-transparent text-gray-900 dark:text-white placeholder-gray-400 outline-none"
+              />
+            </div>
+            <button
+              onClick={save}
+              disabled={loading || saving}
+              className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+          <p className="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
+            The dashboard checks this repo's GitHub Releases for available updates. Change this when deploying from your own fork or a new account.
+            The value is stored in Key Vault and takes effect after the app restarts.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 function WidgetToggle({ widget, onToggle, disabled }: WidgetToggleProps) {
   const info = widgetLabels[widget.widgetType] ?? { name: widget.widgetType, description: '' };

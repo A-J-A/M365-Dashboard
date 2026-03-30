@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Azure.Identity;
 using Azure.Core;
+using Azure.Security.KeyVault.Secrets;
 using System.Text;
 using System.Text.Json;
 
@@ -226,6 +227,48 @@ public class UpdateController : ControllerBase
         !string.IsNullOrEmpty(_configuration["ContainerApp:ResourceGroup"]) &&
         !string.IsNullOrEmpty(_configuration["ContainerApp:Name"]);
 
+    /// <summary>
+    /// Get the current GitHub repo used for update checks
+    /// </summary>
+    [HttpGet("source")]
+    [Authorize(Policy = "RequireAdminRole")]
+    public IActionResult GetUpdateSource()
+    {
+        var repo = _configuration["ContainerApp:GhcrRepo"] ?? "Alex-C1/m365-dashboard";
+        return Ok(new { repo });
+    }
+
+    /// <summary>
+    /// Save the GitHub repo used for update checks to Key Vault
+    /// </summary>
+    [HttpPost("source")]
+    [Authorize(Policy = "RequireAdminRole")]
+    public async Task<IActionResult> SetUpdateSource([FromBody] SetUpdateSourceRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Repo) || !request.Repo.Contains('/'))
+            return BadRequest(new { error = "Repo must be in the format owner/repo-name" });
+
+        var keyVaultUri = _configuration["KeyVault:Uri"];
+        if (string.IsNullOrEmpty(keyVaultUri))
+            return BadRequest(new { error = "Key Vault is not configured. Set KeyVault:Uri in appsettings." });
+
+        try
+        {
+            var secretClient = new Azure.Security.KeyVault.Secrets.SecretClient(
+                new Uri(keyVaultUri),
+                new DefaultAzureCredential());
+
+            await secretClient.SetSecretAsync("ContainerApp--GhcrRepo", request.Repo.Trim());
+            _logger.LogInformation("Update source repo set to {Repo}", request.Repo);
+            return Ok(new { repo = request.Repo.Trim(), message = "Update source saved. Restart the app to apply." });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save update source to Key Vault");
+            return StatusCode(500, new { error = "Failed to save to Key Vault", detail = ex.Message });
+        }
+    }
+
     private static bool IsNewerVersion(string latest, string current)
     {
         static System.Version? Parse(string v)
@@ -241,6 +284,7 @@ public class UpdateController : ControllerBase
 }
 
 public record ApplyUpdateRequest(string Version);
+public record SetUpdateSourceRequest(string Repo);
 
 [ApiController]
 [Route("api/[controller]")]
