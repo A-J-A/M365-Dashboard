@@ -912,7 +912,8 @@ $repoRootPath = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $ErrorActionPreference = "Continue"
 Push-Location $repoRootPath
 try {
-    cmd /c "az acr build --registry $acrName --image m365dashboard:latest --build-arg VITE_AZURE_CLIENT_ID=$ClientId --build-arg VITE_AZURE_TENANT_ID=$TenantId . 2>&1"
+    $buildVersion = "deploy-$(Get-Date -Format 'yyyy.MM.dd')-$(git -C $repoRootPath rev-parse --short HEAD 2>$null)"
+    cmd /c "az acr build --registry $acrName --image m365dashboard:latest --build-arg VITE_AZURE_CLIENT_ID=$ClientId --build-arg VITE_AZURE_TENANT_ID=$TenantId --build-arg BUILD_VERSION=$buildVersion . 2>&1"
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  Warning: Docker image build reported errors - check output above" -ForegroundColor Yellow
     } else {
