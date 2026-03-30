@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Graph;
 using Azure.Core;
 using Azure.Identity;
+using Microsoft.Kiota.Authentication.Azure;
 using M365Dashboard.Api.Data;
 using M365Dashboard.Api.Services;
 using M365Dashboard.Api.Configuration;
@@ -133,7 +134,9 @@ builder.Services.AddSingleton<GraphServiceClient>(sp =>
         Log.Information("Graph client using client secret authentication");
     }
 
-    return new GraphServiceClient(credential, "https://graph.microsoft.com/.default");
+    var authProvider = new AzureIdentityAuthenticationProvider(
+        credential, scopes: new[] { "https://graph.microsoft.com/.default" });
+    return new GraphServiceClient(authProvider);
 });
 
 // Configure Entity Framework with SQL Server
