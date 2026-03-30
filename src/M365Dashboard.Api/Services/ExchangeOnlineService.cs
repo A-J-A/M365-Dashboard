@@ -2,6 +2,8 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Security.Cryptography.X509Certificates;
+using Azure.Core;
 using Azure.Identity;
 using M365Dashboard.Api.Models.Dtos;
 
@@ -36,16 +38,44 @@ public class ExchangeOnlineService : IExchangeOnlineService
         _httpClientFactory = httpClientFactory;
     }
 
+    private TokenCredential GetAppCredential()
+    {
+        var tenantId  = _configuration["AzureAd:TenantId"]  ?? throw new InvalidOperationException("AzureAd:TenantId not configured");
+        var clientId  = _configuration["AzureAd:ClientId"]  ?? throw new InvalidOperationException("AzureAd:ClientId not configured");
+
+        var certThumbprint = _configuration["AzureAd:ClientCertificateThumbprint"];
+        var certPfxBase64  = _configuration["AzureAd:ClientCertificatePfx"];
+        var clientSecret   = _configuration["AzureAd:ClientSecret"];
+
+        if (!string.IsNullOrEmpty(certThumbprint) && !string.IsNullOrEmpty(certPfxBase64))
+        {
+            try
+            {
+                var pfxBytes = Convert.FromBase64String(certPfxBase64);
+                var cert = new X509Certificate2(
+                    pfxBytes, (string?)null,
+                    X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.EphemeralKeySet);
+                _logger.LogDebug("ExchangeOnlineService using certificate credential");
+                return new ClientCertificateCredential(tenantId, clientId, cert);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to load certificate for Exchange token — falling back to secret");
+            }
+        }
+
+        if (!string.IsNullOrEmpty(clientSecret))
+            return new ClientSecretCredential(tenantId, clientId, clientSecret);
+
+        throw new InvalidOperationException(
+            "No valid credential configured. Set AzureAd:ClientCertificatePfx (preferred) or AzureAd:ClientSecret.");
+    }
+
     private async Task<string> GetExchangeTokenAsync()
     {
-        var tenantId = _configuration["AzureAd:TenantId"];
-        var clientId = _configuration["AzureAd:ClientId"];
-        var clientSecret = _configuration["AzureAd:ClientSecret"];
-
-        var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+        var credential = GetAppCredential();
         var scopes = new[] { "https://outlook.office365.com/.default" };
-        var token = await credential.GetTokenAsync(new Azure.Core.TokenRequestContext(scopes));
-        
+        var token = await credential.GetTokenAsync(new TokenRequestContext(scopes));
         return token.Token;
     }
 

@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Graph;
+using Azure.Core;
 using Azure.Identity;
+using System.Security.Cryptography.X509Certificates;
 using M365Dashboard.Api.Models.Dtos;
 
 namespace M365Dashboard.Api.Controllers;
@@ -22,13 +24,45 @@ public class PermissionsController : ControllerBase
         _logger = logger;
     }
 
-    // Centralised credential helper — never re-reads the secret from IConfiguration in action methods
-    private ClientSecretCredential GetAppCredential()
+    // Centralised credential helper — supports both certificate (preferred) and client secret.
+    // Mirrors the logic in Program.cs so permission checks work regardless of which credential type is deployed.
+    private TokenCredential GetAppCredential()
     {
-        var tenantId     = _configuration["AzureAd:TenantId"]     ?? throw new InvalidOperationException("AzureAd:TenantId not configured");
-        var clientId     = _configuration["AzureAd:ClientId"]     ?? throw new InvalidOperationException("AzureAd:ClientId not configured");
-        var clientSecret = _configuration["AzureAd:ClientSecret"] ?? throw new InvalidOperationException("AzureAd:ClientSecret not configured");
-        return new ClientSecretCredential(tenantId, clientId, clientSecret);
+        var tenantId  = _configuration["AzureAd:TenantId"]  ?? throw new InvalidOperationException("AzureAd:TenantId not configured");
+        var clientId  = _configuration["AzureAd:ClientId"]  ?? throw new InvalidOperationException("AzureAd:ClientId not configured");
+
+        var certThumbprint = _configuration["AzureAd:ClientCertificateThumbprint"];
+        var certPfxBase64  = _configuration["AzureAd:ClientCertificatePfx"];
+        var clientSecret   = _configuration["AzureAd:ClientSecret"];
+
+        // Prefer certificate authentication
+        if (!string.IsNullOrEmpty(certThumbprint) && !string.IsNullOrEmpty(certPfxBase64))
+        {
+            try
+            {
+                var pfxBytes = Convert.FromBase64String(certPfxBase64);
+                var cert = new X509Certificate2(
+                    pfxBytes, (string?)null,
+                    X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.EphemeralKeySet);
+                _logger.LogDebug("Permission checks using certificate credential (thumbprint: {Thumb})", cert.Thumbprint[..8] + "...");
+                return new ClientCertificateCredential(tenantId, clientId, cert);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to load certificate for permission checks — falling back to secret");
+            }
+        }
+
+        // Fall back to client secret
+        if (!string.IsNullOrEmpty(clientSecret))
+        {
+            _logger.LogDebug("Permission checks using client secret credential");
+            return new ClientSecretCredential(tenantId, clientId, clientSecret);
+        }
+
+        throw new InvalidOperationException(
+            "No valid credential configured for permission checks. " +
+            "Set AzureAd:ClientCertificatePfx (preferred) or AzureAd:ClientSecret.");
     }
 
     /// <summary>
