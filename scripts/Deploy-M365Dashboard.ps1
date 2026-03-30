@@ -185,8 +185,22 @@ Write-Host ""
 Write-Host "Entra ID App Registration" -ForegroundColor Cyan
 Write-Host "-------------------------" -ForegroundColor Cyan
 
-$configPath = Join-Path (Join-Path $PSScriptRoot "..") "entra-app-config.json"
+# In MSP mode, use a per-client-tenant config file so it doesn't collide with the
+# Cloud1st standard deployment config.
+if ($isMspMode -and $clientTenantId) {
+    $configPath = Join-Path (Join-Path $PSScriptRoot "..") "entra-app-config-$clientTenantId.json"
+} else {
+    $configPath = Join-Path (Join-Path $PSScriptRoot "..") "entra-app-config.json"
+}
 $configExists = Test-Path $configPath
+
+# In MSP mode, also check if saved config belongs to the current client tenant
+if ($configExists -and $isMspMode) {
+    $savedConfigCheck = Get-Content $configPath | ConvertFrom-Json
+    if ($savedConfigCheck.TenantId -ne $clientTenantId) {
+        $configExists = $false  # Wrong tenant - ignore it
+    }
+}
 
 if ($TenantId -and $ClientId -and $ClientSecret) {
     # All values passed as parameters - skip prompt

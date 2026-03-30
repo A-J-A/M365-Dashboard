@@ -106,3 +106,4 @@ coverage/
 
 deploy-config.json
 deploy.ps1
+entra-app-config*.json
