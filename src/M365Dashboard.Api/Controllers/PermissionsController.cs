@@ -54,10 +54,10 @@ public class PermissionsController : ControllerBase
         }
 
         // Fall back to client secret
-        if (!string.IsNullOrEmpty(clientSecret))
+        if (!string.IsNullOrWhiteSpace(clientSecret))
         {
             _logger.LogDebug("Permission checks using client secret credential");
-            return new ClientSecretCredential(tenantId, clientId, clientSecret);
+            return new ClientSecretCredential(tenantId, clientId, clientSecret.Trim());
         }
 
         throw new InvalidOperationException(

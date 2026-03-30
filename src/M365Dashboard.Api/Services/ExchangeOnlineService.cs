@@ -64,8 +64,8 @@ public class ExchangeOnlineService : IExchangeOnlineService
             }
         }
 
-        if (!string.IsNullOrEmpty(clientSecret))
-            return new ClientSecretCredential(tenantId, clientId, clientSecret);
+        if (!string.IsNullOrWhiteSpace(clientSecret))
+            return new ClientSecretCredential(tenantId, clientId, clientSecret.Trim());
 
         throw new InvalidOperationException(
             "No valid credential configured. Set AzureAd:ClientCertificatePfx (preferred) or AzureAd:ClientSecret.");
