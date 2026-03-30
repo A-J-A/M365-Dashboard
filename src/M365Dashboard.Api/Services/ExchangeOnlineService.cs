@@ -75,7 +75,7 @@ public class ExchangeOnlineService : IExchangeOnlineService
     {
         var credential = GetAppCredential();
         var scopes = new[] { "https://outlook.office365.com/.default" };
-        var token = await credential.GetTokenAsync(new TokenRequestContext(scopes));
+        var token = await credential.GetTokenAsync(new TokenRequestContext(scopes), CancellationToken.None);
         return token.Token;
     }
 

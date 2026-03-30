@@ -425,7 +425,7 @@ public class PermissionsController : ControllerBase
         {
             var credential = GetAppCredential();
             var scopes = new[] { "https://api.securitycenter.microsoft.com/.default" };
-            var token = await credential.GetTokenAsync(new Azure.Core.TokenRequestContext(scopes));
+            var token = await credential.GetTokenAsync(new Azure.Core.TokenRequestContext(scopes), CancellationToken.None);
             
             using var httpClient = new HttpClient();
             httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
@@ -446,7 +446,7 @@ public class PermissionsController : ControllerBase
         {
             var credential = GetAppCredential();
             var scopes = new[] { "https://api.securitycenter.microsoft.com/.default" };
-            var token = await credential.GetTokenAsync(new Azure.Core.TokenRequestContext(scopes));
+            var token = await credential.GetTokenAsync(new Azure.Core.TokenRequestContext(scopes), CancellationToken.None);
             
             using var httpClient = new HttpClient();
             httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
@@ -467,7 +467,7 @@ public class PermissionsController : ControllerBase
         {
             var credential = GetAppCredential();
             var scopes = new[] { "https://api.securitycenter.microsoft.com/.default" };
-            var token = await credential.GetTokenAsync(new Azure.Core.TokenRequestContext(scopes));
+            var token = await credential.GetTokenAsync(new Azure.Core.TokenRequestContext(scopes), CancellationToken.None);
             
             using var httpClient = new HttpClient();
             httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
@@ -490,7 +490,7 @@ public class PermissionsController : ControllerBase
             var tenantId = _configuration["AzureAd:TenantId"]!;
             // Exchange Online uses outlook.office365.com scope
             var scopes = new[] { "https://outlook.office365.com/.default" };
-            var token = await credential.GetTokenAsync(new Azure.Core.TokenRequestContext(scopes));
+            var token = await credential.GetTokenAsync(new Azure.Core.TokenRequestContext(scopes), CancellationToken.None);
             
             // If we can get a token, the permission is granted
             // Try a simple Exchange Online REST call to verify
@@ -554,7 +554,7 @@ public class PermissionsController : ControllerBase
         {
             var credential = GetAppCredential();
             var token = await credential.GetTokenAsync(
-                new Azure.Core.TokenRequestContext(new[] { "https://outlook.office365.com/.default" }));
+                new Azure.Core.TokenRequestContext(new[] { "https://outlook.office365.com/.default" }), CancellationToken.None);
 
             using var httpClient = new System.Net.Http.HttpClient();
             httpClient.DefaultRequestHeaders.Authorization =
