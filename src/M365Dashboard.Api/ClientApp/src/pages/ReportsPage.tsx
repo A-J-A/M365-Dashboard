@@ -85,6 +85,42 @@ const categoryColors: Record<string, string> = {
   'Identity': 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400',
 };
 
+// Live UTC clock — ticks every second
+const UtcClock: React.FC = () => {
+  const [utcTime, setUtcTime] = React.useState(() =>
+    new Date().toLocaleTimeString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  );
+  React.useEffect(() => {
+    const id = setInterval(() => {
+      setUtcTime(new Date().toLocaleTimeString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <span className="text-xs font-mono text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded">
+      UTC now: {utcTime}
+    </span>
+  );
+};
+
+// Shows the user's local equivalent of the chosen UTC time
+const LocalTimeHint: React.FC<{ utcTime: string }> = ({ utcTime }) => {
+  if (!utcTime) return null;
+  try {
+    const [h, m] = utcTime.split(':').map(Number);
+    const now = new Date();
+    const utcDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), h, m));
+    const localStr = utcDate.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
+    return (
+      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+        = {localStr} in your local timezone
+      </p>
+    );
+  } catch {
+    return null;
+  }
+};
+
 const ReportsPage: React.FC = () => {
   const { getAccessToken } = useAppContext();
   const [definitions, setDefinitions] = useState<ReportDefinition[]>([]);
@@ -578,18 +614,19 @@ const ReportsPage: React.FC = () => {
 
               {/* Time */}
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Time <span className="font-normal text-slate-400">(UTC)</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                    Time <span className="font-normal text-slate-400">(UTC)</span>
+                  </label>
+                  <UtcClock />
+                </div>
                 <input
                   type="time"
                   value={scheduleForm.time}
                   onChange={e => setScheduleForm({ ...scheduleForm, time: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white"
                 />
-                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                  ⚠ All times are in UTC. UK users: subtract 1 hour in summer (BST), same in winter (GMT).
-                </p>
+                <LocalTimeHint utcTime={scheduleForm.time} />
               </div>
 
               {/* Day of Week (for weekly) */}
