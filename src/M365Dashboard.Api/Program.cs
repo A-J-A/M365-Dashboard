@@ -78,16 +78,60 @@ builder.Services.AddAuthorizationBuilder()
         policy.RequireRole("Dashboard.Admin", "Dashboard.Reader"));
 
 // Configure Microsoft Graph Client with Client Credentials (Application Permissions)
+// Supports both certificate (preferred, works with strict tenant policies) and client secret.
 builder.Services.AddSingleton<GraphServiceClient>(sp =>
 {
     var config = builder.Configuration.GetSection("AzureAd");
-    var tenantId = config["TenantId"];
-    var clientId = config["ClientId"];
-    var clientSecret = config["ClientSecret"];
+    var tenantId = config["TenantId"]!;
+    var clientId = config["ClientId"]!;
+    var certThumbprint = config["ClientCertificateThumbprint"];
+    var clientSecret   = config["ClientSecret"];
 
-    // Use ClientSecretCredential for application permissions
-    var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
-    
+    TokenCredential credential;
+
+    if (!string.IsNullOrEmpty(certThumbprint))
+    {
+        // Certificate authentication.
+        // The deploy script stores the PFX in Key Vault as secret "AzureAd--ClientCertificatePfx".
+        // The Key Vault configuration provider loads it as AzureAd:ClientCertificatePfx (base64).
+        // We reconstruct the X509Certificate2 from those bytes at startup.
+        var certPfxBase64 = config["ClientCertificatePfx"];
+        System.Security.Cryptography.X509Certificates.X509Certificate2? cert = null;
+
+        if (!string.IsNullOrEmpty(certPfxBase64))
+        {
+            try
+            {
+                var pfxBytes = Convert.FromBase64String(certPfxBase64);
+                cert = new System.Security.Cryptography.X509Certificates.X509Certificate2(
+                    pfxBytes, (string?)null,
+                    System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.MachineKeySet |
+                    System.Security.Cryptography.X509Certificates.X509KeyStorageFlags.EphemeralKeySet);
+                Log.Information("Graph client using certificate authentication (thumbprint: {Thumbprint})", cert.Thumbprint[..8] + "...");
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "Failed to load certificate from Key Vault PFX - falling back to secret");
+            }
+        }
+
+        if (cert != null)
+        {
+            credential = new ClientCertificateCredential(tenantId, clientId, cert);
+        }
+        else
+        {
+            Log.Warning("Certificate thumbprint configured but PFX not available - falling back to secret");
+            credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+        }
+    }
+    else
+    {
+        // Secret authentication (standard deployments / tenants without cert policy)
+        credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+        Log.Information("Graph client using client secret authentication");
+    }
+
     return new GraphServiceClient(credential, new[] { "https://graph.microsoft.com/.default" });
 });
 

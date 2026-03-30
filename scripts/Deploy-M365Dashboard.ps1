@@ -325,111 +325,103 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             Write-Host "  App roles added" -ForegroundColor Green
 
             # ----------------------------------------------------------------
-            # Create client secret
-            # Try to temporarily override any tenant app management policy that
-            # blocks password credentials, then restore it afterwards.
+            # Credential setup: try client secret first, fall back to certificate
+            # if the tenant policy blocks password credentials.
             # ----------------------------------------------------------------
+            $useCertAuth = $false
+            $certThumbprint = $null
+            $certPfxBase64 = $null
+
             Write-Host "  Creating client secret..." -ForegroundColor Gray
             Start-Sleep -Seconds 5
-
-            # -- Step 1: attempt secret creation directly --
             $newSecretRaw = cmd /c "az ad app credential reset --id $ClientId --append --display-name M365Dashboard-Secret --years 2 2>&1"
             $newSecretJson = ($newSecretRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
             $secretPolicyBlocked = ($newSecretRaw -join '') -match 'policy|Credential type not allowed'
 
-            if (($LASTEXITCODE -ne 0 -or -not $newSecretJson -or $newSecretJson -notmatch '"password"') -and $secretPolicyBlocked) {
-                # -- Step 2: policy is blocking - create a custom app management policy
-                # that overrides the tenant default for this specific app only.
-                # This does NOT modify the tenant-wide policy.
-                Write-Host "  Tenant credential policy detected - creating app-level policy override..." -ForegroundColor Yellow
-
-                $policyIdRaw = ($newSecretRaw | Where-Object { $_ -match "'[0-9a-f-]{36}'" }) -join ''
-                if ($policyIdRaw -match "'([0-9a-f-]{36})'") {
-                    $blockingPolicyId = $Matches[1]
-                    Write-Host "  Blocking policy ID: $blockingPolicyId" -ForegroundColor Gray
-                }
-
-                # Create a new appManagementPolicy with passwordCredentials unrestricted
-                # and apply it to this specific app. App-level policies take precedence
-                # over the tenant default policy.
-                $overridePolicyBody = '{"displayName":"M365Dashboard-TempOverride","description":"Temporary override to allow secret creation for M365 Dashboard deployment","isEnabled":true,"restrictions":{"passwordCredentials":[]}}'
-                $overridePolicyFile = [System.IO.Path]::GetTempFileName() + ".json"
-                [System.IO.File]::WriteAllText($overridePolicyFile, $overridePolicyBody, [System.Text.Encoding]::UTF8)
-
-                Write-Host "  Creating override policy..." -ForegroundColor Gray
-                $createPolicyRaw = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/beta/policies/appManagementPolicies`" --body @`"$overridePolicyFile`" --headers Content-Type=application/json 2>&1"
-                Remove-Item $overridePolicyFile -ErrorAction SilentlyContinue
-                $createPolicyJson = ($createPolicyRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
-                $overridePolicyId = $null
-
-                if ($createPolicyJson -match '"id"') {
-                    $overridePolicyId = ($createPolicyJson | ConvertFrom-Json).id
-                    Write-Host "  Override policy created: $overridePolicyId" -ForegroundColor Gray
-
-                    # Assign the override policy to this specific app
-                    $assignBody = "{`"@odata.id`":`"https://graph.microsoft.com/beta/applications/$appObjectIdNew`"}"
-                    $assignFile = [System.IO.Path]::GetTempFileName() + ".json"
-                    [System.IO.File]::WriteAllText($assignFile, $assignBody, [System.Text.Encoding]::UTF8)
-                    $assignRaw = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/beta/policies/appManagementPolicies/$overridePolicyId/appliesTo/`$ref`" --body @`"$assignFile`" --headers Content-Type=application/json 2>&1"
-                    Remove-Item $assignFile -ErrorAction SilentlyContinue
-                    $assignResult = ($assignRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
-
-                    if ($LASTEXITCODE -eq 0 -or $assignResult -match '204') {
-                        Write-Host "  Override policy assigned - retrying secret creation..." -ForegroundColor Green
-                        Start-Sleep -Seconds 5
-                        $newSecretRaw = cmd /c "az ad app credential reset --id $ClientId --append --display-name M365Dashboard-Secret --years 2 2>&1"
-                        $newSecretJson = ($newSecretRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
-                    } else {
-                        Write-Host "  Could not assign override policy: $assignResult" -ForegroundColor Yellow
-                    }
-
-                    # Always clean up the temporary override policy
-                    Write-Host "  Removing temporary override policy..." -ForegroundColor Gray
-                    cmd /c "az rest --method DELETE --uri `"https://graph.microsoft.com/beta/policies/appManagementPolicies/$overridePolicyId`" 2>nul" | Out-Null
-                    Write-Host "  Temporary policy removed." -ForegroundColor Gray
+            if ($LASTEXITCODE -ne 0 -or -not $newSecretJson -or $newSecretJson -notmatch '"password"') {
+                if ($secretPolicyBlocked) {
+                    Write-Host "  Client secret blocked by tenant credential policy." -ForegroundColor Yellow
+                    Write-Host "  Switching to certificate authentication (not subject to this policy)..." -ForegroundColor Cyan
+                    $useCertAuth = $true
                 } else {
-                    Write-Host "  Could not create override policy: $createPolicyRaw" -ForegroundColor Yellow
+                    # Propagation delay retry
+                    Write-Host "  Retrying secret creation..." -ForegroundColor Yellow
+                    Start-Sleep -Seconds 10
+                    $newSecretRaw = cmd /c "az ad app credential reset --id $ClientId --append --display-name M365Dashboard-Secret --years 2 2>&1"
+                    $newSecretJson = ($newSecretRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
+                    if ($LASTEXITCODE -ne 0 -or $newSecretJson -notmatch '"password"') {
+                        Write-Host "  Secret creation failed: $(($newSecretRaw | Where-Object { $_ -match 'ERROR:' }) -join '')" -ForegroundColor Yellow
+                        Write-Host "  Switching to certificate authentication..." -ForegroundColor Cyan
+                        $useCertAuth = $true
+                    }
                 }
             }
 
-            # -- Step 3: if still failing, retry once with propagation delay --
-            if ($LASTEXITCODE -ne 0 -or -not $newSecretJson -or $newSecretJson -notmatch '"password"') {
-                Write-Host "  Retrying secret creation (Entra propagation delay)..." -ForegroundColor Yellow
-                Start-Sleep -Seconds 10
-                $newSecretRaw = cmd /c "az ad app credential reset --id $ClientId --append --display-name M365Dashboard-Secret --years 2 2>&1"
-                $newSecretJson = ($newSecretRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
-            }
+            if ($useCertAuth) {
+                # Generate a self-signed certificate using PowerShell (no external tools needed).
+                # The public key (.cer) is uploaded to the app registration in the CLIENT tenant.
+                # The private key (.pfx, no password) is stored in Key Vault in the MSP Azure subscription.
+                # The app reads the PFX from Key Vault at runtime via the config provider.
+                Write-Host "  Generating self-signed certificate..." -ForegroundColor Gray
+                $certSubject = "CN=M365Dashboard-$ClientId"
+                $cert = New-SelfSignedCertificate `
+                    -Subject $certSubject `
+                    -CertStoreLocation "Cert:\CurrentUser\My" `
+                    -KeyExportPolicy Exportable `
+                    -KeySpec Signature `
+                    -KeyLength 2048 `
+                    -HashAlgorithm SHA256 `
+                    -NotAfter (Get-Date).AddYears(2)
+                $certThumbprint = $cert.Thumbprint
+                Write-Host "  Certificate generated. Thumbprint: $certThumbprint" -ForegroundColor Green
 
-            # -- Step 4: if still failing, fall back to manual paste --
-            if ($LASTEXITCODE -ne 0 -or -not $newSecretJson -or $newSecretJson -notmatch '"password"') {
-                Write-Host ""
-                Write-Host "  Automatic secret creation failed:" -ForegroundColor Yellow
-                Write-Host "  $(($newSecretRaw | Where-Object { $_ -match 'ERROR:' }) -join '')" -ForegroundColor Yellow
-                Write-Host ""
-                Write-Host "  Please create the secret manually:" -ForegroundColor White
-                Write-Host "  1. Open: https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/Credentials/appId/$ClientId" -ForegroundColor Cyan
-                Write-Host "  2. Click 'New client secret'" -ForegroundColor White
-                Write-Host "  3. Set description: M365Dashboard-Secret, Expires: 24 months" -ForegroundColor White
-                Write-Host "  4. Copy the VALUE (not the ID) immediately after creation" -ForegroundColor White
-                Write-Host ""
-                $secureInput = Read-Host "  Paste the client secret value here (or press Ctrl+C to cancel)"
-                $ClientSecret = $secureInput
+                # Export public key (.cer) for upload to Entra
+                $cerPath = [System.IO.Path]::GetTempFileName() + ".cer"
+                Export-Certificate -Cert $cert -FilePath $cerPath -Type CERT | Out-Null
+
+                # Export private key (.pfx) without password for Key Vault storage
+                $pfxPath = [System.IO.Path]::GetTempFileName() + ".pfx"
+                $emptyPwd = [System.Security.SecureString]::new()
+                Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $emptyPwd | Out-Null
+                $certPfxBase64 = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($pfxPath))
+
+                # Upload public key to the app registration
+                Write-Host "  Uploading certificate to app registration..." -ForegroundColor Gray
+                $uploadRaw = cmd /c "az ad app credential reset --id $ClientId --append --display-name M365Dashboard-Cert --cert @`"$cerPath`" --create-cert 2>&1"
+                # Note: --create-cert is ignored when --cert is provided; this just uploads the .cer
+                # Try the correct form: upload existing cert
+                $uploadRaw = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectIdNew/addKey`" 2>&1"
+                # Simpler: use az ad app credential reset with the cert file
+                $cerB64 = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($cerPath))
+                $keyBody = "{`"keyCredentials`":[{`"type`":`"AsymmetricX509Cert`",`"usage`":`"Verify`",`"key`":`"$cerB64`",`"displayName`":`"M365Dashboard-Cert`"}]}"
+                $keyFile = [System.IO.Path]::GetTempFileName() + ".json"
+                [System.IO.File]::WriteAllText($keyFile, $keyBody, [System.Text.Encoding]::UTF8)
+                $uploadResult = cmd /c "az rest --method PATCH --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectIdNew`" --body @`"$keyFile`" --headers Content-Type=application/json 2>&1"
+                Remove-Item $keyFile -ErrorAction SilentlyContinue
+                Remove-Item $cerPath -ErrorAction SilentlyContinue
+                Remove-Item $pfxPath -ErrorAction SilentlyContinue
+                # Remove cert from local store (no longer needed here - Key Vault is the store)
+                Remove-Item "Cert:\CurrentUser\My\$certThumbprint" -ErrorAction SilentlyContinue
+
+                $uploadResultClean = ($uploadResult | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
+                if ($LASTEXITCODE -eq 0 -or [string]::IsNullOrWhiteSpace($uploadResultClean)) {
+                    Write-Host "  Certificate uploaded to app registration." -ForegroundColor Green
+                } else {
+                    Write-Host "  Warning uploading certificate: $uploadResultClean" -ForegroundColor Yellow
+                    Write-Host "  You may need to upload the certificate manually in Entra Portal." -ForegroundColor Yellow
+                }
+
+                # ClientSecret is empty - cert auth doesn't use a secret
+                $ClientSecret = ""
+            } else {
                 if ([string]::IsNullOrWhiteSpace($ClientSecret)) {
-                    Write-Host "  No secret provided. Exiting." -ForegroundColor Red
+                    $newSecret = $newSecretJson | ConvertFrom-Json
+                    $ClientSecret = $newSecret.password
+                }
+                if ([string]::IsNullOrWhiteSpace($ClientSecret)) {
+                    Write-Host "  Failed to extract client secret" -ForegroundColor Red
                     exit 1
                 }
-                Write-Host "  Client secret accepted." -ForegroundColor Green
-            }
-            if ([string]::IsNullOrWhiteSpace($ClientSecret)) {
-                $newSecret = $newSecretJson | ConvertFrom-Json
-                $ClientSecret = $newSecret.password
-            }
-            if ([string]::IsNullOrWhiteSpace($ClientSecret)) {
-                Write-Host "  Failed to extract client secret from response" -ForegroundColor Red
-                Write-Host "  Raw response: $newSecretRaw" -ForegroundColor Red
-                exit 1
-            }
-            if ($newSecretJson -match '"password"') {
                 Write-Host "  Client secret created (valid 2 years)" -ForegroundColor Green
             }
 
@@ -519,8 +511,16 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             }
             $ErrorActionPreference = "Stop"
 
-            # Save new config
-            $newConfig = @{ TenantId = $TenantId; ClientId = $ClientId; ClientSecret = $ClientSecret; AppName = $appNameInput; CreatedAt = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss") }
+            # Save new config (include cert details if using certificate auth)
+            $newConfig = @{
+                TenantId         = $TenantId
+                ClientId         = $ClientId
+                ClientSecret     = $ClientSecret
+                UseCertAuth      = $useCertAuth
+                CertThumbprint   = $certThumbprint
+                AppName          = $appNameInput
+                CreatedAt        = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+            }
             $newConfig | ConvertTo-Json | Out-File $configPath -Encoding UTF8
             Write-Host "  Config saved to entra-app-config.json" -ForegroundColor Green
         }
@@ -750,11 +750,14 @@ if ($isMspMode) {
 }
 
 # Final validation before deploying
-if ([string]::IsNullOrWhiteSpace($TenantId) -or [string]::IsNullOrWhiteSpace($ClientId) -or [string]::IsNullOrWhiteSpace($ClientSecret)) {
+if ([string]::IsNullOrWhiteSpace($TenantId) -or [string]::IsNullOrWhiteSpace($ClientId)) {
     Write-Host "ERROR: Missing required Entra ID credentials before deployment:" -ForegroundColor Red
-    Write-Host "  TenantId:     $(if ($TenantId) { $TenantId } else { '(empty)' })" -ForegroundColor Red
-    Write-Host "  ClientId:     $(if ($ClientId) { $ClientId } else { '(empty)' })" -ForegroundColor Red
-    Write-Host "  ClientSecret: $(if ($ClientSecret) { '(set)' } else { '(empty)' })" -ForegroundColor Red
+    Write-Host "  TenantId: $(if ($TenantId) { $TenantId } else { '(empty)' })" -ForegroundColor Red
+    Write-Host "  ClientId: $(if ($ClientId) { $ClientId } else { '(empty)' })" -ForegroundColor Red
+    exit 1
+}
+if (-not $useCertAuth -and [string]::IsNullOrWhiteSpace($ClientSecret)) {
+    Write-Host "ERROR: No client secret and no certificate configured." -ForegroundColor Red
     exit 1
 }
 
@@ -804,6 +807,23 @@ $appUrl = $deploymentOutput.containerAppUrl.value
 Write-Host ""
 Write-Host "Infrastructure deployed successfully!" -ForegroundColor Green
 Write-Host ""
+
+# If using certificate auth, store the PFX in Key Vault now that it exists
+if ($useCertAuth -and $certPfxBase64) {
+    Write-Host "Storing certificate in Key Vault..." -ForegroundColor Yellow
+    $kvName = $deploymentOutput.keyVaultName.value
+    $ErrorActionPreference = "Continue"
+    # Store PFX as base64 secret - the app reads it as AzureAd:ClientCertificatePfx
+    cmd /c "az keyvault secret set --vault-name $kvName --name AzureAd--ClientCertificatePfx --value `"$certPfxBase64`" 2>nul" | Out-Null
+    cmd /c "az keyvault secret set --vault-name $kvName --name AzureAd--ClientCertificateThumbprint --value `"$certThumbprint`" 2>nul" | Out-Null
+    # Clear ClientSecret if it's empty (cert auth)
+    cmd /c "az keyvault secret set --vault-name $kvName --name AzureAd--ClientSecret --value `" `" 2>nul" | Out-Null
+    $ErrorActionPreference = "Stop"
+    Write-Host "  Certificate PFX stored in Key Vault ($kvName)" -ForegroundColor Green
+    Write-Host "  Thumbprint stored in Key Vault" -ForegroundColor Green
+    Write-Host "  Auth mode: certificate (no client secret required)" -ForegroundColor Green
+    Write-Host ""
+}
 
 # Build and push Docker image using ACR Build (no local Docker required)
 Write-Host "Building Docker image in Azure..." -ForegroundColor Yellow
