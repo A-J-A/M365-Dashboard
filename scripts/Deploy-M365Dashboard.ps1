@@ -324,66 +324,57 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             $secretPolicyBlocked = ($newSecretRaw -join '') -match 'policy|Credential type not allowed'
 
             if (($LASTEXITCODE -ne 0 -or -not $newSecretJson -or $newSecretJson -notmatch '"password"') -and $secretPolicyBlocked) {
-                # -- Step 2: policy is blocking - try to apply a per-app override --
-                Write-Host "  Tenant credential policy detected - attempting to apply app-level policy override..." -ForegroundColor Yellow
+                # -- Step 2: policy is blocking - create a custom app management policy
+                # that overrides the tenant default for this specific app only.
+                # This does NOT modify the tenant-wide policy.
+                Write-Host "  Tenant credential policy detected - creating app-level policy override..." -ForegroundColor Yellow
 
-                # Apply an appManagementPolicy directly on this app object that
-                # explicitly allows passwordCredentials (client secrets).
-                # This is a per-app override and does not change the tenant-wide policy.
-                $policyOverrideBody = @{
-                    "@odata.type" = "#microsoft.graph.appManagementPolicy"
-                    displayName   = "M365Dashboard-SecretOverride"
-                    isEnabled     = $true
-                    restrictions  = @{
-                        passwordCredentials = @(
-                            @{
-                                restrictionType       = "passwordAddition"
-                                state                 = "disabled"
-                                endDateTime           = $null
-                            }
-                        )
-                    }
-                }
-
-                # First try: directly create an appManagementPolicy scoped to this app
-                # (Graph beta endpoint - appManagementPolicies are beta only)
-                $policyFile = [System.IO.Path]::GetTempFileName() + ".json"
-                # Simpler approach: patch the app's authenticationBehaviors to allow secrets
-                # The actual working approach is to remove the app from the policy's includes,
-                # or apply a custom policy on the app that sets passwordCredentials restriction to disabled.
-                $overrideBody = '{"appManagementPolicies":[]}'
-
-                # Try removing the app from the blocking policy directly
                 $policyIdRaw = ($newSecretRaw | Where-Object { $_ -match "'[0-9a-f-]{36}'" }) -join ''
                 if ($policyIdRaw -match "'([0-9a-f-]{36})'") {
                     $blockingPolicyId = $Matches[1]
                     Write-Host "  Blocking policy ID: $blockingPolicyId" -ForegroundColor Gray
-                    Write-Host "  Attempting to exempt this app from the policy..." -ForegroundColor Gray
+                }
 
-                    # Remove the app from the policy's appliesTo list
-                    $removeFromPolicyRaw = cmd /c "az rest --method DELETE --uri `"https://graph.microsoft.com/beta/policies/appManagementPolicies/$blockingPolicyId/appliesTo/$appObjectIdNew`" 2>&1"
-                    $removeResult = ($removeFromPolicyRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
+                # Create a new appManagementPolicy with passwordCredentials unrestricted
+                # and apply it to this specific app. App-level policies take precedence
+                # over the tenant default policy.
+                $overridePolicyBody = '{"displayName":"M365Dashboard-TempOverride","description":"Temporary override to allow secret creation for M365 Dashboard deployment","isEnabled":true,"restrictions":{"passwordCredentials":[]}}'
+                $overridePolicyFile = [System.IO.Path]::GetTempFileName() + ".json"
+                [System.IO.File]::WriteAllText($overridePolicyFile, $overridePolicyBody, [System.Text.Encoding]::UTF8)
 
-                    if ($LASTEXITCODE -eq 0 -or $removeResult -match '204|does not exist') {
-                        Write-Host "  App exempted from policy - retrying secret creation..." -ForegroundColor Green
-                        Start-Sleep -Seconds 3
+                Write-Host "  Creating override policy..." -ForegroundColor Gray
+                $createPolicyRaw = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/beta/policies/appManagementPolicies`" --body @`"$overridePolicyFile`" --headers Content-Type=application/json 2>&1"
+                Remove-Item $overridePolicyFile -ErrorAction SilentlyContinue
+                $createPolicyJson = ($createPolicyRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
+                $overridePolicyId = $null
+
+                if ($createPolicyJson -match '"id"') {
+                    $overridePolicyId = ($createPolicyJson | ConvertFrom-Json).id
+                    Write-Host "  Override policy created: $overridePolicyId" -ForegroundColor Gray
+
+                    # Assign the override policy to this specific app
+                    $assignBody = "{`"@odata.id`":`"https://graph.microsoft.com/beta/applications/$appObjectIdNew`"}"
+                    $assignFile = [System.IO.Path]::GetTempFileName() + ".json"
+                    [System.IO.File]::WriteAllText($assignFile, $assignBody, [System.Text.Encoding]::UTF8)
+                    $assignRaw = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/beta/policies/appManagementPolicies/$overridePolicyId/appliesTo/`$ref`" --body @`"$assignFile`" --headers Content-Type=application/json 2>&1"
+                    Remove-Item $assignFile -ErrorAction SilentlyContinue
+                    $assignResult = ($assignRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
+
+                    if ($LASTEXITCODE -eq 0 -or $assignResult -match '204') {
+                        Write-Host "  Override policy assigned - retrying secret creation..." -ForegroundColor Green
+                        Start-Sleep -Seconds 5
                         $newSecretRaw = cmd /c "az ad app credential reset --id $ClientId --append --display-name M365Dashboard-Secret --years 2 2>&1"
                         $newSecretJson = ($newSecretRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
-
-                        # Re-add the app to the policy after secret creation to restore security posture
-                        if ($newSecretJson -match '"password"') {
-                            Write-Host "  Secret created. Restoring policy assignment..." -ForegroundColor Gray
-                            $readdBody = "{`"@odata.id`":`"https://graph.microsoft.com/beta/applications/$appObjectIdNew`"}"
-                            $readdFile = [System.IO.Path]::GetTempFileName() + ".json"
-                            [System.IO.File]::WriteAllText($readdFile, $readdBody, [System.Text.Encoding]::UTF8)
-                            cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/beta/policies/appManagementPolicies/$blockingPolicyId/appliesTo/`$ref`" --body @`"$readdFile`" --headers Content-Type=application/json 2>nul" | Out-Null
-                            Remove-Item $readdFile -ErrorAction SilentlyContinue
-                            Write-Host "  Policy assignment restored." -ForegroundColor Gray
-                        }
                     } else {
-                        Write-Host "  Could not remove app from policy (may need Policy.ReadWrite.ApplicationConfiguration permission)." -ForegroundColor Yellow
-                        Write-Host "  Error: $removeResult" -ForegroundColor Gray
+                        Write-Host "  Could not assign override policy: $assignResult" -ForegroundColor Yellow
                     }
+
+                    # Always clean up the temporary override policy
+                    Write-Host "  Removing temporary override policy..." -ForegroundColor Gray
+                    cmd /c "az rest --method DELETE --uri `"https://graph.microsoft.com/beta/policies/appManagementPolicies/$overridePolicyId`" 2>nul" | Out-Null
+                    Write-Host "  Temporary policy removed." -ForegroundColor Gray
+                } else {
+                    Write-Host "  Could not create override policy: $createPolicyRaw" -ForegroundColor Yellow
                 }
             }
 
