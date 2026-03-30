@@ -422,7 +422,8 @@ const ReportsPage: React.FC = () => {
                       isGenerating={generatingReport === report.reportType}
                       onGenerate={(format, dateRange) => generateReport(report.reportType, format, dateRange)}
                       onSchedule={() => {
-                        setSelectedReportForSchedule(report);
+                      setSelectedReportForSchedule(report);
+                      setScheduleForm({ frequency: 'weekly', time: '08:00', dayOfWeek: 1, dayOfMonth: 1, recipients: '', dateRange: 'last30days' });
                         setShowScheduleModal(true);
                       }}
                     />
@@ -700,7 +701,7 @@ const ReportsPage: React.FC = () => {
                   className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-400"
                 />
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Separate multiple emails with commas. Your email will be added automatically.
+                  Separate multiple emails with commas.
                 </p>
               </div>
             </div>

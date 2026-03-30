@@ -586,7 +586,7 @@ public class ReportService : IReportService
                     break;
 
                 case "executive-summary-pdf":
-                    // PDF is generated on demand via /api/reports/download — return a lightweight summary here
+                    // PDF is generated on demand via /api/reports/download ï¿½ return a lightweight summary here
                     var execData = await _executiveReportService.GatherDataAsync();
                     data = new { message = "Use the Download PDF button to get the full report.", generatedAt = execData.GeneratedAt, reportMonth = execData.ReportMonth };
                     recordCount = 1;
@@ -2767,13 +2767,13 @@ public class ReportService : IReportService
 
     private static string FormatCellValue(object? value, string propertyName)
     {
-        if (value == null) return "<span style='color:#999'>—</span>";
+        if (value == null) return "<span style='color:#999'>ï¿½</span>";
         
         // Handle List<string> - join with commas
         if (value is IEnumerable<string> stringList)
         {
             var items = stringList.ToList();
-            if (items.Count == 0) return "<span style='color:#999'>—</span>";
+            if (items.Count == 0) return "<span style='color:#999'>ï¿½</span>";
             return System.Net.WebUtility.HtmlEncode(string.Join(", ", items));
         }
         
@@ -2781,7 +2781,7 @@ public class ReportService : IReportService
         if (value is System.Collections.IEnumerable enumerable && !(value is string))
         {
             var items = enumerable.Cast<object>().ToList();
-            if (items.Count == 0) return "<span style='color:#999'>—</span>";
+            if (items.Count == 0) return "<span style='color:#999'>ï¿½</span>";
             return System.Net.WebUtility.HtmlEncode(string.Join(", ", items.Select(i => i?.ToString() ?? "")));
         }
         
@@ -2861,10 +2861,6 @@ public class ReportService : IReportService
             ?? throw new ArgumentException($"Unknown report type: {request.ReportType}");
 
         var recipients = request.Recipients?.ToList() ?? new List<string>();
-        if (!string.IsNullOrEmpty(userEmail) && !recipients.Contains(userEmail, StringComparer.OrdinalIgnoreCase))
-        {
-            recipients.Insert(0, userEmail);
-        }
 
         var schedule = new ScheduledReport
         {
