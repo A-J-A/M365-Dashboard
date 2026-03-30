@@ -1989,7 +1989,7 @@ const permissionFixInstructions: Record<string, { steps: string[]; links: { labe
   'Exchange.ManageAsApp': {
     steps: [
       'Open the Azure portal (portal.azure.com)',
-      'Go to Azure Active Directory → App registrations → your app',
+      'Go to Entra ID → App registrations → your app',
       'Click "API permissions" → "Add a permission"',
       'Choose "APIs my organization uses" and search for "Office 365 Exchange Online"',
       'Select "Application permissions" and add "Exchange.ManageAsApp"',

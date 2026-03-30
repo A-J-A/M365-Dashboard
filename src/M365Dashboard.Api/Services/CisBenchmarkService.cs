@@ -1009,7 +1009,7 @@ public class CisBenchmarkService : ICisBenchmarkService
         {
             ControlId = "5.1.2.3",
             Title = "Ensure 'Restrict non-admin users from creating tenants' is set to 'Yes'",
-            Description = "Non-admin users should not be able to create new Azure AD tenants.",
+            Description = "Non-admin users should not be able to create new Entra ID tenants.",
             Rationale = "When users can create new tenants, they may inadvertently create shadow IT environments outside organizational control. This can lead to data sprawl, security gaps, and compliance issues. Restricting tenant creation to administrators ensures proper governance.",
             Category = "5 Microsoft Entra admin center",
             SubCategory = "5.1.2 External Identities",

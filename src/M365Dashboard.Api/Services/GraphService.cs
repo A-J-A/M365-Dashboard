@@ -626,7 +626,7 @@ public class GraphService : IGraphService
             _logger.LogInformation("Fetching users from tenant");
 
             // Build the select properties
-            // Note: signInActivity requires AuditLog.Read.All and Azure AD Premium
+            // Note: signInActivity requires AuditLog.Read.All and Entra ID Premium
             var selectProperties = new[]
             {
                 "id", "displayName", "userPrincipalName", "mail", "userType",
