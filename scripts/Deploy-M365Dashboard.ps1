@@ -889,82 +889,92 @@ Write-Host "Updating Container App with new image..." -ForegroundColor Yellow
 cmd /c "az containerapp update --name $NamePrefix-$Environment-app --resource-group $resourceGroup --image $acrServer/m365dashboard:latest 2>nul"
 
 # Configure redirect URI and enable tokens
+# In MSP mode these calls target the CLIENT tenant - pass --tenant explicitly so
+# they work correctly even though the CLI is now logged into the MSP subscription.
+$entraTarget = if ($isMspMode) { "--tenant $TenantId" } else { "" }
+
 Write-Host ""
 Write-Host "Configuring App Registration..." -ForegroundColor Yellow
 
-# The MSAL redirectUri is window.location.origin (bare URL, no path)
-# Register that as the SPA redirect URI in Entra
 $appUrlClean = $appUrl.TrimEnd('/')
 Write-Host "  Setting redirect URI: $appUrlClean" -ForegroundColor Gray
 
-# Get the app's object ID (different from the client/app ID)
-$appObjectId = (cmd /c "az ad app show --id $ClientId --query id -o tsv 2>nul").Trim()
-
-# Write body to temp file to avoid JSON escaping issues in cmd
-$redirectBodyFile = [System.IO.Path]::GetTempFileName()
-$redirectBody = "{`"spa`":{`"redirectUris`":[`"$appUrlClean`"]}}"
-[System.IO.File]::WriteAllText($redirectBodyFile, $redirectBody, [System.Text.Encoding]::UTF8)
-
+# Get the app's object ID using the correct tenant
 $ErrorActionPreference = "Continue"
-$uriUpdateResult = cmd /c "az rest --method PATCH --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectId`" --body @`"$redirectBodyFile`" --headers Content-Type=application/json 2>&1"
-Remove-Item $redirectBodyFile -ErrorAction SilentlyContinue
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "  Redirect URI configured" -ForegroundColor Green
-} else {
-    Write-Host "  Warning: Could not set redirect URI: $uriUpdateResult" -ForegroundColor Yellow
-}
+$appObjectIdRaw = cmd /c "az ad app show --id $ClientId --query id -o tsv $entraTarget 2>nul"
+$appObjectId = ($appObjectIdRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
 $ErrorActionPreference = "Stop"
 
+if ([string]::IsNullOrWhiteSpace($appObjectId)) {
+    Write-Host "  Warning: Could not retrieve app object ID - redirect URI and token config may need to be set manually." -ForegroundColor Yellow
+} else {
+    $redirectBodyFile = [System.IO.Path]::GetTempFileName()
+    $redirectBody = "{`"spa`":{`"redirectUris`":[`"$appUrlClean`"]}}"
+    [System.IO.File]::WriteAllText($redirectBodyFile, $redirectBody, [System.Text.Encoding]::UTF8)
+
+    $ErrorActionPreference = "Continue"
+    $uriUpdateResult = cmd /c "az rest --method PATCH --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectId`" --body @`"$redirectBodyFile`" --headers Content-Type=application/json $entraTarget 2>&1"
+    Remove-Item $redirectBodyFile -ErrorAction SilentlyContinue
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  Redirect URI configured" -ForegroundColor Green
+    } else {
+        Write-Host "  Warning: Could not set redirect URI: $uriUpdateResult" -ForegroundColor Yellow
+    }
+    $ErrorActionPreference = "Stop"
+}
+
 Write-Host "  Enabling access tokens and ID tokens..." -ForegroundColor Gray
-cmd /c "az ad app update --id $ClientId --enable-access-token-issuance true --enable-id-token-issuance true 2>nul"
+cmd /c "az ad app update --id $ClientId --enable-access-token-issuance true --enable-id-token-issuance true $entraTarget 2>nul"
 Write-Host "  Tokens enabled" -ForegroundColor Green
 
 Write-Host "  Granting admin consent for API permissions..." -ForegroundColor Gray
 $ErrorActionPreference = "Continue"
-$consentResult = cmd /c "az ad app permission admin-consent --id $ClientId 2>&1"
+$consentResult = cmd /c "az ad app permission admin-consent --id $ClientId $entraTarget 2>&1"
 if ($LASTEXITCODE -eq 0) {
     Write-Host "  Admin consent granted" -ForegroundColor Green
 } else {
-    # Fallback: grant via Graph API directly
-    $graphConsentResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/oauth2PermissionGrants`" --body `"{`\`"clientId`\`":`\`"$spId`\`",`\`"consentType`\`":`\`"AllPrincipals`\`",`\`"resourceId`\`":`\`"$spId`\`",`\`"scope`\`":`\`"openid profile`\`"}`" 2>&1"
-    if ($LASTEXITCODE -eq 0) {
-        Write-Host "  Admin consent granted via Graph API" -ForegroundColor Green
-    } else {
-        Write-Host "  Could not grant admin consent automatically - grant manually:" -ForegroundColor Yellow
-        Write-Host "  Azure Portal > Entra ID > App registrations > $ClientId > API permissions > Grant admin consent" -ForegroundColor Yellow
-    }
+    Write-Host "  Could not grant admin consent automatically - grant manually:" -ForegroundColor Yellow
+    Write-Host "  Azure Portal > Entra ID > App registrations > $ClientId > API permissions > Grant admin consent" -ForegroundColor Yellow
 }
 $ErrorActionPreference = "Stop"
 
-Write-Host "  Assigning Dashboard Admin role to current user..." -ForegroundColor Gray
-$currentUser = cmd /c "az ad signed-in-user show --query id -o tsv 2>nul"
-$spId = cmd /c "az ad sp show --id $ClientId --query id -o tsv 2>nul"
+# Dashboard Admin role assignment - in MSP mode this assigns to the client tenant admin
+# who performed the app registration (we can't assign to the MSP user as they're in a different tenant)
+Write-Host "  Assigning Dashboard Admin role..." -ForegroundColor Gray
+$ErrorActionPreference = "Continue"
+$spId = (cmd /c "az ad sp show --id $ClientId --query id -o tsv $entraTarget 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
 
-if ($currentUser -and $spId) {
-    $appRoles = cmd /c "az ad app show --id $ClientId --query appRoles -o json 2>nul" | ConvertFrom-Json
+if ($spId) {
+    $appRoles = cmd /c "az ad app show --id $ClientId --query appRoles -o json $entraTarget 2>nul" | ConvertFrom-Json
     $adminRole = $appRoles | Where-Object { $_.value -eq "Dashboard.Admin" }
-    
+
     if ($adminRole) {
         $roleId = $adminRole.id
-        # Write body to temp file to avoid shell escaping issues
-        $roleBodyFile = [System.IO.Path]::GetTempFileName()
-        $roleBody = "{`"principalId`":`"$currentUser`",`"resourceId`":`"$spId`",`"appRoleId`":`"$roleId`"}"
-        [System.IO.File]::WriteAllText($roleBodyFile, $roleBody, [System.Text.Encoding]::UTF8)
-        
-        $ErrorActionPreference = "Continue"
-        $assignResult = cmd /c "az rest --method POST --uri https://graph.microsoft.com/v1.0/users/$currentUser/appRoleAssignments --body @`"$roleBodyFile`" --headers Content-Type=application/json 2>&1"
-        $ErrorActionPreference = "Stop"
-        Remove-Item $roleBodyFile -ErrorAction SilentlyContinue
-        
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "  Dashboard Admin role assigned to current user" -ForegroundColor Green
-        } elseif (($assignResult -join "") -match "already exists") {
-            Write-Host "  Dashboard Admin role already assigned" -ForegroundColor Green
+        if ($isMspMode) {
+            # In MSP mode the CLI is in the MSP tenant - we can't get the client tenant's signed-in user.
+            # The client admin will need to assign themselves the Dashboard.Admin role via Entra Enterprise Apps.
+            Write-Host "  MSP mode: Dashboard Admin role must be assigned manually in the client tenant." -ForegroundColor Yellow
+            Write-Host "  https://entra.microsoft.com/#view/Microsoft_AAD_IAM/ManagedAppMenuBlade/~/Users/objectId/$spId" -ForegroundColor Cyan
         } else {
-            Write-Host "  Could not assign role automatically (may need to assign manually in Entra Enterprise Apps)" -ForegroundColor Yellow
+            $currentUser = (cmd /c "az ad signed-in-user show --query id -o tsv 2>nul").Trim()
+            if ($currentUser) {
+                $roleBodyFile = [System.IO.Path]::GetTempFileName()
+                $roleBody = "{`"principalId`":`"$currentUser`",`"resourceId`":`"$spId`",`"appRoleId`":`"$roleId`"}"
+                [System.IO.File]::WriteAllText($roleBodyFile, $roleBody, [System.Text.Encoding]::UTF8)
+                $assignResult = cmd /c "az rest --method POST --uri https://graph.microsoft.com/v1.0/users/$currentUser/appRoleAssignments --body @`"$roleBodyFile`" --headers Content-Type=application/json 2>&1"
+                Remove-Item $roleBodyFile -ErrorAction SilentlyContinue
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "  Dashboard Admin role assigned to current user" -ForegroundColor Green
+                } elseif (($assignResult -join "") -match "already exists") {
+                    Write-Host "  Dashboard Admin role already assigned" -ForegroundColor Green
+                } else {
+                    Write-Host "  Could not assign role automatically (may need to assign manually in Entra Enterprise Apps)" -ForegroundColor Yellow
+                }
+            }
         }
     }
 }
+$ErrorActionPreference = "Stop"
 
 # Save deploy config for use by Update-M365Dashboard.ps1
 Write-Host ""
@@ -1148,13 +1158,13 @@ Write-Host "Checking admin consent status..." -ForegroundColor Gray
 $consentGranted = $false
 try {
     $ErrorActionPreference = "Continue"
-    # Get the service principal object ID for our app
-    $spObjRaw = cmd /c "az ad sp show --id $ClientId --query id -o tsv 2>nul"
+    # Get the service principal object ID for our app (use client tenant in MSP mode)
+    $spObjRaw = cmd /c "az ad sp show --id $ClientId --query id -o tsv $entraTarget 2>nul"
     $spObjId  = ($spObjRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
 
     if ($spObjId) {
         # Query oauth2PermissionGrants - if any AllPrincipals grant exists, consent was given
-        $grantsRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/oauth2PermissionGrants?`$filter=clientId eq '$spObjId'`" --query value -o json 2>nul"
+        $grantsRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/oauth2PermissionGrants?`$filter=clientId eq '$spObjId'`" --query value -o json $entraTarget 2>nul"
         $grantsJson = ($grantsRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
         if ($grantsJson -and $grantsJson -ne '[]' -and $grantsJson -ne 'null') {
             $grants = $grantsJson | ConvertFrom-Json
@@ -1165,7 +1175,7 @@ try {
 
         # Also check appRoleAssignments - application permissions granted show up here
         if (-not $consentGranted) {
-            $assignmentsRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals/$spObjId/appRoleAssignments`" --query value -o json 2>nul"
+            $assignmentsRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals/$spObjId/appRoleAssignments`" --query value -o json $entraTarget 2>nul"
             $assignmentsJson = ($assignmentsRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
             if ($assignmentsJson -and $assignmentsJson -ne '[]' -and $assignmentsJson -ne 'null') {
                 $assignments = $assignmentsJson | ConvertFrom-Json
