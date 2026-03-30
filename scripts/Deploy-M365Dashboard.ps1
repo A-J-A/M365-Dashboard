@@ -325,35 +325,43 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             Write-Host "  App roles added" -ForegroundColor Green
 
             # ----------------------------------------------------------------
-            # Credential setup: try client secret first, fall back to certificate
-            # if the tenant policy blocks password credentials.
+            # Credential type selection
             # ----------------------------------------------------------------
-            $useCertAuth = $false
+            Write-Host ""
+            Write-Host "  Credential Type" -ForegroundColor Cyan
+            Write-Host "  [1] Client Secret  - simpler, but may be blocked by tenant credential policies" -ForegroundColor White
+            Write-Host "  [2] Certificate    - more secure, works even when client secrets are blocked" -ForegroundColor White
+            Write-Host ""
+            $credChoice = Read-Host "  Select credential type (1-2, default 1)"
+            $useCertAuth = ($credChoice -eq "2")
             $certThumbprint = $null
             $certPfxBase64 = $null
 
-            Write-Host "  Creating client secret..." -ForegroundColor Gray
-            Start-Sleep -Seconds 5
-            $newSecretRaw = cmd /c "az ad app credential reset --id $ClientId --append --display-name M365Dashboard-Secret --years 2 2>&1"
-            $newSecretJson = ($newSecretRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
-            $secretPolicyBlocked = ($newSecretRaw -join '') -match 'policy|Credential type not allowed'
+            if (-not $useCertAuth) {
+                # ---- Client secret path ----
+                Write-Host "  Creating client secret..." -ForegroundColor Gray
+                Start-Sleep -Seconds 5
+                $newSecretRaw = cmd /c "az ad app credential reset --id $ClientId --append --display-name M365Dashboard-Secret --years 2 2>&1"
+                $newSecretJson = ($newSecretRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
 
-            if ($LASTEXITCODE -ne 0 -or -not $newSecretJson -or $newSecretJson -notmatch '"password"') {
-                if ($secretPolicyBlocked) {
-                    Write-Host "  Client secret blocked by tenant credential policy." -ForegroundColor Yellow
-                    Write-Host "  Switching to certificate authentication (not subject to this policy)..." -ForegroundColor Cyan
-                    $useCertAuth = $true
-                } else {
-                    # Propagation delay retry
-                    Write-Host "  Retrying secret creation..." -ForegroundColor Yellow
+                if ($LASTEXITCODE -ne 0 -or -not $newSecretJson -or $newSecretJson -notmatch '"password"') {
+                    # Retry once for propagation delay
+                    Write-Host "  Retrying..." -ForegroundColor Yellow
                     Start-Sleep -Seconds 10
                     $newSecretRaw = cmd /c "az ad app credential reset --id $ClientId --append --display-name M365Dashboard-Secret --years 2 2>&1"
                     $newSecretJson = ($newSecretRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
-                    if ($LASTEXITCODE -ne 0 -or $newSecretJson -notmatch '"password"') {
-                        Write-Host "  Secret creation failed: $(($newSecretRaw | Where-Object { $_ -match 'ERROR:' }) -join '')" -ForegroundColor Yellow
-                        Write-Host "  Switching to certificate authentication..." -ForegroundColor Cyan
-                        $useCertAuth = $true
+                }
+
+                if ($LASTEXITCODE -ne 0 -or -not $newSecretJson -or $newSecretJson -notmatch '"password"') {
+                    $errMsg = ($newSecretRaw | Where-Object { $_ -match 'ERROR:' }) -join ''
+                    Write-Host ""
+                    Write-Host "  Client secret creation failed:" -ForegroundColor Red
+                    Write-Host "  $errMsg" -ForegroundColor Red
+                    if ($errMsg -match 'policy|Credential type not allowed') {
+                        Write-Host "  This tenant has a credential policy blocking client secrets." -ForegroundColor Yellow
+                        Write-Host "  Re-run the script and select option [2] Certificate instead." -ForegroundColor Yellow
                     }
+                    exit 1
                 }
             }
 
@@ -414,10 +422,8 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
                 # ClientSecret is empty - cert auth doesn't use a secret
                 $ClientSecret = ""
             } else {
-                if ([string]::IsNullOrWhiteSpace($ClientSecret)) {
-                    $newSecret = $newSecretJson | ConvertFrom-Json
-                    $ClientSecret = $newSecret.password
-                }
+                $newSecret = $newSecretJson | ConvertFrom-Json
+                $ClientSecret = $newSecret.password
                 if ([string]::IsNullOrWhiteSpace($ClientSecret)) {
                     Write-Host "  Failed to extract client secret" -ForegroundColor Red
                     exit 1
