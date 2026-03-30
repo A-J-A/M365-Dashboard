@@ -82,3 +82,4 @@ output sqlDatabaseName string = infrastructure.outputs.sqlDatabaseName
 output mapsAccountName string = infrastructure.outputs.mapsAccountName
 output mapsClientId string = infrastructure.outputs.mapsClientId
 output keyVaultUri string = infrastructure.outputs.keyVaultUri
+output keyVaultName string = infrastructure.outputs.keyVaultName

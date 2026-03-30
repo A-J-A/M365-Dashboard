@@ -340,5 +340,6 @@ output containerRegistryLoginServer string = containerRegistry.properties.loginS
 output sqlServerFqdn string = sqlServer.properties.fullyQualifiedDomainName
 output sqlDatabaseName string = sqlDatabase.name
 output keyVaultUri string = keyVault.properties.vaultUri
+output keyVaultName string = keyVault.name
 output mapsAccountName string = mapsAccount.name
 output mapsClientId string = mapsAccount.properties.uniqueId

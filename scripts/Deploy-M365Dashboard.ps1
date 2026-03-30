@@ -869,15 +869,36 @@ Write-Host ""
 if ($useCertAuth -and $certPfxBase64) {
     Write-Host "Storing certificate in Key Vault..." -ForegroundColor Yellow
     $kvName = $deploymentOutput.keyVaultName.value
+
+    if ([string]::IsNullOrWhiteSpace($kvName)) {
+        Write-Host "  ERROR: Could not determine Key Vault name from deployment output." -ForegroundColor Red
+        Write-Host "  Certificate secrets were NOT stored. The app will fail to authenticate." -ForegroundColor Red
+        Write-Host "  Deployment output keys: $($deploymentOutput.PSObject.Properties.Name -join ', ')" -ForegroundColor Yellow
+        exit 1
+    }
+
+    Write-Host "  Key Vault: $kvName" -ForegroundColor Gray
     $ErrorActionPreference = "Continue"
+
     # Store PFX as base64 secret - the app reads it as AzureAd:ClientCertificatePfx
-    cmd /c "az keyvault secret set --vault-name $kvName --name AzureAd--ClientCertificatePfx --value `"$certPfxBase64`" 2>nul" | Out-Null
-    cmd /c "az keyvault secret set --vault-name $kvName --name AzureAd--ClientCertificateThumbprint --value `"$certThumbprint`" 2>nul" | Out-Null
-    # Clear ClientSecret if it's empty (cert auth)
-    cmd /c "az keyvault secret set --vault-name $kvName --name AzureAd--ClientSecret --value `" `" 2>nul" | Out-Null
-    $ErrorActionPreference = "Stop"
-    Write-Host "  Certificate PFX stored in Key Vault ($kvName)" -ForegroundColor Green
+    $pfxResult = cmd /c "az keyvault secret set --vault-name $kvName --name AzureAd--ClientCertificatePfx --value `"$certPfxBase64`" 2>&1"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  ERROR storing PFX: $pfxResult" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "  Certificate PFX stored in Key Vault" -ForegroundColor Green
+
+    $thumbResult = cmd /c "az keyvault secret set --vault-name $kvName --name AzureAd--ClientCertificateThumbprint --value `"$certThumbprint`" 2>&1"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "  ERROR storing thumbprint: $thumbResult" -ForegroundColor Red
+        exit 1
+    }
     Write-Host "  Thumbprint stored in Key Vault" -ForegroundColor Green
+
+    # Set ClientSecret to a single space so IsNullOrWhiteSpace correctly skips it
+    cmd /c "az keyvault secret set --vault-name $kvName --name AzureAd--ClientSecret --value `" `" 2>nul" | Out-Null
+
+    $ErrorActionPreference = "Stop"
     Write-Host "  Auth mode: certificate (no client secret required)" -ForegroundColor Green
     Write-Host ""
 }
