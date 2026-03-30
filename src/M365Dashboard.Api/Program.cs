@@ -3,6 +3,7 @@ using Microsoft.IdentityModel.Tokens;
 using Microsoft.Identity.Web;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Graph;
+using Azure.Core;
 using Azure.Identity;
 using M365Dashboard.Api.Data;
 using M365Dashboard.Api.Services;
@@ -132,7 +133,7 @@ builder.Services.AddSingleton<GraphServiceClient>(sp =>
         Log.Information("Graph client using client secret authentication");
     }
 
-    return new GraphServiceClient(credential, new[] { "https://graph.microsoft.com/.default" });
+    return new GraphServiceClient(credential, "https://graph.microsoft.com/.default");
 });
 
 // Configure Entity Framework with SQL Server
