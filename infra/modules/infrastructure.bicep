@@ -270,6 +270,12 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
               value: 'Production'
             }
             {
+              // Explicitly set the listening port to match the Container App targetPort.
+              // Container Apps injects PORT env var but ASP.NET needs ASPNETCORE_URLS.
+              name: 'ASPNETCORE_URLS'
+              value: 'http://+:8080'
+            }
+            {
               name: 'KeyVault__Uri'
               value: keyVault.properties.vaultUri
             }
