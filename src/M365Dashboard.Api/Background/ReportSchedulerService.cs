@@ -161,16 +161,16 @@ public class ReportSchedulerService : BackgroundService
             "html"
         );
 
-        // Generate HTML body for email
+        // Generate HTML body for email — pass userId and scheduledReportId so history is recorded
         string htmlContent;
         try
         {
-            htmlContent = await reportService.ExportReportToHtmlAsync(request);
+            htmlContent = await reportService.ExportReportToHtmlAsync(request, schedule.UserId, isScheduled: true, scheduledReportId: schedule.Id);
         }
         catch (NotImplementedException)
         {
             // Fall back to CSV attachment if HTML not implemented
-            var csvContent = await reportService.ExportReportToCsvAsync(request with { Format = "csv", DateRange = schedule.DateRange ?? "last30days" });
+            var csvContent = await reportService.ExportReportToCsvAsync(request with { Format = "csv", DateRange = schedule.DateRange ?? "last30days" }, schedule.UserId, isScheduled: true, scheduledReportId: schedule.Id);
             var csvBytes   = System.Text.Encoding.UTF8.GetBytes(csvContent);
             var fileName   = $"{schedule.ReportType}_{DateTime.UtcNow:yyyy-MM-dd}.csv";
             var subject    = $"{reportSettings.CompanyName} – {schedule.DisplayName} – {DateTime.UtcNow:dd MMM yyyy}";

@@ -134,7 +134,7 @@ const ReportsPage: React.FC = () => {
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     available: true,
     scheduled: true,
-    history: false,
+    history: true,
   });
 
   // Schedule form state

@@ -11,8 +11,8 @@ public interface IReportService
 {
     List<ReportDefinitionDto> GetReportDefinitions();
     Task<ReportResultDto> GenerateReportAsync(GenerateReportRequest request, string? userId = null, bool isScheduled = false, int? scheduledReportId = null);
-    Task<string> ExportReportToCsvAsync(GenerateReportRequest request);
-    Task<string> ExportReportToHtmlAsync(GenerateReportRequest request);
+    Task<string> ExportReportToCsvAsync(GenerateReportRequest request, string? userId = null, bool isScheduled = false, int? scheduledReportId = null);
+    Task<string> ExportReportToHtmlAsync(GenerateReportRequest request, string? userId = null, bool isScheduled = false, int? scheduledReportId = null);
     Task<List<ScheduledReportDto>> GetScheduledReportsAsync(string userId);
     Task<ScheduledReportDto> CreateScheduledReportAsync(string userId, string? userEmail, CreateScheduledReportRequest request);
     Task<ScheduledReportDto?> UpdateScheduledReportAsync(string userId, string scheduleId, UpdateScheduledReportRequest request);
@@ -653,9 +653,9 @@ public class ReportService : IReportService
         }
     }
 
-    public async Task<string> ExportReportToCsvAsync(GenerateReportRequest request)
+    public async Task<string> ExportReportToCsvAsync(GenerateReportRequest request, string? userId = null, bool isScheduled = false, int? scheduledReportId = null)
     {
-        var report = await GenerateReportAsync(request);
+        var report = await GenerateReportAsync(request, userId, isScheduled, scheduledReportId);
         return ConvertToCsv(report.Data, request.ReportType);
     }
 
@@ -1042,7 +1042,7 @@ public class ReportService : IReportService
         return sb.ToString();
     }
 
-    public async Task<string> ExportReportToHtmlAsync(GenerateReportRequest request)
+    public async Task<string> ExportReportToHtmlAsync(GenerateReportRequest request, string? userId = null, bool isScheduled = false, int? scheduledReportId = null)
     {
         var branding = LoadReportSettings();
 
@@ -1063,7 +1063,7 @@ public class ReportService : IReportService
             return GenerateTeamsUsageHtmlReport(teamsActivity, request.DateRange ?? "last30days", branding);
         }
         
-        var report = await GenerateReportAsync(request);
+        var report = await GenerateReportAsync(request, userId, isScheduled, scheduledReportId);
         
         // Special handling for app-credentials report
         if (request.ReportType == "app-credentials" && report.Data is AppCredentialStatusDto appCreds)
@@ -2962,7 +2962,6 @@ public class ReportService : IReportService
     public async Task<List<ReportHistoryDto>> GetReportHistoryAsync(string userId, int take)
     {
         var history = await _dbContext.ReportHistories
-            .Where(h => h.UserId == userId)
             .OrderByDescending(h => h.GeneratedAt)
             .Take(take)
             .ToListAsync();
