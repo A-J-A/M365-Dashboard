@@ -976,19 +976,8 @@ if ($spId) {
 }
 $ErrorActionPreference = "Stop"
 
-# Save deploy config for use by Update-M365Dashboard.ps1
-Write-Host ""
-Write-Host "Saving deploy config..." -ForegroundColor Yellow
-    $deployConfig = @{
-        ResourceGroup    = $resourceGroup
-        ContainerAppName = $containerAppName
-        AcrName          = $acrName
-        AppUrl           = $appUrl
-        DeployedAt       = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-    }
-    $deployConfigPath = Join-Path (Split-Path $PSScriptRoot -Parent) "deploy-config.json"
-    $deployConfig | ConvertTo-Json | Out-File $deployConfigPath -Encoding UTF8
-    Write-Host "  Deploy config saved to deploy-config.json" -ForegroundColor Green
+# $containerAppName is defined further down in the GitHub Actions section.
+# Save deploy config after it is set - see below.
 
     # Update local dev config
     Write-Host ""
@@ -1030,6 +1019,20 @@ $acrPassword     = (cmd /c "az acr credential show --name $acrName --query passw
 $subscriptionId  = (cmd /c "az account show --query id -o tsv 2>nul").Trim()
 $containerAppName = "$NamePrefix-$Environment-app"
 $spName          = "$NamePrefix-$Environment-github-actions"
+
+# Save deploy config now that $containerAppName is defined
+Write-Host ""
+Write-Host "Saving deploy config..." -ForegroundColor Yellow
+$deployConfig = @{
+    ResourceGroup    = $resourceGroup
+    ContainerAppName = $containerAppName
+    AcrName          = $acrName
+    AppUrl           = $appUrl
+    DeployedAt       = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+}
+$deployConfigPath = Join-Path (Split-Path $PSScriptRoot -Parent) "deploy-config.json"
+$deployConfig | ConvertTo-Json | Out-File $deployConfigPath -Encoding UTF8
+Write-Host "  Deploy config saved to deploy-config.json" -ForegroundColor Green
 
 # Create service principal for GitHub Actions (Contributor on the resource group)
 Write-Host "  Creating service principal '$spName'..." -ForegroundColor Gray
