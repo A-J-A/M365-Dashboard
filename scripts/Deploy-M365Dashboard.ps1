@@ -186,7 +186,7 @@ Write-Host "Entra ID App Registration" -ForegroundColor Cyan
 Write-Host "-------------------------" -ForegroundColor Cyan
 
 # In MSP mode, use a per-client-tenant config file so it doesn't collide with the
-# Cloud1st standard deployment config.
+# MSP's own standard deployment config.
 if ($isMspMode -and $clientTenantId) {
     $configPath = Join-Path (Join-Path $PSScriptRoot "..") "entra-app-config-$clientTenantId.json"
 } else {
@@ -740,7 +740,7 @@ if ($isMspMode) {
     Write-Host ""
     Write-Host "Step 2 of 2: Login to YOUR Azure subscription for infrastructure deployment" -ForegroundColor Yellow
     Write-Host "  (The app registration in the client tenant is complete)" -ForegroundColor Gray
-    Write-Host "  Now logging in to your Azure subscription for resource deployment..." -ForegroundColor Gray
+    Write-Host "  Now logging in to your MSP Azure subscription for resource deployment..." -ForegroundColor Gray
     Write-Host ""
     Read-Host "  Press Enter when ready to log in to YOUR Azure subscription"
     $yourAccountJson = Invoke-AzLogin
