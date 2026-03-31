@@ -7,21 +7,21 @@ using System.Text.Json;
 namespace M365Dashboard.Api.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+[Route("api/update")]
 [Authorize(Policy = "RequireAdminRole")]
-public class UpdateController : ControllerBase
+public class AppUpdateController : ControllerBase
 {
     private readonly IConfiguration _configuration;
-    private readonly ILogger<UpdateController> _logger;
+    private readonly ILogger<AppUpdateController> _logger;
     private readonly IWebHostEnvironment _environment;
 
     private const string GhcrOwner = "Alex-C1";
     private const string GhcrRepo  = "m365-dashboard";
     private const string GhcrImage = "ghcr.io/alex-c1/m365-dashboard";
 
-    public UpdateController(
+    public AppUpdateController(
         IConfiguration configuration,
-        ILogger<UpdateController> logger,
+        ILogger<AppUpdateController> logger,
         IWebHostEnvironment environment)
     {
         _configuration = configuration;
@@ -71,7 +71,7 @@ public class UpdateController : ControllerBase
     }
 
     [HttpPost("apply")]
-    public async Task<IActionResult> ApplyUpdate([FromBody] ApplyUpdateRequest request)
+    public async Task<IActionResult> ApplyUpdate([FromBody] AppUpdateRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Version))
             return BadRequest(new { error = "Version is required" });
@@ -112,9 +112,8 @@ public class UpdateController : ControllerBase
                 return StatusCode(500, new { error = "Could not read Container App configuration", detail = body });
             }
 
-            var appDoc   = JsonDocument.Parse(await getResp.Content.ReadAsStringAsync());
-            var appRoot  = appDoc.RootElement;
-            var patchBody = BuildImagePatchBody(appRoot, imageTag);
+            var appDoc    = JsonDocument.Parse(await getResp.Content.ReadAsStringAsync());
+            var patchBody = BuildImagePatchBody(appDoc.RootElement, imageTag);
 
             var patchResp = await http.PatchAsync(apiBase + apiVersion,
                 new StringContent(JsonSerializer.Serialize(patchBody), Encoding.UTF8, "application/json"));
@@ -126,7 +125,7 @@ public class UpdateController : ControllerBase
                 return StatusCode(500, new { error = "Failed to update Container App image", detail = body });
             }
 
-            _logger.LogInformation("Container App update initiated successfully to {Version}", version);
+            _logger.LogInformation("Container App update initiated to {Version}", version);
             return Ok(new
             {
                 message   = $"Update to v{version} initiated. The dashboard will restart and be available again in about 60 seconds.",
@@ -229,4 +228,4 @@ public class UpdateController : ControllerBase
     }
 }
 
-public record ApplyUpdateRequest(string Version);
+public record AppUpdateRequest(string Version);
