@@ -353,9 +353,29 @@ interface ExecutiveReportData {
   highRiskUsers?: string[];
   userSignInDetails?: UserSignInDetailData[];
   deletedUsersInPeriod?: DeletedUserData[];
+  adminRoles?: AdminRolesData;
   mailboxDetails?: MailboxDetailData[];
   deviceDetails?: DeviceDetailsData;
   appCredentialStatus?: AppCredentialStatusData;
+}
+
+interface AdminRoleMember {
+  displayName?: string;
+  userPrincipalName?: string;
+  accountEnabled: boolean;
+  isMfaRegistered: boolean;
+}
+
+interface AdminRoleEntry {
+  roleName: string;
+  memberCount: number;
+  members: AdminRoleMember[];
+}
+
+interface AdminRolesData {
+  roles: AdminRoleEntry[];
+  totalPrivilegedUsers: number;
+  globalAdminCount: number;
 }
 
 const ExecutiveReportPage: React.FC = () => {
@@ -1114,6 +1134,80 @@ const ExecutiveReportPage: React.FC = () => {
                   <PersonRegular className="w-5 h-5" />
                   <span>No users were deleted during this period.</span>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Admin Role Assignments */}
+          {reportData.adminRoles && reportData.adminRoles.roles.length > 0 && (
+            <div className="mt-6">
+              <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden">
+                <div className="px-4 py-3 bg-purple-50 dark:bg-purple-900/20 border-b border-slate-200 dark:border-slate-700">
+                  <div className="flex items-center gap-2">
+                    <ShieldCheckmarkRegular className="w-5 h-5 text-purple-600" />
+                    <h3 className="font-semibold text-slate-700 dark:text-slate-200">Entra ID Admin Role Assignments</h3>
+                    <span className="text-xs text-purple-600 dark:text-purple-400">({reportData.adminRoles.totalPrivilegedUsers} privileged users)</span>
+                  </div>
+                </div>
+                {/* Role summary */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-100 dark:bg-slate-900">
+                      <tr>
+                        <th className="px-4 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Role</th>
+                        <th className="px-4 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Members</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                      {reportData.adminRoles.roles.map((role, i) => (
+                        <tr key={i} className="hover:bg-slate-50 dark:hover:bg-slate-900/30">
+                          <td className="px-4 py-2 font-medium text-slate-700 dark:text-slate-300">{role.roleName}</td>
+                          <td className={`px-4 py-2 font-semibold ${
+                            role.roleName === 'Global Administrator' && role.memberCount > 5
+                              ? 'text-red-600 dark:text-red-400'
+                              : 'text-slate-700 dark:text-slate-300'
+                          }`}>{role.memberCount}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {/* Per-role member detail */}
+                {reportData.adminRoles.roles.map((role, i) => (
+                  <div key={i} className="border-t border-slate-200 dark:border-slate-700">
+                    <div className="px-4 py-2 bg-slate-50 dark:bg-slate-700/50">
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        {role.roleName} <span className="text-slate-400">({role.memberCount})</span>
+                      </span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-100 dark:bg-slate-900">
+                          <tr>
+                            <th className="px-4 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Name</th>
+                            <th className="px-4 py-2 text-left font-medium text-slate-600 dark:text-slate-400">UPN</th>
+                            <th className="px-4 py-2 text-left font-medium text-slate-600 dark:text-slate-400">MFA</th>
+                            <th className="px-4 py-2 text-left font-medium text-slate-600 dark:text-slate-400">Account</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                          {role.members.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || '')).map((m, j) => (
+                            <tr key={j} className="hover:bg-slate-50 dark:hover:bg-slate-900/30">
+                              <td className="px-4 py-2 text-slate-700 dark:text-slate-300">{m.displayName || '-'}</td>
+                              <td className="px-4 py-2 text-slate-600 dark:text-slate-400 text-xs">{m.userPrincipalName || '-'}</td>
+                              <td className={`px-4 py-2 font-medium ${
+                                m.isMfaRegistered ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+                              }`}>{m.isMfaRegistered ? 'Yes' : 'No'}</td>
+                              <td className={`px-4 py-2 ${
+                                m.accountEnabled ? 'text-slate-600 dark:text-slate-400' : 'text-amber-600 dark:text-amber-400'
+                              }`}>{m.accountEnabled ? 'Enabled' : 'Disabled'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
