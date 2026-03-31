@@ -135,8 +135,8 @@ jobs:
             VITE_AZURE_TENANT_ID=PLACEHOLDER
             BUILD_VERSION=${{ steps.version.outputs.VERSION }}
           tags: |
-            ghcr.io/${{ github.repository_owner }}/m365-dashboard:${{ steps.version.outputs.VERSION }}
-            ghcr.io/${{ github.repository_owner }}/m365-dashboard:latest
+            ghcr.io/alex-c1/m365-dashboard:${{ steps.version.outputs.VERSION }}
+            ghcr.io/alex-c1/m365-dashboard:latest
           labels: |
             org.opencontainers.image.title=M365 Dashboard
             org.opencontainers.image.description=Microsoft 365 tenant dashboard

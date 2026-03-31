@@ -15,7 +15,7 @@ public class AppUpdateController : ControllerBase
     private readonly ILogger<AppUpdateController> _logger;
     private readonly IWebHostEnvironment _environment;
 
-    private const string GhcrOwner = "Alex-C1";
+    private const string GhcrOwner = "alex-c1";
     private const string GhcrRepo  = "m365-dashboard";
     private const string GhcrImage = "ghcr.io/alex-c1/m365-dashboard";
 
