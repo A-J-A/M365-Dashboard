@@ -1119,6 +1119,32 @@ $deployConfigPath = Join-Path (Split-Path $PSScriptRoot -Parent) "deploy-config.
 $deployConfig | ConvertTo-Json | Out-File $deployConfigPath -Encoding UTF8
 Write-Host "  Deploy config saved to deploy-config.json" -ForegroundColor Green
 
+# Store Container App details in Key Vault so the app can self-update
+Write-Host ""
+Write-Host "Storing Container App config in Key Vault for self-update..." -ForegroundColor Yellow
+$kvName = $deploymentOutput.keyVaultName.value
+$ErrorActionPreference = "Continue"
+cmd /c "az keyvault secret set --vault-name $kvName --name ContainerApp--SubscriptionId --value `"$subscriptionId`" 2>nul" | Out-Null
+cmd /c "az keyvault secret set --vault-name $kvName --name ContainerApp--ResourceGroup --value `"$resourceGroup`" 2>nul" | Out-Null
+cmd /c "az keyvault secret set --vault-name $kvName --name ContainerApp--Name --value `"$containerAppName`" 2>nul" | Out-Null
+$ErrorActionPreference = "Stop"
+Write-Host "  Container App config stored in Key Vault" -ForegroundColor Green
+
+# Grant the Container App's managed identity Contributor on itself so it can self-update
+Write-Host "  Granting Container App managed identity permission to update itself..." -ForegroundColor Gray
+$ErrorActionPreference = "Continue"
+$containerAppId = cmd /c "az containerapp show --name $containerAppName --resource-group $resourceGroup --query id -o tsv 2>nul"
+$containerAppId = ($containerAppId | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+$managedIdentityPrincipalId = cmd /c "az containerapp show --name $containerAppName --resource-group $resourceGroup --query identity.principalId -o tsv 2>nul"
+$managedIdentityPrincipalId = ($managedIdentityPrincipalId | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+if ($containerAppId -and $managedIdentityPrincipalId) {
+    cmd /c "az role assignment create --assignee $managedIdentityPrincipalId --role Contributor --scope `"$containerAppId`" 2>nul" | Out-Null
+    Write-Host "  Self-update permission granted" -ForegroundColor Green
+} else {
+    Write-Host "  Could not grant self-update permission - may need to assign manually" -ForegroundColor Yellow
+}
+$ErrorActionPreference = "Stop"
+
 # Create service principal for GitHub Actions (Contributor on the resource group)
 Write-Host "  Creating service principal '$spName'..." -ForegroundColor Gray
 $ErrorActionPreference = "Continue"
