@@ -330,6 +330,16 @@ public class ExecutiveReportController : ControllerBase
                 catch (Exception ex) { _logger.LogWarning(ex, "Failed to get Deleted Users"); }
             }));
 
+            // 19. Admin Role Assignments
+            tasks.Add(Task.Run(async () =>
+            {
+                try
+                {
+                    reportData.AdminRoles = await GetAdminRolesAsync();
+                }
+                catch (Exception ex) { _logger.LogWarning(ex, "Failed to get Admin Roles"); }
+            }));
+
             // 15. Mailbox Details with Sizes
             tasks.Add(Task.Run(async () =>
             {
@@ -1139,6 +1149,107 @@ public class ExecutiveReportController : ControllerBase
         return result;
     }
 
+    private async Task<AdminRolesData> GetAdminRolesAsync()
+    {
+        var result = new AdminRolesData();
+        var rolesToMonitor = new[]
+        {
+            "Global Administrator",
+            "Privileged Role Administrator",
+            "Security Administrator",
+            "Exchange Administrator",
+            "SharePoint Administrator",
+            "Intune Administrator",
+            "Conditional Access Administrator",
+            "User Administrator",
+            "Helpdesk Administrator",
+            "Authentication Administrator",
+            "Billing Administrator",
+            "Teams Administrator",
+        };
+
+        try
+        {
+            var directoryRoles = await _graphClient.DirectoryRoles.GetAsync(config =>
+                config.QueryParameters.Select = new[] { "id", "displayName" });
+
+            if (directoryRoles?.Value == null) return result;
+
+            var matchedRoles = directoryRoles.Value
+                .Where(r => rolesToMonitor.Contains(r.DisplayName ?? "", StringComparer.OrdinalIgnoreCase))
+                .ToList();
+
+            var seenUserIds = new HashSet<string>();
+
+            foreach (var role in matchedRoles.OrderBy(r => r.DisplayName))
+            {
+                if (string.IsNullOrEmpty(role.Id)) continue;
+
+                var members = await _graphClient.DirectoryRoles[role.Id].Members.GetAsync();
+                var entry = new AdminRoleEntry
+                {
+                    RoleName = role.DisplayName ?? "Unknown",
+                };
+
+                foreach (var member in members?.Value ?? new())
+                {
+                    if (member.OdataType != "#microsoft.graph.user" || string.IsNullOrEmpty(member.Id))
+                        continue;
+
+                    seenUserIds.Add(member.Id);
+
+                    try
+                    {
+                        var user = await _graphClient.Users[member.Id].GetAsync(config =>
+                            config.QueryParameters.Select = new[]
+                            { "id", "displayName", "userPrincipalName", "accountEnabled",
+                              "userAuthenticationMethods" });
+
+                        // Check MFA via auth methods
+                        bool mfaRegistered = false;
+                        try
+                        {
+                            var authMethods = await _graphClient.Users[member.Id]
+                                .Authentication.Methods.GetAsync();
+                            var mfaMethods = new[] { "microsoftAuthenticatorAuthenticationMethod",
+                                "phoneAuthenticationMethod", "fido2AuthenticationMethod",
+                                "softwareOathAuthenticationMethod", "windowsHelloForBusinessAuthenticationMethod" };
+                            mfaRegistered = authMethods?.Value?.Any(m =>
+                                mfaMethods.Any(mm => m.OdataType?.Contains(mm, StringComparison.OrdinalIgnoreCase) == true)) == true;
+                        }
+                        catch { /* auth methods may not be accessible */ }
+
+                        entry.Members.Add(new AdminRoleMember
+                        {
+                            DisplayName = user?.DisplayName,
+                            UserPrincipalName = user?.UserPrincipalName,
+                            AccountEnabled = user?.AccountEnabled == true,
+                            IsMfaRegistered = mfaRegistered,
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Could not fetch user {Id} for admin roles", member.Id);
+                    }
+                }
+
+                entry.MemberCount = entry.Members.Count;
+                if (entry.MemberCount > 0)
+                    result.Roles.Add(entry);
+            }
+
+            result.TotalPrivilegedUsers = seenUserIds.Count;
+            result.GlobalAdminCount = result.Roles
+                .FirstOrDefault(r => r.RoleName == "Global Administrator")?.MemberCount ?? 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error fetching admin roles");
+        }
+
+        return result;
+    }
+
     private async Task<List<DeletedUserData>> GetDeletedUsersInPeriodAsync(DateTime startDate, DateTime endDate)
     {
         var result = new List<DeletedUserData>();
@@ -1645,6 +1756,30 @@ public class ExecutiveReportController : ControllerBase
                         var issues = string.Join(", ", domain.Issues ?? new List<string>());
                         AddParagraph(body, $"• {domain.Domain}: {issues}", true);
                     }
+                }
+            }
+
+            // Admin Role Assignments
+            if (data.AdminRoles?.Roles.Any() == true)
+            {
+                AddHeading(body, $"Entra ID Admin Role Assignments ({data.AdminRoles.TotalPrivilegedUsers} privileged users)", 2);
+                var rolesSummaryTable = CreateTable(body, new[] { "Role", "Members" });
+                foreach (var role in data.AdminRoles.Roles)
+                    AddTableRow(rolesSummaryTable, new[] { role.RoleName, role.MemberCount.ToString() });
+
+                foreach (var role in data.AdminRoles.Roles)
+                {
+                    AddParagraph(body, "");
+                    AddHeading(body, $"{role.RoleName} ({role.MemberCount})", 2);
+                    var memberTable = CreateTable(body, new[] { "Display Name", "UPN", "MFA", "Account" });
+                    foreach (var m in role.Members.OrderBy(m => m.DisplayName))
+                        AddTableRow(memberTable, new[]
+                        {
+                            m.DisplayName ?? "-",
+                            m.UserPrincipalName ?? "-",
+                            m.IsMfaRegistered ? "Yes" : "No",
+                            m.AccountEnabled ? "Enabled" : "Disabled"
+                        });
                 }
             }
 
@@ -2611,6 +2746,8 @@ public class ExecutiveReportController : ControllerBase
     {GenerateUserSignInTable(data.UserSignInDetails)}
 
     {GenerateDeletedUsersTable(data.DeletedUsersInPeriod)}
+
+    {GenerateAdminRolesSection(data.AdminRoles)}
     </div>
     
     {(showQuotes && quotes.Count > 2 ? RenderHtmlInfoGraphic(quotes[2]) : "")}
@@ -2668,6 +2805,52 @@ public class ExecutiveReportController : ControllerBase
         }
         
         sb.AppendLine("</table>");
+        sb.AppendLine("</div>");
+        return sb.ToString();
+    }
+
+    private string GenerateAdminRolesSection(AdminRolesData? data)
+    {
+        if (data == null || !data.Roles.Any()) return "";
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("<div class='section'>");
+        sb.AppendLine($"<h2>Entra ID Admin Role Assignments ({data.TotalPrivilegedUsers} privileged users)</h2>");
+        sb.AppendLine("<p class='intro'>The following Entra ID administrative roles have active assignments. " +
+            "Regularly reviewing privileged access helps reduce the attack surface — " +
+            "accounts with admin roles should use MFA and adhere to the principle of least privilege. " +
+            "Microsoft recommends keeping Global Administrator count between 2 and 5.</p>");
+
+        // Summary row
+        sb.AppendLine("<table>");
+        sb.AppendLine("<tr><th>Role</th><th>Members</th></tr>");
+        foreach (var role in data.Roles)
+        {
+            var countColor = role.RoleName == "Global Administrator" && role.MemberCount > 5 ? " class='critical'" : "";
+            sb.AppendLine($"<tr><td>{role.RoleName}</td><td{countColor}>{role.MemberCount}</td></tr>");
+        }
+        sb.AppendLine("</table>");
+
+        // Per-role member tables
+        foreach (var role in data.Roles)
+        {
+            sb.AppendLine($"<h3>{role.RoleName} ({role.MemberCount})</h3>");
+            sb.AppendLine("<table>");
+            sb.AppendLine("<tr><th>Display Name</th><th>UPN</th><th>MFA</th><th>Account</th></tr>");
+            foreach (var m in role.Members.OrderBy(m => m.DisplayName))
+            {
+                var mfaClass = m.IsMfaRegistered ? "good" : "critical";
+                var acctClass = m.AccountEnabled ? "" : "warning";
+                sb.AppendLine($"<tr>" +
+                    $"<td>{m.DisplayName ?? "-"}</td>" +
+                    $"<td style='font-size:11px'>{m.UserPrincipalName ?? "-"}</td>" +
+                    $"<td class='{mfaClass}'>{(m.IsMfaRegistered ? "Yes" : "No")}</td>" +
+                    $"<td class='{acctClass}'>{(m.AccountEnabled ? "Enabled" : "Disabled")}</td>" +
+                    $"</tr>");
+            }
+            sb.AppendLine("</table>");
+        }
+
         sb.AppendLine("</div>");
         return sb.ToString();
     }
@@ -2810,6 +2993,7 @@ public class ExecutiveReportData
     public List<string>? HighRiskUsers { get; set; }
     public List<UserSignInDetailData>? UserSignInDetails { get; set; }
     public List<DeletedUserData>? DeletedUsersInPeriod { get; set; }
+    public AdminRolesData? AdminRoles { get; set; }
     public List<MailboxDetailData>? MailboxDetails { get; set; }
     public DeviceDetailsData? DeviceDetails { get; set; }
     public AppCredentialStatusData? AppCredentialStatus { get; set; }
@@ -3051,4 +3235,26 @@ public class SignInLocationData
     public double Latitude { get; set; }
     public double Longitude { get; set; }
     public int SignInCount { get; set; }
+}
+
+public class AdminRolesData
+{
+    public List<AdminRoleEntry> Roles { get; set; } = new();
+    public int TotalPrivilegedUsers { get; set; }
+    public int GlobalAdminCount { get; set; }
+}
+
+public class AdminRoleEntry
+{
+    public string RoleName { get; set; } = string.Empty;
+    public int MemberCount { get; set; }
+    public List<AdminRoleMember> Members { get; set; } = new();
+}
+
+public class AdminRoleMember
+{
+    public string? DisplayName { get; set; }
+    public string? UserPrincipalName { get; set; }
+    public bool AccountEnabled { get; set; }
+    public bool IsMfaRegistered { get; set; }
 }

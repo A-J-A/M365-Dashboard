@@ -122,6 +122,10 @@ public class PdfReportGenerator : IDocument
         if (_data.DeletedUsersInPeriod?.Any() == true)
             ContentPage(c, DeletedUsersPage);
 
+        // 10a. Admin Role Assignments
+        if (_data.AdminRoles?.Roles.Any() == true)
+            ContentPage(c, AdminRolesPage);
+
         // 10. Mailbox Storage Details
         if (_data.MailboxDetails?.Any() == true)
             ContentPage(c, MailboxDetailsPage);
@@ -610,6 +614,71 @@ public class PdfReportGenerator : IDocument
         CredTable($"Expiring Secrets ({creds.ExpiringSecrets.Count})", creds.ExpiringSecrets, Warn);
         CredTable($"Expired Certificates ({creds.ExpiredCertificates.Count})", creds.ExpiredCertificates, Crit);
         CredTable($"Expiring Certificates ({creds.ExpiringCertificates.Count})", creds.ExpiringCertificates, Warn);
+    }
+
+    private void AdminRolesPage(ColumnDescriptor col)
+    {
+        var data = _data.AdminRoles!;
+
+        col.Item().Text($"Entra ID Admin Role Assignments ({data.TotalPrivilegedUsers} privileged users)")
+            .FontSize(28).FontColor(_primary);
+        col.Item().Height(6);
+        col.Item().Text(
+            "The following Entra ID administrative roles have active assignments. " +
+            "Regularly reviewing privileged access reduces your attack surface. " +
+            "All admin accounts should have MFA registered. " +
+            "Microsoft recommends keeping the Global Administrator count between 2 and 5.")
+            .FontSize(8).FontColor(Colors.Grey.Darken1);
+        col.Item().Height(16);
+
+        // Summary table — role name + count
+        col.Item().Text("Role Summary").FontSize(14).FontColor(_primary).Bold();
+        col.Item().Height(6);
+        col.Item().Table(t =>
+        {
+            TwoCols(t);
+            TH(t, "Role", "Members");
+            foreach (var role in data.Roles)
+            {
+                var countColor = role.RoleName == "Global Administrator" && role.MemberCount > 5 ? Crit : null;
+                TR(t, role.RoleName, role.MemberCount.ToString(), countColor);
+            }
+        });
+        col.Item().Height(20);
+
+        // Per-role member detail
+        foreach (var role in data.Roles)
+        {
+            col.Item().Text($"{role.RoleName} ({role.MemberCount})").FontSize(12).FontColor(_primary).Bold();
+            col.Item().Height(4);
+            col.Item().Table(t =>
+            {
+                t.ColumnsDefinition(c =>
+                {
+                    c.RelativeColumn(2.5f);
+                    c.RelativeColumn(3f);
+                    c.RelativeColumn(0.8f);
+                    c.RelativeColumn(1f);
+                });
+                foreach (var h in new[] { "Name", "UPN", "MFA", "Account" })
+                    t.Cell().Background(LightGray).Border(1).BorderColor(BorderCol)
+                        .Padding(4).Text(h).FontSize(8).Bold();
+                foreach (var m in role.Members.OrderBy(m => m.DisplayName))
+                {
+                    t.Cell().Border(1).BorderColor(BorderCol).Padding(4)
+                        .Text(m.DisplayName ?? "-").FontSize(8);
+                    t.Cell().Border(1).BorderColor(BorderCol).Padding(4)
+                        .Text(m.UserPrincipalName ?? "-").FontSize(7);
+                    t.Cell().Border(1).BorderColor(BorderCol).Padding(4)
+                        .Text(m.IsMfaRegistered ? "Yes" : "No").FontSize(8)
+                        .FontColor(m.IsMfaRegistered ? Compliant : Crit);
+                    t.Cell().Border(1).BorderColor(BorderCol).Padding(4)
+                        .Text(m.AccountEnabled ? "Enabled" : "Disabled").FontSize(8)
+                        .FontColor(m.AccountEnabled ? Compliant : NonCompliant);
+                }
+            });
+            col.Item().Height(12);
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
