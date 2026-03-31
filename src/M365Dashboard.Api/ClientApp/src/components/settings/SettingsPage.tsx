@@ -887,34 +887,7 @@ export function SettingsPage() {
               </SettingsRow>
             </SettingsSection>
 
-            {/* Widgets Section */}
-            <SettingsSection
-              icon={Grid24Regular}
-              title="Dashboard Widgets"
-              description="Choose which widgets to display on your dashboard"
-            >
-              <div className="space-y-3">
-                {widgets.map((widget) => (
-                  <WidgetToggle
-                    key={widget.widgetType}
-                    widget={widget}
-                    onToggle={handleWidgetToggle}
-                    disabled={isSaving}
-                  />
-                ))}
-              </div>
 
-              <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
-                <Button
-                  appearance="secondary"
-                  icon={<ArrowReset24Regular />}
-                  onClick={handleResetWidgets}
-                  disabled={isSaving}
-                >
-                  Reset to Defaults
-                </Button>
-              </div>
-            </SettingsSection>
           </>
         )}
 
