@@ -1123,6 +1123,7 @@ Write-Host "  Deploy config saved to deploy-config.json" -ForegroundColor Green
 Write-Host ""
 Write-Host "Storing Container App config in Key Vault for self-update..." -ForegroundColor Yellow
 $kvName = $deploymentOutput.keyVaultName.value
+Write-Host "  Key Vault: $kvName" -ForegroundColor Gray
 $ErrorActionPreference = "Continue"
 cmd /c "az keyvault secret set --vault-name $kvName --name ContainerApp--SubscriptionId --value `"$subscriptionId`" 2>nul" | Out-Null
 cmd /c "az keyvault secret set --vault-name $kvName --name ContainerApp--ResourceGroup --value `"$resourceGroup`" 2>nul" | Out-Null
@@ -1131,17 +1132,23 @@ $ErrorActionPreference = "Stop"
 Write-Host "  Container App config stored in Key Vault" -ForegroundColor Green
 
 # Grant the Container App's managed identity Contributor on itself so it can self-update
-Write-Host "  Granting Container App managed identity permission to update itself..." -ForegroundColor Gray
+Write-Host "  Granting Container App managed identity Contributor role for self-update..." -ForegroundColor Gray
 $ErrorActionPreference = "Continue"
-$containerAppId = cmd /c "az containerapp show --name $containerAppName --resource-group $resourceGroup --query id -o tsv 2>nul"
-$containerAppId = ($containerAppId | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+$containerAppResourceId = cmd /c "az containerapp show --name $containerAppName --resource-group $resourceGroup --query id -o tsv 2>nul"
+$containerAppResourceId = ($containerAppResourceId | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
 $managedIdentityPrincipalId = cmd /c "az containerapp show --name $containerAppName --resource-group $resourceGroup --query identity.principalId -o tsv 2>nul"
 $managedIdentityPrincipalId = ($managedIdentityPrincipalId | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
-if ($containerAppId -and $managedIdentityPrincipalId) {
-    cmd /c "az role assignment create --assignee $managedIdentityPrincipalId --role Contributor --scope `"$containerAppId`" 2>nul" | Out-Null
-    Write-Host "  Self-update permission granted" -ForegroundColor Green
+Write-Host "  Container App resource ID: $containerAppResourceId" -ForegroundColor Gray
+Write-Host "  Managed Identity principal ID: $managedIdentityPrincipalId" -ForegroundColor Gray
+if ($containerAppResourceId -and $managedIdentityPrincipalId) {
+    cmd /c "az role assignment create --assignee $managedIdentityPrincipalId --role Contributor --scope `"$containerAppResourceId`" 2>nul" | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  Self-update permission granted" -ForegroundColor Green
+    } else {
+        Write-Host "  Could not grant self-update permission automatically" -ForegroundColor Yellow
+    }
 } else {
-    Write-Host "  Could not grant self-update permission - may need to assign manually" -ForegroundColor Yellow
+    Write-Host "  Could not resolve Container App ID or Managed Identity - self-update not configured" -ForegroundColor Yellow
 }
 $ErrorActionPreference = "Stop"
 
@@ -1431,3 +1438,105 @@ Write-Host ""
 Write-Host "Once complete, open the dashboard and sign in:" -ForegroundColor White
 Write-Host "  $appUrl" -ForegroundColor Cyan
 Write-Host ""
+
+# ============================================================================
+# Configure GitHub Actions Secrets
+# ============================================================================
+Write-Host ""
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host "GitHub Actions CI/CD Setup" -ForegroundColor Cyan
+Write-Host "============================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Gathering values for GitHub Actions secrets..." -ForegroundColor Yellow
+
+$acrUsername    = (cmd /c "az acr credential show --name $acrName --query username -o tsv 2>nul").Trim()
+$acrPassword    = (cmd /c "az acr credential show --name $acrName --query passwords[0].value -o tsv 2>nul").Trim()
+$subscriptionId = (cmd /c "az account show --query id -o tsv 2>nul").Trim()
+$containerAppName = "$NamePrefix-$Environment-app"
+$spNameGh       = "$NamePrefix-$Environment-github-actions"
+
+# Create service principal for GitHub Actions
+Write-Host "  Creating GitHub Actions service principal '$spNameGh'..." -ForegroundColor Gray
+$ErrorActionPreference = "Continue"
+$spJsonGh = cmd /c "az ad sp create-for-rbac --name `"$spNameGh`" --role contributor --scopes /subscriptions/$subscriptionId/resourceGroups/$resourceGroup --sdk-auth 2>&1"
+if ($LASTEXITCODE -ne 0 -or ($spJsonGh -join "") -match '"error"') {
+    Write-Host "  SP may already exist - resetting credentials..." -ForegroundColor Gray
+    $spJsonGh = cmd /c "az ad sp credential reset --name `"$spNameGh`" --sdk-auth 2>&1"
+}
+$ErrorActionPreference = "Stop"
+$spJsonGh = ($spJsonGh | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
+
+# Detect GitHub repo slug from git remote
+$repoRoot  = Split-Path $PSScriptRoot -Parent
+$gitRemote = (cmd /c "git -C `"$repoRoot`" remote get-url origin 2>nul").Trim()
+$repoSlug  = ""
+if ($gitRemote -match "github\.com[:/](.+?)(\.git)?$") {
+    $repoSlug = $Matches[1].Trim()
+}
+
+# Try to set secrets automatically via gh CLI
+$secretsSet = $false
+$ErrorActionPreference = "Continue"
+$ghAvailable = cmd /c "gh --version 2>nul"
+$ErrorActionPreference = "Stop"
+
+if ($ghAvailable -and $repoSlug -and $spJsonGh -match '"clientId"') {
+    $ErrorActionPreference = "Continue"
+    cmd /c "gh auth status 2>nul" | Out-Null
+    $ghAuthed = ($LASTEXITCODE -eq 0)
+    $ErrorActionPreference = "Stop"
+
+    if ($ghAuthed) {
+        Write-Host "  Setting GitHub Actions secrets via gh CLI..." -ForegroundColor Gray
+        $tempFile = [System.IO.Path]::GetTempFileName()
+        [System.IO.File]::WriteAllText($tempFile, $spJsonGh, [System.Text.Encoding]::UTF8)
+        try {
+            $ErrorActionPreference = "Continue"
+            Get-Content $tempFile -Raw | & gh secret set AZURE_CREDENTIALS --repo $repoSlug
+            & gh secret set ACR_LOGIN_SERVER   --body $acrServer        --repo $repoSlug
+            & gh secret set ACR_USERNAME        --body $acrUsername      --repo $repoSlug
+            & gh secret set ACR_PASSWORD        --body $acrPassword      --repo $repoSlug
+            & gh secret set CONTAINER_APP_NAME  --body $containerAppName --repo $repoSlug
+            & gh secret set RESOURCE_GROUP      --body $resourceGroup    --repo $repoSlug
+            & gh secret set VITE_AZURE_CLIENT_ID --body $ClientId        --repo $repoSlug
+            & gh secret set VITE_AZURE_TENANT_ID --body $TenantId        --repo $repoSlug
+            $ErrorActionPreference = "Stop"
+            Write-Host "  All 8 GitHub Actions secrets configured for: $repoSlug" -ForegroundColor Green
+            Write-Host "  CI/CD is ready - every push to 'main' will auto-deploy" -ForegroundColor Green
+            $secretsSet = $true
+        } catch {
+            Write-Host "  Failed to set secrets via gh CLI: $_" -ForegroundColor Yellow
+        } finally {
+            Remove-Item $tempFile -ErrorAction SilentlyContinue
+        }
+    } else {
+        Write-Host "  GitHub CLI not authenticated." -ForegroundColor Yellow
+        Write-Host "  Run 'gh auth login' then re-run this script, or set secrets manually below." -ForegroundColor Yellow
+    }
+} elseif (-not $ghAvailable) {
+    Write-Host "  GitHub CLI not installed (https://cli.github.com) - set secrets manually below." -ForegroundColor Yellow
+} elseif (-not $repoSlug) {
+    Write-Host "  Could not detect GitHub remote URL - set secrets manually below." -ForegroundColor Yellow
+}
+
+if (-not $secretsSet) {
+    $secretsUrl = if ($repoSlug) { "https://github.com/$repoSlug/settings/secrets/actions" } else { "https://github.com/<owner>/<repo>/settings/secrets/actions" }
+    Write-Host ""
+    Write-Host "  Add these secrets at:" -ForegroundColor Cyan
+    Write-Host "  $secretsUrl" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  Secret Name              Value" -ForegroundColor White
+    Write-Host "  -----------------------  -----" -ForegroundColor DarkGray
+    Write-Host "  AZURE_CREDENTIALS        (JSON printed below)" -ForegroundColor White
+    Write-Host "  ACR_LOGIN_SERVER         $acrServer" -ForegroundColor White
+    Write-Host "  ACR_USERNAME             $acrUsername" -ForegroundColor White
+    Write-Host "  ACR_PASSWORD             $acrPassword" -ForegroundColor White
+    Write-Host "  CONTAINER_APP_NAME       $containerAppName" -ForegroundColor White
+    Write-Host "  RESOURCE_GROUP           $resourceGroup" -ForegroundColor White
+    Write-Host "  VITE_AZURE_CLIENT_ID     $ClientId" -ForegroundColor White
+    Write-Host "  VITE_AZURE_TENANT_ID     $TenantId" -ForegroundColor White
+    Write-Host ""
+    Write-Host "  AZURE_CREDENTIALS value:" -ForegroundColor Cyan
+    Write-Host $spJsonGh -ForegroundColor DarkGray
+    Write-Host ""
+}
