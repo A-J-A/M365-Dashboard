@@ -1728,6 +1728,21 @@ export function SettingsPage() {
                 </div>
               )}
 
+              {/* Access level indicator */}
+              <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm ${
+                isAdmin
+                  ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700'
+                  : 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700'
+              }`}>
+                <div className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                  isAdmin ? 'bg-green-500' : 'bg-amber-500'
+                }`} />
+                <span className={isAdmin ? 'text-green-800 dark:text-green-200' : 'text-amber-800 dark:text-amber-200'}>
+                  Signed in as: <strong>{isAdmin ? 'Dashboard Admin' : 'Dashboard Reader'}</strong>
+                  {!isAdmin && ' — applying updates requires the Dashboard Admin role'}
+                </span>
+              </div>
+
               {isCheckingUpdate && !updateStatus ? (
                 <div className="flex items-center justify-center py-6">
                   <Spinner size="medium" label="Checking for updates..." />
