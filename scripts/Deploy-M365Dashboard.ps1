@@ -1474,11 +1474,93 @@ if ($gitRemote -match "github\.com[:/](.+?)(\.git)?$") {
     $repoSlug = $Matches[1].Trim()
 }
 
-# Try to set secrets automatically via gh CLI
-$secretsSet = $false
+# Check for GitHub CLI - install if missing
 $ErrorActionPreference = "Continue"
 $ghAvailable = cmd /c "gh --version 2>nul"
 $ErrorActionPreference = "Stop"
+
+if (-not $ghAvailable) {
+    Write-Host "  GitHub CLI not found - attempting to install..." -ForegroundColor Yellow
+    $ErrorActionPreference = "Continue"
+
+    # Try winget first (built into Windows 10/11)
+    $winget = cmd /c "winget --version 2>nul"
+    if ($winget) {
+        Write-Host "  Installing via winget..." -ForegroundColor Gray
+        cmd /c "winget install --id GitHub.cli --silent --accept-package-agreements --accept-source-agreements 2>&1"
+        if ($LASTEXITCODE -eq 0) {
+            # Refresh PATH so gh is available in this session
+            $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+            $ghAvailable = cmd /c "gh --version 2>nul"
+            if ($ghAvailable) {
+                Write-Host "  GitHub CLI installed successfully" -ForegroundColor Green
+            }
+        }
+    }
+
+    # Try Chocolatey if winget failed
+    if (-not $ghAvailable) {
+        $choco = cmd /c "choco --version 2>nul"
+        if ($choco) {
+            Write-Host "  Installing via Chocolatey..." -ForegroundColor Gray
+            cmd /c "choco install gh --yes 2>&1"
+            $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+            $ghAvailable = cmd /c "gh --version 2>nul"
+            if ($ghAvailable) {
+                Write-Host "  GitHub CLI installed successfully" -ForegroundColor Green
+            }
+        }
+    }
+
+    # Try Scoop if still not available
+    if (-not $ghAvailable) {
+        $scoop = cmd /c "scoop --version 2>nul"
+        if ($scoop) {
+            Write-Host "  Installing via Scoop..." -ForegroundColor Gray
+            cmd /c "scoop install gh 2>&1"
+            $env:PATH = [System.Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('PATH', 'User')
+            $ghAvailable = cmd /c "gh --version 2>nul"
+            if ($ghAvailable) {
+                Write-Host "  GitHub CLI installed successfully" -ForegroundColor Green
+            }
+        }
+    }
+
+    if (-not $ghAvailable) {
+        Write-Host "  Could not install GitHub CLI automatically." -ForegroundColor Yellow
+        Write-Host "  Install manually from https://cli.github.com then run 'gh auth login'" -ForegroundColor Yellow
+        Write-Host "  Secrets will be printed below for manual entry." -ForegroundColor Yellow
+    }
+    $ErrorActionPreference = "Stop"
+}
+
+# Authenticate gh CLI if installed but not authenticated
+if ($ghAvailable) {
+    $ErrorActionPreference = "Continue"
+    cmd /c "gh auth status 2>nul" | Out-Null
+    $ghAuthed = ($LASTEXITCODE -eq 0)
+    $ErrorActionPreference = "Stop"
+
+    if (-not $ghAuthed) {
+        Write-Host ""
+        Write-Host "  GitHub CLI is installed but not authenticated." -ForegroundColor Yellow
+        Write-Host "  Launching 'gh auth login' - sign in with the account that owns the repository." -ForegroundColor White
+        Write-Host ""
+        & gh auth login
+        $ErrorActionPreference = "Continue"
+        cmd /c "gh auth status 2>nul" | Out-Null
+        $ghAuthed = ($LASTEXITCODE -eq 0)
+        $ErrorActionPreference = "Stop"
+        if ($ghAuthed) {
+            Write-Host "  GitHub CLI authenticated successfully" -ForegroundColor Green
+        } else {
+            Write-Host "  Authentication failed - secrets will be printed for manual entry" -ForegroundColor Yellow
+        }
+    }
+}
+
+# Try to set secrets automatically via gh CLI
+$secretsSet = $false
 
 if ($ghAvailable -and $repoSlug -and $spJsonGh -match '"clientId"') {
     $ErrorActionPreference = "Continue"
