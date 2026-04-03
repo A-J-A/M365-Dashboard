@@ -1,0 +1,39 @@
+# Development Dockerfile with hot reload support
+
+# ============================================
+# Frontend development stage
+# ============================================
+FROM node:20-alpine AS frontend
+WORKDIR /app
+
+# Install dependencies first (cached layer)
+COPY src/M365Dashboard.Api/ClientApp/package*.json ./
+RUN npm ci
+
+# Copy source (will be overwritten by volume mount in dev)
+COPY src/M365Dashboard.Api/ClientApp/ ./
+
+EXPOSE 44477
+
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "44477"]
+
+# ============================================
+# Backend development stage
+# ============================================
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS backend
+WORKDIR /app
+
+# Install dotnet watch for hot reload
+ENV DOTNET_USE_POLLING_FILE_WATCHER=true
+
+# Copy csproj and restore (cached layer)
+COPY src/M365Dashboard.Api/*.csproj ./
+RUN dotnet restore
+
+# Copy source (will be overwritten by volume mount in dev)
+COPY src/M365Dashboard.Api/ ./
+
+EXPOSE 5000 5001
+
+# Run with hot reload
+CMD ["dotnet", "watch", "run", "--urls", "https://0.0.0.0:5001;http://0.0.0.0:5000"]

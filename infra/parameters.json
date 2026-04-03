@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "baseName": {
+      "value": "m365dash"
+    },
+    "environment": {
+      "value": "dev"
+    },
+    "appServicePlanSku": {
+      "value": "B1"
+    },
+    "sqlDatabaseSku": {
+      "value": "Basic"
+    },
+    "entraIdTenantId": {
+      "value": "YOUR_TENANT_ID"
+    },
+    "entraIdClientId": {
+      "value": "YOUR_CLIENT_ID"
+    },
+    "entraIdClientSecret": {
+      "value": "YOUR_CLIENT_SECRET"
+    },
+    "sqlAdminUsername": {
+      "value": "sqladmin"
+    },
+    "sqlAdminPassword": {
+      "value": "YOUR_SQL_PASSWORD"
+    }
+  }
+}

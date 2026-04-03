@@ -1,0 +1,145 @@
+# ============================================================================
+# M365 Dashboard - Build and Deploy
+# ============================================================================
+# This workflow builds the Docker image and deploys to Azure Container Apps
+#
+# Required GitHub Secrets:
+# - AZURE_CREDENTIALS: Azure service principal credentials (JSON)
+# - ACR_LOGIN_SERVER: Azure Container Registry login server (e.g., myacr.azurecr.io)
+# - ACR_USERNAME: Azure Container Registry username
+# - ACR_PASSWORD: Azure Container Registry password
+# - CONTAINER_APP_NAME: Name of the Container App
+# - RESOURCE_GROUP: Azure resource group name
+# - VITE_AZURE_CLIENT_ID: Entra app client ID (baked into frontend at build time)
+# - VITE_AZURE_TENANT_ID: Entra tenant ID (baked into frontend at build time)
+# ============================================================================
+
+name: Build and Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+  release:
+    types: [published]
+
+env:
+  IMAGE_NAME: m365dashboard
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Azure Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.ACR_LOGIN_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Generate version
+        id: version
+        run: |
+          DATE=$(date +'%Y.%m.%d')
+          SHORT_SHA=${GITHUB_SHA::7}
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "BUILD_VERSION=dev-${DATE}-${SHORT_SHA}" >> $GITHUB_OUTPUT
+          else
+            echo "BUILD_VERSION=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest
+          build-args: |
+            VITE_AZURE_CLIENT_ID=${{ secrets.VITE_AZURE_CLIENT_ID }}
+            VITE_AZURE_TENANT_ID=${{ secrets.VITE_AZURE_TENANT_ID }}
+            BUILD_VERSION=${{ steps.version.outputs.BUILD_VERSION }}
+          no-cache: true
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name != 'pull_request'
+    
+    steps:
+      - name: Login to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to Container App
+        uses: azure/container-apps-deploy-action@v1
+        with:
+          resourceGroup: ${{ secrets.RESOURCE_GROUP }}
+          containerAppName: ${{ secrets.CONTAINER_APP_NAME }}
+          imageToDeploy: ${{ secrets.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+# ============================================================
+# Publish to GitHub Container Registry on tagged release
+# This allows other IT admins to pull the pre-built image
+# without needing to build from source.
+# Usage: Create a GitHub Release (e.g. v1.2.0) to trigger.
+# ============================================================
+  publish:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'release'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push to GHCR
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          # Published WITHOUT baked-in tenant credentials.
+          # Admins supply VITE_AZURE_CLIENT_ID and VITE_AZURE_TENANT_ID
+          # as build args when running the deploy script.
+          build-args: |
+            VITE_AZURE_CLIENT_ID=PLACEHOLDER
+            VITE_AZURE_TENANT_ID=PLACEHOLDER
+            BUILD_VERSION=${{ steps.version.outputs.VERSION }}
+          tags: |
+            ghcr.io/a-j-a/m365-dashboard:${{ steps.version.outputs.VERSION }}
+            ghcr.io/a-j-a/m365-dashboard:latest
+          labels: |
+            org.opencontainers.image.title=M365 Dashboard
+            org.opencontainers.image.description=Microsoft 365 tenant dashboard
+            org.opencontainers.image.version=${{ steps.version.outputs.VERSION }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          no-cache: true
