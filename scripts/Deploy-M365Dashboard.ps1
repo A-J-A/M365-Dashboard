@@ -431,8 +431,30 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
                 Write-Host "  Client secret created (valid 2 years)" -ForegroundColor Green
             }
 
+            # Upload logo to app registration
+            Write-Host "  Uploading app logo..." -ForegroundColor Gray
+            $logoPath = Join-Path (Split-Path $PSScriptRoot -Parent) "assets\app-logo.png"
+            if (Test-Path $logoPath) {
+                try {
+                    $logoBytes  = [System.IO.File]::ReadAllBytes($logoPath)
+                    $logoB64    = [Convert]::ToBase64String($logoBytes)
+                    $logoBody   = "{`"logo`":`"$logoB64`"}"
+                    # Graph API: PUT /applications/{id}/logo with image/png content-type
+                    $logoResult = cmd /c "az rest --method PUT --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectIdNew/logo`" --body `"$logoB64`" --headers Content-Type=image/png 2>&1"
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Host "  App logo uploaded" -ForegroundColor Green
+                    } else {
+                        Write-Host "  Could not upload logo (non-critical): $logoResult" -ForegroundColor Yellow
+                    }
+                } catch {
+                    Write-Host "  Could not upload logo (non-critical): $_" -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host "  Logo file not found at $logoPath - skipping" -ForegroundColor Gray
+            }
+
             # Set Application ID URI and expose access_as_user scope
-            # The identifier URI must be set first so Entra can resolve api://<clientId> as a resource
+            # The identifier URI must be set first
             Write-Host "  Setting Application ID URI..." -ForegroundColor Gray
             cmd /c "az ad app update --id $ClientId --identifier-uris `"api://$ClientId`" 2>nul" | Out-Null
             Write-Host "  Application ID URI set: api://$ClientId" -ForegroundColor Green
