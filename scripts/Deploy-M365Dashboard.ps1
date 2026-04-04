@@ -433,24 +433,21 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
 
             # Upload logo to app registration
             Write-Host "  Uploading app logo..." -ForegroundColor Gray
-            $logoPath = Join-Path (Split-Path $PSScriptRoot -Parent) "assets\app-logo.png"
-            if (Test-Path $logoPath) {
-                try {
-                    $logoBytes  = [System.IO.File]::ReadAllBytes($logoPath)
-                    $logoB64    = [Convert]::ToBase64String($logoBytes)
-                    $logoBody   = "{`"logo`":`"$logoB64`"}"
-                    # Graph API: PUT /applications/{id}/logo with image/png content-type
-                    $logoResult = cmd /c "az rest --method PUT --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectIdNew/logo`" --body `"$logoB64`" --headers Content-Type=image/png 2>&1"
-                    if ($LASTEXITCODE -eq 0) {
-                        Write-Host "  App logo uploaded" -ForegroundColor Green
-                    } else {
-                        Write-Host "  Could not upload logo (non-critical): $logoResult" -ForegroundColor Yellow
-                    }
-                } catch {
-                    Write-Host "  Could not upload logo (non-critical): $_" -ForegroundColor Yellow
+            try {
+                # Logo embedded as base64 PNG (215x215, generated from m365-icon.svg)
+                $logoB64 = "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"
+                $logoBytes = [Convert]::FromBase64String($logoB64)
+                $tempLogo  = [System.IO.Path]::GetTempFileName() + ".png"
+                [System.IO.File]::WriteAllBytes($tempLogo, $logoBytes)
+                $logoResult = cmd /c "az rest --method PUT --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectIdNew/logo`" --body `"@$tempLogo`" --headers Content-Type=image/png 2>&1"
+                Remove-Item $tempLogo -ErrorAction SilentlyContinue
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "  App logo uploaded" -ForegroundColor Green
+                } else {
+                    Write-Host "  Could not upload logo (non-critical): $logoResult" -ForegroundColor Yellow
                 }
-            } else {
-                Write-Host "  Logo file not found at $logoPath - skipping" -ForegroundColor Gray
+            } catch {
+                Write-Host "  Could not upload logo (non-critical): $_" -ForegroundColor Yellow
             }
 
             # Set Application ID URI and expose access_as_user scope
@@ -469,29 +466,39 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             Remove-Item $scopeFile -ErrorAction SilentlyContinue
             Write-Host "  access_as_user scope exposed" -ForegroundColor Green
 
-            # Grant admin consent - try az CLI first, fall back to Graph API
             Write-Host "  Granting admin consent..." -ForegroundColor Gray
             cmd /c "az ad app permission admin-consent --id $ClientId 2>nul" | Out-Null
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "  Admin consent granted" -ForegroundColor Green
             } else {
-                # Fallback: use Graph API oAuth2PermissionGrants
-                $spRaw = cmd /c "az ad sp show --id $ClientId --query id -o tsv 2>nul"
-                $spObjId = ($spRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
-                $graphSpId = (cmd /c "az ad sp show --id $graphAppId --query id -o tsv 2>nul").Trim()
-                if ($spObjId) {
-                    $consentBody = "{`"clientId`":`"$spObjId`",`"consentType`":`"AllPrincipals`",`"resourceId`":`"$graphSpId`",`"scope`":`"openid profile`"}"
-                    $consentFile = [System.IO.Path]::GetTempFileName()
-                    [System.IO.File]::WriteAllText($consentFile, $consentBody, [System.Text.Encoding]::UTF8)
-                    cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/oauth2PermissionGrants`" --body @`"$consentFile`" --headers Content-Type=application/json 2>nul" | Out-Null
-                    Remove-Item $consentFile -ErrorAction SilentlyContinue
+                # Fallback: use Graph API with current token
+                $ErrorActionPreference = "Continue"
+                $graphToken = if ($isMspMode -and $mspGraphToken) { $mspGraphToken } else {
+                    (cmd /c "az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv 2>nul").Trim()
                 }
-                if ($LASTEXITCODE -eq 0) {
-                    Write-Host "  Admin consent granted" -ForegroundColor Green
+                if ($graphToken) {
+                    $spRaw   = cmd /c "az ad sp show --id $ClientId --query id -o tsv 2>nul"
+                    $spObjId = ($spRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+                    $graphSpRaw = cmd /c "az ad sp show --id 00000003-0000-0000-c000-000000000000 --query id -o tsv 2>nul"
+                    $graphSpId  = ($graphSpRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+                    if ($spObjId -and $graphSpId) {
+                        $consentBody = "{`"clientId`":`"$spObjId`",`"consentType`":`"AllPrincipals`",`"resourceId`":`"$graphSpId`",`"scope`":`"openid profile`"}"
+                        $consentFile = [System.IO.Path]::GetTempFileName()
+                        [System.IO.File]::WriteAllText($consentFile, $consentBody, [System.Text.Encoding]::UTF8)
+                        $consentResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/oauth2PermissionGrants`" --body @`"$consentFile`" --headers Content-Type=application/json Authorization=`"Bearer $graphToken`" 2>&1"
+                        Remove-Item $consentFile -ErrorAction SilentlyContinue
+                        if ($LASTEXITCODE -eq 0) {
+                            Write-Host "  Admin consent granted" -ForegroundColor Green
+                        } else {
+                            Write-Host "  Could not grant admin consent automatically - grant manually after deployment:" -ForegroundColor Yellow
+                            Write-Host "  https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/CallAnAPI/appId/$ClientId" -ForegroundColor Cyan
+                        }
+                    }
                 } else {
-                    Write-Host "  Could not auto-grant consent - grant manually after deployment:" -ForegroundColor Yellow
-                    Write-Host "  Azure Portal > App registrations > $appNameInput > API permissions > Grant admin consent" -ForegroundColor Yellow
+                    Write-Host "  Could not grant admin consent automatically - grant manually after deployment:" -ForegroundColor Yellow
+                    Write-Host "  https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/CallAnAPI/appId/$ClientId" -ForegroundColor Cyan
                 }
+                $ErrorActionPreference = "Stop"
             }
 
             $ErrorActionPreference = "Stop"
