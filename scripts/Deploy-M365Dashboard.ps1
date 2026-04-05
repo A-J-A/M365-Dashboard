@@ -33,6 +33,7 @@ param(
     [string]$SqlPassword,
     [string]$DeployMode = "Standard",        # Standard or MSP
     [string]$CredentialType = "Secret",      # Secret or Certificate
+    [string]$SubscriptionId = "",            # If set, az account set to this before deploying
     [switch]$NonInteractive                  # Skip all prompts (used by wizard)
 )
 
@@ -667,6 +668,15 @@ if (-not $Location) {
 # In MSP mode, subscription selection happens after the Step 2 login (below).
 # In standard mode, select subscription now.
 $selectedSubscriptionName = ""
+
+# If SubscriptionId was passed (from wizard), set it immediately
+if ($SubscriptionId -and -not $isMspMode) {
+    Write-Host "Setting subscription: $SubscriptionId" -ForegroundColor Gray
+    cmd /c "az account set --subscription $SubscriptionId 2>nul"
+    $ErrorActionPreference = "Continue"
+    $currentAccountJson = (cmd /c "az account show -o json 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
+    $ErrorActionPreference = "Stop"
+}
 
 if (-not $isMspMode) {
     Write-Host ""

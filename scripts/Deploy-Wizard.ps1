@@ -569,6 +569,14 @@ $C = @{
               Used to name all Azure resources (e.g. myorg → myorg-prod-app).
             </TextBlock>
 
+            <!-- Azure subscription -->
+            <TextBlock Text="AZURE SUBSCRIPTION" FontSize="10" FontWeight="Bold"
+                       Foreground="#8B949E" Margin="0,0,0,8"/>
+            <ComboBox x:Name="CmbSubscription" Margin="0,0,0,4"/>
+            <TextBlock x:Name="TxtSubNote" TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,0,0,20">
+              Loading subscriptions...
+            </TextBlock>
+
             <!-- Azure region -->
             <TextBlock Text="AZURE REGION" FontSize="10" FontWeight="Bold"
                        Foreground="#8B949E" Margin="0,0,0,8"/>
@@ -656,6 +664,8 @@ $C = @{
                   <RowDefinition Height="Auto"/>
                   <RowDefinition Height="Auto"/>
                   <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="Auto"/>
+                  <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <!-- Row: Mode -->
@@ -670,31 +680,38 @@ $C = @{
 
                 <Rectangle Grid.Row="1" Grid.ColumnSpan="2" Height="1" Fill="#21262D" Margin="0,0,0,14"/>
 
-                <!-- Row: Prefix -->
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="Resource Prefix"
+                <!-- Row: Subscription -->
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Subscription"
                            Foreground="#8B949E" Margin="0,0,0,14" VerticalAlignment="Center"/>
-                <TextBlock x:Name="RevPrefix" Grid.Row="2" Grid.Column="1"
+                <TextBlock x:Name="RevSub" Grid.Row="2" Grid.Column="1"
+                           Foreground="White" FontWeight="SemiBold"
+                           Margin="0,0,0,14" VerticalAlignment="Center" TextWrapping="Wrap"/>
+
+                <!-- Row: Prefix -->
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Resource Prefix"
+                           Foreground="#8B949E" Margin="0,0,0,14" VerticalAlignment="Center"/>
+                <TextBlock x:Name="RevPrefix" Grid.Row="3" Grid.Column="1"
                            Foreground="White" FontWeight="SemiBold" FontFamily="Consolas"
                            Margin="0,0,0,14" VerticalAlignment="Center"/>
 
                 <!-- Row: Region -->
-                <TextBlock Grid.Row="3" Grid.Column="0" Text="Azure Region"
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="Azure Region"
                            Foreground="#8B949E" Margin="0,0,0,14" VerticalAlignment="Center"/>
-                <TextBlock x:Name="RevRegion" Grid.Row="3" Grid.Column="1"
+                <TextBlock x:Name="RevRegion" Grid.Row="4" Grid.Column="1"
                            Foreground="White" FontWeight="SemiBold"
                            Margin="0,0,0,14" VerticalAlignment="Center"/>
 
                 <!-- Row: Cred -->
-                <TextBlock Grid.Row="4" Grid.Column="0" Text="Credential Type"
+                <TextBlock Grid.Row="5" Grid.Column="0" Text="Credential Type"
                            Foreground="#8B949E" Margin="0,0,0,14" VerticalAlignment="Center"/>
-                <TextBlock x:Name="RevCred" Grid.Row="4" Grid.Column="1"
+                <TextBlock x:Name="RevCred" Grid.Row="5" Grid.Column="1"
                            Foreground="White" FontWeight="SemiBold"
                            Margin="0,0,0,14" VerticalAlignment="Center"/>
 
                 <!-- Row: Repo -->
-                <TextBlock Grid.Row="5" Grid.Column="0" Text="GitHub Repo"
+                <TextBlock Grid.Row="6" Grid.Column="0" Text="GitHub Repo"
                            Foreground="#8B949E" VerticalAlignment="Center"/>
-                <TextBlock x:Name="RevRepo" Grid.Row="5" Grid.Column="1"
+                <TextBlock x:Name="RevRepo" Grid.Row="6" Grid.Column="1"
                            Foreground="White" FontWeight="SemiBold"
                            FontFamily="Consolas" VerticalAlignment="Center"/>
               </Grid>
@@ -950,13 +967,18 @@ $ModeStandard = G "ModeStandard";  $ModeMsp   = G "ModeMsp"
 $CredSecret   = G "CredSecret";    $CredCert  = G "CredCert"
 
 # Config inputs
-$TxtPrefix = G "TxtPrefix";  $CmbRegion = G "CmbRegion"
-$TxtPwd1   = G "TxtPwd1";    $TxtPwd2   = G "TxtPwd2"
-$TxtPwdErr = G "TxtPwdErr"
+$TxtPrefix       = G "TxtPrefix";  $CmbRegion = G "CmbRegion"
+$CmbSubscription = G "CmbSubscription"; $TxtSubNote = G "TxtSubNote"
+$TxtPwd1         = G "TxtPwd1";    $TxtPwd2   = G "TxtPwd2"
+$TxtPwdErr       = G "TxtPwdErr"
+
+# Subscription data store (populated when page 2 loads)
+$script:Subscriptions = @()  # array of PSObjects with .id .name .isDefault
 
 # Review labels
 $RevMode = G "RevMode";  $RevPrefix = G "RevPrefix"
 $RevRegion = G "RevRegion";  $RevCred = G "RevCred";  $RevRepo = G "RevRepo"
+$RevSub    = G "RevSub"
 
 # Deploy page
 $PBar     = G "PBar"
@@ -1028,11 +1050,47 @@ function Update-Sidebar($page) {
     }
 }
 
+function Load-Subscriptions {
+    # Run az account list in background and populate CmbSubscription
+    $TxtSubNote.Text = "Loading subscriptions..."
+    $CmbSubscription.Items.Clear()
+
+    $ErrorActionPreference = "Continue"
+    $raw = (cmd /c "az account list --query ""[?state=='Enabled']"" -o json 2>nul")
+    $ErrorActionPreference = "Stop"
+
+    $script:Subscriptions = @()
+    try {
+        $subs = ($raw -join "") | ConvertFrom-Json
+        if ($subs -and $subs.Count -gt 0) {
+            foreach ($sub in $subs) {
+                $script:Subscriptions += $sub
+                $label = if ($sub.isDefault) { "$($sub.name) (default)" } else { $sub.name }
+                $item = New-Object System.Windows.Controls.ComboBoxItem
+                $item.Content = $label
+                $item.Tag     = $sub.id
+                $item.Foreground = "#E6EDF3"
+                $CmbSubscription.Items.Add($item) | Out-Null
+                if ($sub.isDefault) { $CmbSubscription.SelectedItem = $item }
+            }
+            if ($subs.Count -eq 1) {
+                $TxtSubNote.Text = "One subscription found."
+            } else {
+                $TxtSubNote.Text = "$($subs.Count) subscriptions found. Select the one to deploy into."
+            }
+        } else {
+            $TxtSubNote.Text = "No subscriptions found. Make sure you are logged in to Azure CLI (az login)."
+        }
+    } catch {
+        $TxtSubNote.Text = "Could not load subscriptions. Run az login first."
+    }
+}
+
 function Show-Page($n) {
     foreach ($k in $Pages.Keys) { $Pages[$k].Visibility = "Collapsed" }
     switch ($n) {
         1 { $Pages.Welcome.Visibility = "Visible" }
-        2 { $Pages.Config.Visibility  = "Visible" }
+        2 { $Pages.Config.Visibility  = "Visible"; Load-Subscriptions }
         3 { $Pages.Review.Visibility  = "Visible" }
         4 { $Pages.Deploy.Visibility  = "Visible" }
         5 { $Pages.Done.Visibility    = "Visible" }
@@ -1160,6 +1218,8 @@ function Populate-Review {
     $RevRegion.Text = if ($selItem) { $selItem.Content } else { "UK South" }
     $RevCred.Text   = if ($CredSecret.IsChecked) { "Client Secret" } else { "Certificate" }
     $RevRepo.Text   = if ($script:RepoSlug) { "github.com/$($script:RepoSlug)" } else { "(not detected)" }
+    $selSub = $CmbSubscription.SelectedItem
+    if ($RevSub) { $RevSub.Text = if ($selSub) { $selSub.Content } else { "(default)" } }
 }
 
 function Show-MspLoginDialog {
@@ -1169,65 +1229,104 @@ function Show-MspLoginDialog {
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="MSP Deployment — Login Guide"
-    Width="520" Height="420"
+    Width="540" Height="600"
     WindowStartupLocation="CenterOwner"
     ResizeMode="NoResize"
     Background="#0D1117" Foreground="#E6EDF3"
     FontFamily="Segoe UI" FontSize="13">
-  <StackPanel Margin="32,28,32,24">
-    <TextBlock Text="Two logins required" FontSize="20" FontWeight="Bold" Foreground="White" Margin="0,0,0,6"/>
-    <TextBlock TextWrapping="Wrap" Foreground="#8B949E" Margin="0,0,0,24" FontSize="12">
-      MSP mode requires signing in twice — once per tenant. Browser windows will open automatically.
-    </TextBlock>
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
 
-    <!-- Login 1 -->
-    <Border Background="#0D2137" BorderBrush="#0078D4" BorderThickness="1" CornerRadius="7" Padding="16,14" Margin="0,0,0,12">
-      <Grid>
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="36"/>
-          <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
-        <Border Width="28" Height="28" CornerRadius="14" Background="#0078D4" VerticalAlignment="Top" Margin="0,2,0,0">
-          <TextBlock Text="1" Foreground="White" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" Padding="32,28,32,8">
+      <StackPanel>
+        <TextBlock Text="Logins required" FontSize="20" FontWeight="Bold" Foreground="White" Margin="0,0,0,6"/>
+        <TextBlock TextWrapping="Wrap" Foreground="#8B949E" Margin="0,0,0,20" FontSize="12">
+          This deployment requires three sign-ins. Browser windows will open automatically at each step.
+        </TextBlock>
+
+        <!-- Login 1 -->
+        <Border Background="#0D2137" BorderBrush="#0078D4" BorderThickness="1" CornerRadius="7" Padding="16,14" Margin="0,0,0,10">
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="36"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Border Width="28" Height="28" CornerRadius="14" Background="#0078D4" VerticalAlignment="Top" Margin="0,2,0,0">
+              <TextBlock Text="1" Foreground="White" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <StackPanel Grid.Column="1">
+              <TextBlock Text="CLIENT Tenant — Azure login" FontWeight="Bold" Foreground="#58A6FF" Margin="0,0,0,4"/>
+              <TextBlock TextWrapping="Wrap" Foreground="#E6EDF3" FontSize="12">
+                Sign in as a Global Admin of the CLIENT&apos;s Microsoft 365 tenant.
+              </TextBlock>
+              <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,6,0,0">
+                Used to create the app registration in their tenant. The client tenant may have no Azure subscription — that is normal.
+              </TextBlock>
+            </StackPanel>
+          </Grid>
         </Border>
-        <StackPanel Grid.Column="1">
-          <TextBlock Text="CLIENT Tenant Login" FontWeight="Bold" Foreground="#58A6FF" Margin="0,0,0,4"/>
-          <TextBlock TextWrapping="Wrap" Foreground="#E6EDF3" FontSize="12">
-            Sign in as a Global Admin of the CLIENT&apos;s Microsoft 365 tenant.
-          </TextBlock>
-          <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,6,0,0">
-            This creates the app registration in their tenant. The client tenant may have no Azure subscription — that is normal.
-          </TextBlock>
-        </StackPanel>
-      </Grid>
-    </Border>
 
-    <!-- Login 2 -->
-    <Border Background="#0D1F0D" BorderBrush="#238636" BorderThickness="1" CornerRadius="7" Padding="16,14" Margin="0,0,0,24">
-      <Grid>
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="36"/>
-          <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
-        <Border Width="28" Height="28" CornerRadius="14" Background="#238636" VerticalAlignment="Top" Margin="0,2,0,0">
-          <TextBlock Text="2" Foreground="White" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        <!-- Login 2 -->
+        <Border Background="#0D1F0D" BorderBrush="#238636" BorderThickness="1" CornerRadius="7" Padding="16,14" Margin="0,0,0,10">
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="36"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Border Width="28" Height="28" CornerRadius="14" Background="#238636" VerticalAlignment="Top" Margin="0,2,0,0">
+              <TextBlock Text="2" Foreground="White" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <StackPanel Grid.Column="1">
+              <TextBlock Text="YOUR Azure Subscription — Azure login" FontWeight="Bold" Foreground="#3FB950" Margin="0,0,0,4"/>
+              <TextBlock TextWrapping="Wrap" Foreground="#E6EDF3" FontSize="12">
+                Sign in to your own Azure subscription.
+              </TextBlock>
+              <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,6,0,0">
+                This is where the Container App, SQL, Key Vault and ACR are created.
+              </TextBlock>
+            </StackPanel>
+          </Grid>
         </Border>
-        <StackPanel Grid.Column="1">
-          <TextBlock Text="YOUR Azure Subscription Login" FontWeight="Bold" Foreground="#3FB950" Margin="0,0,0,4"/>
-          <TextBlock TextWrapping="Wrap" Foreground="#E6EDF3" FontSize="12">
-            Sign in to YOUR Azure subscription (your MSP Azure account).
-          </TextBlock>
-          <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,6,0,0">
-            This is where the Container App, SQL, Key Vault and ACR will be created.
-          </TextBlock>
-        </StackPanel>
-      </Grid>
-    </Border>
 
-    <Button x:Name="BtnOk" Content="Got it — start deployment"
-            Height="40" FontSize="13" FontWeight="SemiBold"
-            Foreground="White" Background="#0078D4" BorderThickness="0" Cursor="Hand"/>
-  </StackPanel>
+        <!-- Login 3 -->
+        <Border Background="#1A1207" BorderBrush="#7D4F12" BorderThickness="1" CornerRadius="7" Padding="16,14" Margin="0,0,0,20">
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="36"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Border Width="28" Height="28" CornerRadius="14" Background="#7D4F12" VerticalAlignment="Top" Margin="0,2,0,0">
+              <TextBlock Text="3" Foreground="White" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <StackPanel Grid.Column="1">
+              <TextBlock Text="GitHub — gh auth login" FontWeight="Bold" Foreground="#D29922" Margin="0,0,0,4"/>
+              <TextBlock TextWrapping="Wrap" Foreground="#E6EDF3" FontSize="12">
+                Sign in to the GitHub account that owns the repository.
+              </TextBlock>
+              <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,6,0,0">
+                Used to automatically configure GitHub Actions CI/CD secrets so every push to main auto-deploys.
+              </TextBlock>
+            </StackPanel>
+          </Grid>
+        </Border>
+
+        <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1" CornerRadius="6" Padding="12,10">
+          <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11">
+            Tip: have all three accounts ready before clicking Start. If you miss a login the wizard will still complete — GitHub secrets can be set manually afterwards.
+          </TextBlock>
+        </Border>
+      </StackPanel>
+    </ScrollViewer>
+
+    <Border Grid.Row="1" Background="#161B22" BorderBrush="#30363D" BorderThickness="0,1,0,0" Padding="32,16">
+      <Button x:Name="BtnOk" Content="Got it — start deployment"
+              Height="40" FontSize="13" FontWeight="SemiBold"
+              Foreground="White" Background="#0078D4" BorderThickness="0" Cursor="Hand"/>
+    </Border>
+  </Grid>
 </Window>
 '@
     $dlgReader = New-Object System.Xml.XmlNodeReader $dlgXaml
@@ -1256,6 +1355,9 @@ function Start-Deploy {
     # Pass SQL password via environment variable to avoid shell quoting issues
     $env:WIZARD_SQL_PASSWORD = $sqlPwd
 
+    $selSub = $CmbSubscription.SelectedItem
+    $subId  = if ($selSub -and $selSub.Tag) { $selSub.Tag } else { "" }
+
     $argList = @(
         "-NamePrefix",      $prefix,
         "-Location",        $region,
@@ -1264,6 +1366,7 @@ function Start-Deploy {
         "-SqlPassword",     $sqlPwd,
         "-NonInteractive"
     )
+    if ($subId) { $argList += @("-SubscriptionId", $subId) }
 
     # Step patterns — matched against each output line
     $script:StepMap = @(
