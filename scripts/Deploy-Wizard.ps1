@@ -569,14 +569,6 @@ $C = @{
               Used to name all Azure resources (e.g. myorg → myorg-prod-app).
             </TextBlock>
 
-            <!-- Azure subscription -->
-            <TextBlock Text="AZURE SUBSCRIPTION" FontSize="10" FontWeight="Bold"
-                       Foreground="#8B949E" Margin="0,0,0,8"/>
-            <ComboBox x:Name="CmbSubscription" Margin="0,0,0,4"/>
-            <TextBlock x:Name="TxtSubNote" TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,0,0,20">
-              Loading subscriptions...
-            </TextBlock>
-
             <!-- Azure region -->
             <TextBlock Text="AZURE REGION" FontSize="10" FontWeight="Bold"
                        Foreground="#8B949E" Margin="0,0,0,8"/>
@@ -1001,14 +993,14 @@ $CredSecret   = G "CredSecret";    $CredCert  = G "CredCert"
 
 # Config inputs
 $TxtPrefix       = G "TxtPrefix";  $CmbRegion = G "CmbRegion"
-$CmbSubscription = G "CmbSubscription"; $TxtSubNote = G "TxtSubNote"
 $TxtPwd1         = G "TxtPwd1";    $TxtPwd2   = G "TxtPwd2"
 $TxtPwdErr       = G "TxtPwdErr"
 $TxtClientUser   = G "TxtClientUser";  $TxtAzureUser = G "TxtAzureUser"
 $TxtGitHubUser   = G "TxtGitHubUser";  $PanelClientUser = G "PanelClientUser"
 
-# Subscription data store (populated when page 2 loads)
-$script:Subscriptions = @()  # array of PSObjects with .id .name .isDefault
+# No subscription combo on page 2 — picked via popup after login
+$script:SelectedSubId   = ""
+$script:SelectedSubName = ""
 
 # Review labels
 $RevMode = G "RevMode";  $RevPrefix = G "RevPrefix"
@@ -1085,16 +1077,11 @@ function Update-Sidebar($page) {
     }
 }
 
-function Load-Subscriptions {
-    $TxtSubNote.Text = "Loading subscriptions..."
-    $CmbSubscription.Items.Clear()
-
+function Detect-AzureUser {
+    # Auto-fill Azure account field from current az login session
     $ErrorActionPreference = "Continue"
-    $rawSubs    = (cmd /c "az account list --query ""[?state=='Enabled']"" -o json 2>nul")
     $rawAccount = (cmd /c "az account show -o json 2>nul")
     $ErrorActionPreference = "Stop"
-
-    # Extract currently logged-in user and pre-fill Azure account field if blank
     try {
         $accountJson = ($rawAccount | Where-Object { $_ -notmatch '^WARNING:' }) -join ""
         if ($accountJson -match '"user"') {
@@ -1105,33 +1092,159 @@ function Load-Subscriptions {
             }
         }
     } catch {}
+}
 
-    $script:Subscriptions = @()
-    try {
-        $subs = ($rawSubs -join "") | ConvertFrom-Json
-        if ($subs -and $subs.Count -gt 0) {
-            foreach ($sub in $subs) {
-                $script:Subscriptions += $sub
-                $label = if ($sub.isDefault) { "$($sub.name) (default)" } else { $sub.name }
-                $item = New-Object System.Windows.Controls.ComboBoxItem
-                $item.Content = $label
-                $item.Tag     = $sub.id
-                $item.Foreground = "#E6EDF3"
-                $CmbSubscription.Items.Add($item) | Out-Null
-                if ($sub.isDefault) { $CmbSubscription.SelectedItem = $item }
-            }
-            $userNote = if ($TxtAzureUser.Text) { " Logged in as: $($TxtAzureUser.Text)." } else { "" }
-            if ($subs.Count -eq 1) {
-                $TxtSubNote.Text = "One subscription found.$userNote"
-            } else {
-                $TxtSubNote.Text = "$($subs.Count) subscriptions found. Select the one to deploy into.$userNote"
-            }
-        } else {
-            $TxtSubNote.Text = "No subscriptions found — run 'az login' first."
-        }
-    } catch {
-        $TxtSubNote.Text = "Could not load subscriptions — run 'az login' first."
+function Show-SubscriptionPicker($loggedInAs) {
+    # Fetch subscriptions
+    $ErrorActionPreference = "Continue"
+    $rawSubs = (cmd /c "az account list --query ""[?state=='Enabled']"" -o json 2>nul")
+    $ErrorActionPreference = "Stop"
+
+    $subs = @()
+    try { $subs = ($rawSubs -join "") | ConvertFrom-Json } catch {}
+
+    # If only one subscription, skip the picker entirely
+    if ($subs.Count -eq 1) {
+        $script:SelectedSubId   = $subs[0].id
+        $script:SelectedSubName = $subs[0].name
+        return $true
     }
+
+    if ($subs.Count -eq 0) {
+        [System.Windows.MessageBox]::Show(
+            "No Azure subscriptions found for this account.`nMake sure you are logged in with the correct account.",
+            "No Subscriptions", "OK", "Warning")
+        return $false
+    }
+
+    # Build picker dialog
+    $subXaml = [xml]@'
+<Window
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Select Azure Subscription"
+    Width="520" Height="Auto" SizeToContent="Height" MaxHeight="600"
+    WindowStartupLocation="CenterOwner"
+    ResizeMode="NoResize"
+    Background="#0D1117" Foreground="#E6EDF3"
+    FontFamily="Segoe UI" FontSize="13">
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="*"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+
+    <!-- Header -->
+    <StackPanel Grid.Row="0" Margin="28,24,28,16">
+      <TextBlock Text="Select Azure Subscription" FontSize="18" FontWeight="Bold" Foreground="White" Margin="0,0,0,6"/>
+      <TextBlock x:Name="SubPickerNote" TextWrapping="Wrap" Foreground="#8B949E" FontSize="12"/>
+    </StackPanel>
+
+    <!-- Subscription list -->
+    <ScrollViewer Grid.Row="1" MaxHeight="360" VerticalScrollBarVisibility="Auto" Margin="28,0,28,8">
+      <StackPanel x:Name="SubList"/>
+    </ScrollViewer>
+
+    <!-- Footer -->
+    <Border Grid.Row="2" Background="#161B22" BorderBrush="#30363D" BorderThickness="0,1,0,0" Padding="28,14">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <Button x:Name="BtnSubCancel" Content="Cancel" Grid.Column="0" HorizontalAlignment="Left"
+                Height="36" Padding="18,0" FontSize="13"
+                Foreground="#58A6FF" Background="Transparent" BorderBrush="#30363D" BorderThickness="1" Cursor="Hand"/>
+        <Button x:Name="BtnSubOk" Content="Deploy to this subscription"
+                Grid.Column="1" Height="36" Padding="18,0" FontSize="13" FontWeight="SemiBold"
+                Foreground="White" Background="#0078D4" BorderThickness="0" Cursor="Hand" IsEnabled="False"/>
+      </Grid>
+    </Border>
+  </Grid>
+</Window>
+'@
+    $subReader = New-Object System.Xml.XmlNodeReader $subXaml
+    $subDlg = [Windows.Markup.XamlReader]::Load($subReader)
+    $subDlg.Owner = $Win
+
+    $noteBlock = $subDlg.FindName("SubPickerNote")
+    $noteBlock.Text = if ($loggedInAs) { "Logged in as: $loggedInAs" } else { "Select the subscription to deploy into." }
+
+    $subList  = $subDlg.FindName("SubList")
+    $btnOk    = $subDlg.FindName("BtnSubOk")
+    $btnCancel= $subDlg.FindName("BtnSubCancel")
+    $script:PickedSubId   = ""
+    $script:PickedSubName = ""
+    $script:SubCancelled  = $false
+
+    foreach ($sub in $subs) {
+        $isDefault = $sub.isDefault
+        $card = New-Object System.Windows.Controls.Border
+        $card.Background           = if ($isDefault) { "#0D2137" } else { "#161B22" }
+        $card.BorderBrush          = if ($isDefault) { "#0078D4" } else { "#30363D" }
+        $card.BorderThickness      = "1"
+        $card.CornerRadius         = "7"
+        $card.Padding              = "16,12"
+        $card.Margin               = "0,0,0,8"
+        $card.Cursor               = "Hand"
+        $card.Tag                  = $sub.id
+
+        $inner = New-Object System.Windows.Controls.StackPanel
+        $nameBlock = New-Object System.Windows.Controls.TextBlock
+        $nameBlock.Text       = $sub.name + $(if ($isDefault) { "  (default)" } else { "" })
+        $nameBlock.Foreground = if ($isDefault) { "#58A6FF" } else { "#E6EDF3" }
+        $nameBlock.FontWeight = "SemiBold"
+        $nameBlock.FontSize   = 13
+
+        $idBlock = New-Object System.Windows.Controls.TextBlock
+        $idBlock.Text       = $sub.id
+        $idBlock.Foreground = "#484F58"
+        $idBlock.FontFamily = "Consolas"
+        $idBlock.FontSize   = 11
+        $idBlock.Margin     = "0,3,0,0"
+
+        $inner.Children.Add($nameBlock) | Out-Null
+        $inner.Children.Add($idBlock)   | Out-Null
+        $card.Child = $inner
+
+        $subName = $sub.name
+        $subId   = $sub.id
+        $card.Add_MouseLeftButtonUp({
+            # Reset all card borders
+            foreach ($child in $subList.Children) {
+                $child.BorderBrush = "#30363D"
+                $child.Background  = "#161B22"
+            }
+            # Highlight selected
+            $this.BorderBrush = "#0078D4"
+            $this.Background  = "#0D2137"
+            $script:PickedSubId   = $this.Tag
+            $script:PickedSubName = $this.Child.Children[0].Text -replace '  \(default\)', ''
+            $btnOk.IsEnabled = $true
+        })
+
+        $subList.Children.Add($card) | Out-Null
+
+        # Auto-select default
+        if ($isDefault) {
+            $script:PickedSubId   = $sub.id
+            $script:PickedSubName = $sub.name
+            $btnOk.IsEnabled = $true
+        }
+    }
+
+    $btnOk.Add_Click({ $subDlg.Close() })
+    $btnCancel.Add_Click({ $script:SubCancelled = $true; $subDlg.Close() })
+    [void]$subDlg.ShowDialog()
+
+    if ($script:SubCancelled -or -not $script:PickedSubId) { return $false }
+
+    $script:SelectedSubId   = $script:PickedSubId
+    $script:SelectedSubName = $script:PickedSubName
+    # Set the subscription in CLI so it's active for the deploy job
+    cmd /c "az account set --subscription $($script:SelectedSubId) 2>nul" | Out-Null
+    return $true
 }
 
 function Show-Page($n) {
@@ -1139,8 +1252,7 @@ function Show-Page($n) {
     switch ($n) {
         1 { $Pages.Welcome.Visibility = "Visible" }
         2 { $Pages.Config.Visibility  = "Visible"
-            Load-Subscriptions
-            # Show client tenant field only in MSP mode
+            Detect-AzureUser
             $PanelClientUser.Visibility = if ($ModeMsp.IsChecked) { "Visible" } else { "Collapsed" }
         }
         3 { $Pages.Review.Visibility  = "Visible" }
@@ -1270,8 +1382,7 @@ function Populate-Review {
     $RevRegion.Text = if ($selItem) { $selItem.Content } else { "UK South" }
     $RevCred.Text   = if ($CredSecret.IsChecked) { "Client Secret" } else { "Certificate" }
     $RevRepo.Text   = if ($script:RepoSlug) { "github.com/$($script:RepoSlug)" } else { "(not detected)" }
-    $selSub = $CmbSubscription.SelectedItem
-    if ($RevSub) { $RevSub.Text = if ($selSub) { $selSub.Content } else { "(default)" } }
+    if ($RevSub) { $RevSub.Text = if ($script:SelectedSubName) { $script:SelectedSubName } else { "(selected after login)" } }
 }
 
 function Show-MspLoginDialog($clientUser, $azureUser, $gitHubUser) {
@@ -1421,11 +1532,37 @@ function Start-Deploy {
     Set-DeployStep 1 "running"
     $PBar.Value = 5
 
+    # For Standard mode: do Azure login in wizard process, then show subscription picker
+    # This lets us show a WPF dialog after auth rather than relying on the background job
+    if (-not $isMsp) {
+        Add-Log "Opening Azure login..."
+        $ErrorActionPreference = "Continue"
+        cmd /c "az login" | Out-Null
+        $rawAccount = (cmd /c "az account show -o json 2>nul")
+        $accountJson = ($rawAccount | Where-Object { $_ -notmatch '^WARNING:' }) -join ""
+        $ErrorActionPreference = "Stop"
+        $loggedInAs = ""
+        try {
+            if ($accountJson -match '"user"') {
+                $loggedInAs = ($accountJson | ConvertFrom-Json).user.name
+                if ($loggedInAs) { $TxtAzureUser.Text = $loggedInAs }
+                Add-Log "Logged in as: $loggedInAs"
+            }
+        } catch {}
+
+        $picked = Show-SubscriptionPicker $loggedInAs
+        if (-not $picked) {
+            # User cancelled — go back to review
+            Show-Page 3
+            return
+        }
+        Add-Log "Subscription: $($script:SelectedSubName)"
+    }
+
     # Pass SQL password via environment variable to avoid shell quoting issues
     $env:WIZARD_SQL_PASSWORD = $sqlPwd
 
-    $selSub = $CmbSubscription.SelectedItem
-    $subId  = if ($selSub -and $selSub.Tag) { $selSub.Tag } else { "" }
+    $subId = $script:SelectedSubId
 
     $argList = @(
         "-NamePrefix",      $prefix,
