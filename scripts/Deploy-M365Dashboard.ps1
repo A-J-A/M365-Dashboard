@@ -502,36 +502,87 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             Remove-Item $scopeFile -ErrorAction SilentlyContinue
             Write-Host "  access_as_user scope exposed" -ForegroundColor Green
 
+            # Wait for SP to propagate before attempting consent — without this,
+            # admin-consent silently exits 0 but grants nothing because the SP
+            # isn't visible yet across all Entra directory nodes.
+            Write-Host "  Waiting for service principal to propagate..." -ForegroundColor Gray
+            $spObjIdForConsent = $null
+            for ($attempt = 1; $attempt -le 12; $attempt++) {
+                Start-Sleep -Seconds 5
+                $spCheckRaw = cmd /c "az ad sp show --id $ClientId --query id -o tsv 2>nul"
+                $spObjIdForConsent = ($spCheckRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+                if ($spObjIdForConsent) {
+                    Write-Host "  Service principal confirmed (${attempt}x5s)" -ForegroundColor Gray
+                    break
+                }
+                Write-Host "  Still waiting... ($attempt/12)" -ForegroundColor Gray
+            }
+
+            if (-not $spObjIdForConsent) {
+                Write-Host "  WARNING: Service principal did not appear within 60s — consent may fail" -ForegroundColor Yellow
+            }
+
             Write-Host "  Granting admin consent..." -ForegroundColor Gray
-            cmd /c "az ad app permission admin-consent --id $ClientId 2>nul" | Out-Null
-            if ($LASTEXITCODE -eq 0) {
+            # Run without stderr suppression so failures are visible in the log
+            $consentRaw = cmd /c "az ad app permission admin-consent --id $ClientId 2>&1"
+            $consentErr  = ($consentRaw | Where-Object { $_ -match 'ERROR|error|Insufficient|forbidden' }) -join ''
+            if ($LASTEXITCODE -eq 0 -and -not $consentErr) {
                 Write-Host "  Admin consent granted" -ForegroundColor Green
             } else {
-                # Fallback: use Graph API with current token
+                Write-Host "  az admin-consent failed: $consentErr" -ForegroundColor Yellow
+                Write-Host "  Falling back to Graph API appRoleAssignments..." -ForegroundColor Gray
+
+                # Correct fallback: grant each application permission via appRoleAssignments.
+                # oauth2PermissionGrants only covers delegated permissions — it does nothing
+                # for Role-type (application) permissions like User.Read.All.
                 $ErrorActionPreference = "Continue"
-                $graphToken = if ($isMspMode -and $mspGraphToken) { $mspGraphToken } else {
-                    (cmd /c "az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv 2>nul").Trim()
-                }
-                if ($graphToken) {
-                    $spRaw   = cmd /c "az ad sp show --id $ClientId --query id -o tsv 2>nul"
-                    $spObjId = ($spRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+                $graphToken = (cmd /c "az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv 2>nul").Trim()
+
+                if ($graphToken -and $spObjIdForConsent) {
+                    # Resolve the Graph SP object ID
                     $graphSpRaw = cmd /c "az ad sp show --id 00000003-0000-0000-c000-000000000000 --query id -o tsv 2>nul"
-                    $graphSpId  = ($graphSpRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
-                    if ($spObjId -and $graphSpId) {
-                        $consentBody = "{`"clientId`":`"$spObjId`",`"consentType`":`"AllPrincipals`",`"resourceId`":`"$graphSpId`",`"scope`":`"openid profile`"}"
-                        $consentFile = [System.IO.Path]::GetTempFileName()
-                        [System.IO.File]::WriteAllText($consentFile, $consentBody, [System.Text.Encoding]::UTF8)
-                        $consentResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/oauth2PermissionGrants`" --body @`"$consentFile`" --headers Content-Type=application/json Authorization=`"Bearer $graphToken`" 2>&1"
-                        Remove-Item $consentFile -ErrorAction SilentlyContinue
-                        if ($LASTEXITCODE -eq 0) {
-                            Write-Host "  Admin consent granted" -ForegroundColor Green
-                        } else {
-                            Write-Host "  Could not grant admin consent automatically - grant manually after deployment:" -ForegroundColor Yellow
-                            Write-Host "  https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/CallAnAPI/appId/$ClientId" -ForegroundColor Cyan
+                    $graphSpObjId = ($graphSpRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+
+                    if ($graphSpObjId) {
+                        $consentOk = $true
+                        foreach ($perm in $graphPermissions) {
+                            $roleBody = "{`"principalId`":`"$spObjIdForConsent`",`"resourceId`":`"$graphSpObjId`",`"appRoleId`":`"$($perm.id)`"}"
+                            $roleFile = [System.IO.Path]::GetTempFileName() + ".json"
+                            [System.IO.File]::WriteAllText($roleFile, $roleBody, [System.Text.Encoding]::UTF8)
+                            $roleResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/servicePrincipals/$spObjIdForConsent/appRoleAssignments`" --body @`"$roleFile`" --headers Content-Type=application/json 2>&1"
+                            Remove-Item $roleFile -ErrorAction SilentlyContinue
+                            $roleResultClean = ($roleResult | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
+                            if ($LASTEXITCODE -ne 0 -and $roleResultClean -notmatch 'already exists|Permission being assigned already exists') {
+                                Write-Host "    ! $($perm.name): $roleResultClean" -ForegroundColor Yellow
+                                $consentOk = $false
+                            } else {
+                                Write-Host "    + $($perm.name)" -ForegroundColor Gray
+                            }
                         }
+
+                        # Also grant Exchange.ManageAsApp via appRoleAssignments
+                        $exSpRaw = cmd /c "az ad sp show --id 00000002-0000-0ff1-ce00-000000000000 --query id -o tsv 2>nul"
+                        $exSpObjId = ($exSpRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+                        if ($exSpObjId) {
+                            $exRoleBody = "{`"principalId`":`"$spObjIdForConsent`",`"resourceId`":`"$exSpObjId`",`"appRoleId`":`"dc50a0fb-09a3-484d-be87-e023b12c6440`"}"
+                            $exRoleFile = [System.IO.Path]::GetTempFileName() + ".json"
+                            [System.IO.File]::WriteAllText($exRoleFile, $exRoleBody, [System.Text.Encoding]::UTF8)
+                            $exResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/servicePrincipals/$spObjIdForConsent/appRoleAssignments`" --body @`"$exRoleFile`" --headers Content-Type=application/json 2>&1"
+                            Remove-Item $exRoleFile -ErrorAction SilentlyContinue
+                        }
+
+                        if ($consentOk) {
+                            Write-Host "  Admin consent granted via Graph API" -ForegroundColor Green
+                        } else {
+                            Write-Host "  Some permissions could not be granted automatically." -ForegroundColor Yellow
+                            Write-Host "  Grant manually: https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/CallAnAPI/appId/$ClientId" -ForegroundColor Cyan
+                        }
+                    } else {
+                        Write-Host "  Could not resolve Graph service principal — grant consent manually:" -ForegroundColor Yellow
+                        Write-Host "  https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/CallAnAPI/appId/$ClientId" -ForegroundColor Cyan
                     }
                 } else {
-                    Write-Host "  Could not grant admin consent automatically - grant manually after deployment:" -ForegroundColor Yellow
+                    Write-Host "  No Graph token or SP ID available — grant consent manually:" -ForegroundColor Yellow
                     Write-Host "  https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/~/CallAnAPI/appId/$ClientId" -ForegroundColor Cyan
                 }
                 $ErrorActionPreference = "Stop"
