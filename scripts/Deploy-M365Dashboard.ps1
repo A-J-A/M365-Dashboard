@@ -105,7 +105,7 @@ Write-Host ""
 Write-Host "         Dashboard  Deployment" -ForegroundColor White
 Write-Host "  ─────────────────────────────────────" -ForegroundColor DarkGray
 Write-Host "  Microsoft 365 Tenant Management Portal" -ForegroundColor DarkGray
-Write-Host "  github.com/A-J-A/M365-Dashboard" -ForegroundColor DarkGray
+Write-Host "  Open Source | github.com/A-J-A/M365-Dashboard" -ForegroundColor DarkGray
 Write-Host "" 
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host "M365 Dashboard - Deployment Script" -ForegroundColor Cyan
@@ -1594,9 +1594,14 @@ if ($ghAvailable) {
         Write-Host "  The deployment script needs to configure GitHub" -ForegroundColor White
         Write-Host "  Actions secrets to enable automatic CI/CD." -ForegroundColor White
         Write-Host ""
+        $ghAccountHint = if ($repoSlug -and $repoSlug -match '^([^/]+)/') { $Matches[1] } else { "the repository owner" }
         Write-Host "  Please sign in with the GitHub account that" -ForegroundColor White
-        Write-Host "  owns the repository (e.g. A-J-A)." -ForegroundColor White
+        Write-Host "  owns the repository ($ghAccountHint)." -ForegroundColor White
         Write-Host ""
+        if ($repoSlug) {
+            Write-Host "  Repository: github.com/$repoSlug" -ForegroundColor DarkGray
+            Write-Host ""
+        }
         Write-Host "  A browser window will open to complete login." -ForegroundColor Yellow
         Write-Host ""
         Read-Host "  Press Enter to continue to GitHub login"
