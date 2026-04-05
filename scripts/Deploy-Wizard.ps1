@@ -1086,17 +1086,29 @@ function Update-Sidebar($page) {
 }
 
 function Load-Subscriptions {
-    # Run az account list in background and populate CmbSubscription
     $TxtSubNote.Text = "Loading subscriptions..."
     $CmbSubscription.Items.Clear()
 
     $ErrorActionPreference = "Continue"
-    $raw = (cmd /c "az account list --query ""[?state=='Enabled']"" -o json 2>nul")
+    $rawSubs    = (cmd /c "az account list --query ""[?state=='Enabled']"" -o json 2>nul")
+    $rawAccount = (cmd /c "az account show -o json 2>nul")
     $ErrorActionPreference = "Stop"
+
+    # Extract currently logged-in user and pre-fill Azure account field if blank
+    try {
+        $accountJson = ($rawAccount | Where-Object { $_ -notmatch '^WARNING:' }) -join ""
+        if ($accountJson -match '"user"') {
+            $account = $accountJson | ConvertFrom-Json
+            $loggedInUser = $account.user.name
+            if ($loggedInUser -and [string]::IsNullOrWhiteSpace($TxtAzureUser.Text)) {
+                $TxtAzureUser.Text = $loggedInUser
+            }
+        }
+    } catch {}
 
     $script:Subscriptions = @()
     try {
-        $subs = ($raw -join "") | ConvertFrom-Json
+        $subs = ($rawSubs -join "") | ConvertFrom-Json
         if ($subs -and $subs.Count -gt 0) {
             foreach ($sub in $subs) {
                 $script:Subscriptions += $sub
@@ -1108,16 +1120,17 @@ function Load-Subscriptions {
                 $CmbSubscription.Items.Add($item) | Out-Null
                 if ($sub.isDefault) { $CmbSubscription.SelectedItem = $item }
             }
+            $userNote = if ($TxtAzureUser.Text) { " Logged in as: $($TxtAzureUser.Text)." } else { "" }
             if ($subs.Count -eq 1) {
-                $TxtSubNote.Text = "One subscription found."
+                $TxtSubNote.Text = "One subscription found.$userNote"
             } else {
-                $TxtSubNote.Text = "$($subs.Count) subscriptions found. Select the one to deploy into."
+                $TxtSubNote.Text = "$($subs.Count) subscriptions found. Select the one to deploy into.$userNote"
             }
         } else {
-            $TxtSubNote.Text = "No subscriptions found. Make sure you are logged in to Azure CLI (az login)."
+            $TxtSubNote.Text = "No subscriptions found — run 'az login' first."
         }
     } catch {
-        $TxtSubNote.Text = "Could not load subscriptions. Run az login first."
+        $TxtSubNote.Text = "Could not load subscriptions — run 'az login' first."
     }
 }
 
