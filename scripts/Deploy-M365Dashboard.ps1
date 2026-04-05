@@ -1357,7 +1357,7 @@ Write-Host "Deployment Complete!" -ForegroundColor Green
 Write-Host "============================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Your M365 Dashboard is available at:"
-Write-Host "  $appUrl" -ForegroundColor Cyan
+Write-Host "  DASHBOARD_URL: $appUrl" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "============================================" -ForegroundColor Yellow
 Write-Host "Post-Deployment Checks" -ForegroundColor Yellow
@@ -1526,7 +1526,7 @@ if (-not $defenderLicensed) {
 }
 Write-Host ""
 Write-Host "Once complete, open the dashboard and sign in:" -ForegroundColor White
-Write-Host "  $appUrl" -ForegroundColor Cyan
+Write-Host "  DASHBOARD_URL: $appUrl" -ForegroundColor Cyan
 Write-Host ""
 
 # ============================================================================

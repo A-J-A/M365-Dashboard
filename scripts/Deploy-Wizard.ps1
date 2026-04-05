@@ -1626,8 +1626,12 @@ function Start-Deploy {
                 }
             }
 
-            # Capture dashboard URL from "available at" line
-            if ($line -match "available at:?\s+(https://\S+)") {
+            # Capture dashboard URL — tagged line from deploy script
+            if ($line -match 'DASHBOARD_URL:\s*(https://\S+)') {
+                $script:DashUrl = $Matches[1].Trim('.').Trim()
+            }
+            # Fallback: any azurecontainerapps URL
+            if (-not $script:DashUrl -and $line -match '(https://[^\s]+\.azurecontainerapps\.io[^\s]*)') {
                 $script:DashUrl = $Matches[1].Trim('.').Trim()
             }
             # Capture client ID for consent URL
