@@ -624,6 +624,39 @@ $C = @{
               </RadioButton>
             </Grid>
 
+            <!-- Login accounts (optional hints) -->
+            <TextBlock Text="LOGIN ACCOUNTS  (optional)" FontSize="10" FontWeight="Bold"
+                       Foreground="#8B949E" Margin="0,0,0,8"/>
+            <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1"
+                    CornerRadius="8" Padding="16,14" Margin="0,0,0,20">
+              <StackPanel>
+                <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,0,0,12">
+                  Enter the accounts you will use to log in. These are shown in the login prompts
+                  so you pick the right account each time.
+                </TextBlock>
+
+                <!-- Client tenant — MSP only -->
+                <StackPanel x:Name="PanelClientUser">
+                  <TextBlock Text="Client tenant admin" Foreground="#58A6FF" FontSize="11"
+                             FontWeight="SemiBold" Margin="0,0,0,4"/>
+                  <TextBox x:Name="TxtClientUser" Margin="0,0,0,12"
+                           Tag="e.g. admin@clientdomain.com"/>
+                </StackPanel>
+
+                <!-- Your Azure account -->
+                <TextBlock Text="Your Azure account" Foreground="#3FB950" FontSize="11"
+                           FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <TextBox x:Name="TxtAzureUser" Margin="0,0,0,12"
+                         Tag="e.g. you@yourdomain.com"/>
+
+                <!-- GitHub username -->
+                <TextBlock Text="GitHub username" Foreground="#D29922" FontSize="11"
+                           FontWeight="SemiBold" Margin="0,0,0,4"/>
+                <TextBox x:Name="TxtGitHubUser" Margin="0,0,0,0"
+                         Tag="e.g. your-github-username"/>
+              </StackPanel>
+            </Border>
+
             <!-- SQL Password -->
             <TextBlock Text="SQL ADMIN PASSWORD" FontSize="10" FontWeight="Bold"
                        Foreground="#8B949E" Margin="0,0,0,8"/>
@@ -971,6 +1004,8 @@ $TxtPrefix       = G "TxtPrefix";  $CmbRegion = G "CmbRegion"
 $CmbSubscription = G "CmbSubscription"; $TxtSubNote = G "TxtSubNote"
 $TxtPwd1         = G "TxtPwd1";    $TxtPwd2   = G "TxtPwd2"
 $TxtPwdErr       = G "TxtPwdErr"
+$TxtClientUser   = G "TxtClientUser";  $TxtAzureUser = G "TxtAzureUser"
+$TxtGitHubUser   = G "TxtGitHubUser";  $PanelClientUser = G "PanelClientUser"
 
 # Subscription data store (populated when page 2 loads)
 $script:Subscriptions = @()  # array of PSObjects with .id .name .isDefault
@@ -1090,7 +1125,11 @@ function Show-Page($n) {
     foreach ($k in $Pages.Keys) { $Pages[$k].Visibility = "Collapsed" }
     switch ($n) {
         1 { $Pages.Welcome.Visibility = "Visible" }
-        2 { $Pages.Config.Visibility  = "Visible"; Load-Subscriptions }
+        2 { $Pages.Config.Visibility  = "Visible"
+            Load-Subscriptions
+            # Show client tenant field only in MSP mode
+            $PanelClientUser.Visibility = if ($ModeMsp.IsChecked) { "Visible" } else { "Collapsed" }
+        }
         3 { $Pages.Review.Visibility  = "Visible" }
         4 { $Pages.Deploy.Visibility  = "Visible" }
         5 { $Pages.Done.Visibility    = "Visible" }
@@ -1222,7 +1261,11 @@ function Populate-Review {
     if ($RevSub) { $RevSub.Text = if ($selSub) { $selSub.Content } else { "(default)" } }
 }
 
-function Show-MspLoginDialog {
+function Show-MspLoginDialog($clientUser, $azureUser, $gitHubUser) {
+    # Build account hint lines — only show if values were entered
+    $hint1 = if ($clientUser) { "Account: $clientUser" } else { "" }
+    $hint2 = if ($azureUser)  { "Account: $azureUser"  } else { "" }
+    $hint3 = if ($gitHubUser) { "Username: $gitHubUser" } else { "" }
     # Show a clear modal dialog explaining the two MSP login steps before any popups appear
     $dlgXaml = [xml]@'
 <Window
@@ -1262,7 +1305,9 @@ function Show-MspLoginDialog {
               <TextBlock TextWrapping="Wrap" Foreground="#E6EDF3" FontSize="12">
                 Sign in as a Global Admin of the CLIENT&apos;s Microsoft 365 tenant.
               </TextBlock>
-              <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,6,0,0">
+              <TextBlock x:Name="Hint1" TextWrapping="Wrap" FontSize="12" FontWeight="SemiBold"
+                         Foreground="#58A6FF" Margin="0,8,0,0"/>
+              <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,4,0,0">
                 Used to create the app registration in their tenant. The client tenant may have no Azure subscription — that is normal.
               </TextBlock>
             </StackPanel>
@@ -1284,7 +1329,9 @@ function Show-MspLoginDialog {
               <TextBlock TextWrapping="Wrap" Foreground="#E6EDF3" FontSize="12">
                 Sign in to your own Azure subscription.
               </TextBlock>
-              <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,6,0,0">
+              <TextBlock x:Name="Hint2" TextWrapping="Wrap" FontSize="12" FontWeight="SemiBold"
+                         Foreground="#3FB950" Margin="0,8,0,0"/>
+              <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,4,0,0">
                 This is where the Container App, SQL, Key Vault and ACR are created.
               </TextBlock>
             </StackPanel>
@@ -1306,7 +1353,9 @@ function Show-MspLoginDialog {
               <TextBlock TextWrapping="Wrap" Foreground="#E6EDF3" FontSize="12">
                 Sign in to the GitHub account that owns the repository.
               </TextBlock>
-              <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,6,0,0">
+              <TextBlock x:Name="Hint3" TextWrapping="Wrap" FontSize="12" FontWeight="SemiBold"
+                         Foreground="#D29922" Margin="0,8,0,0"/>
+              <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,4,0,0">
                 Used to automatically configure GitHub Actions CI/CD secrets so every push to main auto-deploys.
               </TextBlock>
             </StackPanel>
@@ -1332,25 +1381,32 @@ function Show-MspLoginDialog {
     $dlgReader = New-Object System.Xml.XmlNodeReader $dlgXaml
     $dlg = [Windows.Markup.XamlReader]::Load($dlgReader)
     $dlg.Owner = $Win
+    # Populate hint labels with entered usernames
+    if ($hint1) { $dlg.FindName("Hint1").Text = $hint1 }
+    if ($hint2) { $dlg.FindName("Hint2").Text = $hint2 }
+    if ($hint3) { $dlg.FindName("Hint3").Text = $hint3 }
     $dlg.FindName("BtnOk").Add_Click({ $dlg.Close() })
     [void]$dlg.ShowDialog()
 }
 
 function Start-Deploy {
-    # Show MSP login briefing before starting
-    if ([bool]$ModeMsp.IsChecked) { Show-MspLoginDialog }
+    $prefix      = $TxtPrefix.Text.Trim().ToLower()
+    $region      = ($CmbRegion.SelectedItem).Tag
+    $useCert     = [bool]$CredCert.IsChecked
+    $isMsp       = [bool]$ModeMsp.IsChecked
+    $sqlPwd      = $TxtPwd1.Password
+    $clientUser  = $TxtClientUser.Text.Trim()
+    $azureUser   = $TxtAzureUser.Text.Trim()
+    $gitHubUser  = $TxtGitHubUser.Text.Trim()
+    $deployPs    = Join-Path $PSScriptRoot "Deploy-M365Dashboard.ps1"
+
+    # Show MSP login briefing with entered account hints before starting
+    if ($isMsp) { Show-MspLoginDialog $clientUser $azureUser $gitHubUser }
 
     Show-Page 4
     1..6 | ForEach-Object { Set-DeployStep $_ "pending" }
     Set-DeployStep 1 "running"
     $PBar.Value = 5
-
-    $prefix    = $TxtPrefix.Text.Trim().ToLower()
-    $region    = ($CmbRegion.SelectedItem).Tag
-    $useCert   = [bool]$CredCert.IsChecked
-    $isMsp     = [bool]$ModeMsp.IsChecked
-    $sqlPwd    = $TxtPwd1.Password
-    $deployPs  = Join-Path $PSScriptRoot "Deploy-M365Dashboard.ps1"
 
     # Pass SQL password via environment variable to avoid shell quoting issues
     $env:WIZARD_SQL_PASSWORD = $sqlPwd
