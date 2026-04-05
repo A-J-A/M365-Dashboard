@@ -1162,7 +1162,85 @@ function Populate-Review {
     $RevRepo.Text   = if ($script:RepoSlug) { "github.com/$($script:RepoSlug)" } else { "(not detected)" }
 }
 
+function Show-MspLoginDialog {
+    # Show a clear modal dialog explaining the two MSP login steps before any popups appear
+    $dlgXaml = [xml]@'
+<Window
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="MSP Deployment — Login Guide"
+    Width="520" Height="420"
+    WindowStartupLocation="CenterOwner"
+    ResizeMode="NoResize"
+    Background="#0D1117" Foreground="#E6EDF3"
+    FontFamily="Segoe UI" FontSize="13">
+  <StackPanel Margin="32,28,32,24">
+    <TextBlock Text="Two logins required" FontSize="20" FontWeight="Bold" Foreground="White" Margin="0,0,0,6"/>
+    <TextBlock TextWrapping="Wrap" Foreground="#8B949E" Margin="0,0,0,24" FontSize="12">
+      MSP mode requires signing in twice — once per tenant. Browser windows will open automatically.
+    </TextBlock>
+
+    <!-- Login 1 -->
+    <Border Background="#0D2137" BorderBrush="#0078D4" BorderThickness="1" CornerRadius="7" Padding="16,14" Margin="0,0,0,12">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="36"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Border Width="28" Height="28" CornerRadius="14" Background="#0078D4" VerticalAlignment="Top" Margin="0,2,0,0">
+          <TextBlock Text="1" Foreground="White" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        </Border>
+        <StackPanel Grid.Column="1">
+          <TextBlock Text="CLIENT Tenant Login" FontWeight="Bold" Foreground="#58A6FF" Margin="0,0,0,4"/>
+          <TextBlock TextWrapping="Wrap" Foreground="#E6EDF3" FontSize="12">
+            Sign in as a Global Admin of the CLIENT&apos;s Microsoft 365 tenant.
+          </TextBlock>
+          <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,6,0,0">
+            This creates the app registration in their tenant. The client tenant may have no Azure subscription — that is normal.
+          </TextBlock>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- Login 2 -->
+    <Border Background="#0D1F0D" BorderBrush="#238636" BorderThickness="1" CornerRadius="7" Padding="16,14" Margin="0,0,0,24">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="36"/>
+          <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Border Width="28" Height="28" CornerRadius="14" Background="#238636" VerticalAlignment="Top" Margin="0,2,0,0">
+          <TextBlock Text="2" Foreground="White" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+        </Border>
+        <StackPanel Grid.Column="1">
+          <TextBlock Text="YOUR Azure Subscription Login" FontWeight="Bold" Foreground="#3FB950" Margin="0,0,0,4"/>
+          <TextBlock TextWrapping="Wrap" Foreground="#E6EDF3" FontSize="12">
+            Sign in to YOUR Azure subscription (Cloud1st / MSP).
+          </TextBlock>
+          <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,6,0,0">
+            This is where the Container App, SQL, Key Vault and ACR will be created.
+          </TextBlock>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <Button x:Name="BtnOk" Content="Got it — start deployment"
+            Height="40" FontSize="13" FontWeight="SemiBold"
+            Foreground="White" Background="#0078D4" BorderThickness="0" Cursor="Hand"/>
+  </StackPanel>
+</Window>
+'@
+    $dlgReader = New-Object System.Xml.XmlNodeReader $dlgXaml
+    $dlg = [Windows.Markup.XamlReader]::Load($dlgReader)
+    $dlg.Owner = $Win
+    $dlg.FindName("BtnOk").Add_Click({ $dlg.Close() })
+    [void]$dlg.ShowDialog()
+}
+
 function Start-Deploy {
+    # Show MSP login briefing before starting
+    if ([bool]$ModeMsp.IsChecked) { Show-MspLoginDialog }
+
     Show-Page 4
     1..6 | ForEach-Object { Set-DeployStep $_ "pending" }
     Set-DeployStep 1 "running"
