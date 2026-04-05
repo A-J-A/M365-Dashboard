@@ -91,7 +91,22 @@ function Invoke-AzLogin {
 # ============================================================================
 # Deployment Mode & Login
 # ============================================================================
-Write-Host ""
+# ============================================================================
+# Banner
+# ============================================================================
+Write-Host "" 
+Write-Host "  ███╗   ███╗██████╗  ██████╗ ███████╗" -ForegroundColor Cyan
+Write-Host "  ████╗ ████║╚════██╗██╔════╝ ██╔════╝" -ForegroundColor Cyan
+Write-Host "  ██╔████╔██║ █████╔╝███████╗ ███████╗" -ForegroundColor Cyan
+Write-Host "  ██║╚██╔╝██║ ╚═══██╗██╔═══██╗╚════██║" -ForegroundColor Cyan
+Write-Host "  ██║ ╚═╝ ██║██████╔╝╚██████╔╝███████║" -ForegroundColor Cyan
+Write-Host "  ╚═╝     ╚═╝╚═════╝  ╚═════╝ ╚══════╝" -ForegroundColor Cyan
+Write-Host "" 
+Write-Host "         Dashboard  Deployment" -ForegroundColor White
+Write-Host "  ─────────────────────────────────────" -ForegroundColor DarkGray
+Write-Host "  Microsoft 365 Tenant Management Portal" -ForegroundColor DarkGray
+Write-Host "  github.com/A-J-A/M365-Dashboard" -ForegroundColor DarkGray
+Write-Host "" 
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host "M365 Dashboard - Deployment Script" -ForegroundColor Cyan
 Write-Host "============================================" -ForegroundColor Cyan
@@ -1572,9 +1587,19 @@ if ($ghAvailable) {
 
     if (-not $ghAuthed) {
         Write-Host ""
-        Write-Host "  GitHub CLI is installed but not authenticated." -ForegroundColor Yellow
-        Write-Host "  Launching 'gh auth login' - sign in with the account that owns the repository." -ForegroundColor White
+        Write-Host "  ┌─────────────────────────────────────────────┐" -ForegroundColor Cyan
+        Write-Host "  │        GitHub Authentication Required         │" -ForegroundColor Cyan
+        Write-Host "  └─────────────────────────────────────────────┘" -ForegroundColor Cyan
         Write-Host ""
+        Write-Host "  The deployment script needs to configure GitHub" -ForegroundColor White
+        Write-Host "  Actions secrets to enable automatic CI/CD." -ForegroundColor White
+        Write-Host ""
+        Write-Host "  Please sign in with the GitHub account that" -ForegroundColor White
+        Write-Host "  owns the repository (e.g. A-J-A)." -ForegroundColor White
+        Write-Host ""
+        Write-Host "  A browser window will open to complete login." -ForegroundColor Yellow
+        Write-Host ""
+        Read-Host "  Press Enter to continue to GitHub login"
         & gh auth login
         $ErrorActionPreference = "Continue"
         cmd /c "gh auth status 2>nul" | Out-Null
