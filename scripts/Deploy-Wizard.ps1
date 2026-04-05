@@ -821,8 +821,11 @@ $C = @{
             <Border Background="#0D1117" BorderBrush="#30363D" BorderThickness="1" CornerRadius="7">
               <ScrollViewer x:Name="LogScroll" Height="200"
                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <TextBlock x:Name="LogBox" FontFamily="Consolas" FontSize="11.5"
-                           Foreground="#58A6FF" Padding="12" TextWrapping="Wrap"/>
+                <RichTextBox x:Name="LogBox" FontFamily="Consolas" FontSize="11.5"
+                             Background="#0D1117" BorderThickness="0" Padding="12"
+                             IsReadOnly="True" IsDocumentEnabled="False"
+                             VerticalScrollBarVisibility="Disabled"
+                             HorizontalScrollBarVisibility="Disabled"/>
               </ScrollViewer>
             </Border>
           </StackPanel>
@@ -1284,9 +1287,49 @@ function Set-DeployStep($i, $state) {
     }
 }
 
+# Log phase tracker — changes colour of log lines based on deployment stage
+$script:LogPhase = "entra"   # entra | azure | github | general
+
 function Add-Log($line) {
     if ([string]::IsNullOrWhiteSpace($line)) { return }
-    $LogBox.Text = $LogBox.Text + [string]$line + "`n"
+
+    # Detect phase transitions
+    if ($line -match 'Entra ID App Registration|Creating app registration|App created|Client ID:|Graph permissions|app roles|Admin consent|Exchange Recipient') {
+        $script:LogPhase = "entra"
+    } elseif ($line -match 'Deploying Azure infrastructure|Creating Azure resources|Building Docker|az acr build|Updating Container App|Key Vault|Container App|SQL|ACR|Bicep|infrastructure deployed') {
+        $script:LogPhase = "azure"
+    } elseif ($line -match 'GitHub Actions|gh secret|CI/CD|GitHub CLI|gh auth') {
+        $script:LogPhase = "github"
+    } elseif ($line -match 'Deployment Complete|available at|DASHBOARD_URL') {
+        $script:LogPhase = "done"
+    }
+
+    # Pick colour based on phase
+    $colour = switch ($script:LogPhase) {
+        "entra"   { "#58A6FF" }   # blue  — Entra/app registration
+        "azure"   { "#3FB950" }   # green — Azure infrastructure
+        "github"  { "#D29922" }   # amber — GitHub CI/CD
+        "done"    { "#7EE787" }   # bright green — complete
+        default   { "#8B949E" }   # grey  — general
+    }
+
+    # Error/warning lines always stand out regardless of phase
+    if ($line -match '^\s*(ERROR|FAILED|error:|Error )') {
+        $colour = "#F85149"   # red
+    } elseif ($line -match '^\s*(WARNING|Warning:|WARN)') {
+        $colour = "#D29922"   # amber
+    } elseif ($line -match '^\s*(OK|success|complete|done|granted|assigned|uploaded|created|configured)' -and $script:LogPhase -ne "done") {
+        $colour = "#3FB950"   # green for success lines
+    }
+
+    # Append a coloured paragraph to the RichTextBox document
+    $para = New-Object System.Windows.Documents.Paragraph
+    $para.Margin = "0"
+    $run = New-Object System.Windows.Documents.Run
+    $run.Text = [string]$line
+    $run.Foreground = $colour
+    $para.Inlines.Add($run) | Out-Null
+    $LogBox.Document.Blocks.Add($para) | Out-Null
     $LogScroll.ScrollToEnd()
 }
 
@@ -1531,6 +1574,8 @@ function Start-Deploy {
     1..6 | ForEach-Object { Set-DeployStep $_ "pending" }
     Set-DeployStep 1 "running"
     $PBar.Value = 5
+    $script:LogPhase = "general"
+    $LogBox.Document.Blocks.Clear()
 
     # For Standard mode: do Azure login in wizard process, then show subscription picker
     # This lets us show a WPF dialog after auth rather than relying on the background job
