@@ -30,7 +30,10 @@ param(
     [string]$TenantId,
     [string]$ClientId,
     [string]$ClientSecret,
-    [string]$SqlPassword
+    [string]$SqlPassword,
+    [string]$DeployMode = "Standard",        # Standard or MSP
+    [string]$CredentialType = "Secret",      # Secret or Certificate
+    [switch]$NonInteractive                  # Skip all prompts (used by wizard)
 )
 
 $ErrorActionPreference = "Stop"
@@ -116,20 +119,20 @@ Write-Host "---------------" -ForegroundColor Cyan
 Write-Host "  [1] Standard          - App registration and Azure resources in the same tenant" -ForegroundColor White
 Write-Host "  [2] MSP / Multi-tenant - App registration in client's tenant, Azure resources in your subscription" -ForegroundColor White
 Write-Host ""
-$deployMode = Read-Host "Select mode (1-2)"
+
+if ($NonInteractive) {
+    $deployMode = if ($DeployMode -eq "MSP") { "2" } else { "1" }
+    Write-Host "  Non-interactive mode: using $DeployMode deployment" -ForegroundColor Gray
+} else {
+    $deployMode = Read-Host "Select mode (1-2)"
+}
 $isMspMode = ($deployMode -eq "2")
 
 if ($isMspMode) {
     Write-Host ""
     Write-Host "  MSP mode selected." -ForegroundColor Cyan
     Write-Host "  Step 1 of 2: Login as a Global Admin in the CLIENT'S Microsoft 365 tenant" -ForegroundColor Yellow
-    Write-Host "  (This is used to create the app registration in their tenant)" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  A browser window will open. Sign in with the client's Global Admin account." -ForegroundColor White
-    Write-Host "  If you see a tenant picker, make sure to select the CLIENT tenant." -ForegroundColor White
-    Write-Host ""
-    Write-Host "  (Client tenants often have no Azure subscription - that is normal)" -ForegroundColor Gray
-    Read-Host "  Press Enter when ready to log in to the CLIENT tenant"
+    if (-not $NonInteractive) { Read-Host "  Press Enter when ready to log in to the CLIENT tenant" }
     $clientTenantAccountJson = Invoke-AzLogin -AllowNoSubscriptions
     $clientTenantAccount = $clientTenantAccountJson | ConvertFrom-Json
     Write-Host "  Logged in as: $($clientTenantAccount.user.name) (tenant: $($clientTenantAccount.tenantId))" -ForegroundColor Green
@@ -151,10 +154,12 @@ if ($isMspMode) {
         Write-Host "  Currently logged in as: $currentUser" -ForegroundColor White
         Write-Host "  Tenant ID:              $currentTenant" -ForegroundColor White
         Write-Host ""
-        Write-Host "  [1] Continue as $currentUser" -ForegroundColor White
-        Write-Host "  [2] Login as a different user" -ForegroundColor White
-        Write-Host ""
-        $loginChoice = Read-Host "Select option (1-2)"
+        $loginChoice = if ($NonInteractive) { "1" } else {
+            Write-Host "  [1] Continue as $currentUser" -ForegroundColor White
+            Write-Host "  [2] Login as a different user" -ForegroundColor White
+            Write-Host ""
+            Read-Host "Select option (1-2)"
+        }
         if ($loginChoice -eq "2") {
             cmd /c "az logout 2>nul" | Out-Null
             cmd /c "az login" | Out-Null
@@ -168,6 +173,10 @@ if ($isMspMode) {
             Write-Host "  Continuing as $currentUser" -ForegroundColor Green
         }
     } else {
+        if ($NonInteractive) {
+            Write-Host "  ERROR: Not logged in to Azure. Run 'az login' before launching the wizard." -ForegroundColor Red
+            exit 1
+        }
         Write-Host "  Not logged in. Launching browser login..." -ForegroundColor Yellow
         cmd /c "az login" | Out-Null
         if ($LASTEXITCODE -ne 0) {
@@ -222,7 +231,11 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
     Write-Host "  Using credentials passed as parameters" -ForegroundColor Gray
 } else {
     Write-Host ""
-    if ($configExists) {
+    if ($NonInteractive) {
+        # Non-interactive: always create new app registration
+        $appChoice = "1"
+        Write-Host "  Non-interactive mode: creating new app registration" -ForegroundColor Gray
+    } elseif ($configExists) {
         $savedConfig = Get-Content $configPath | ConvertFrom-Json
         Write-Host "  [1] Create a new app registration in this tenant" -ForegroundColor White
         Write-Host "  [2] Use existing config ($($savedConfig.AppName), created $($savedConfig.CreatedAt))" -ForegroundColor White
@@ -244,9 +257,11 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             # ----------------------------------------------------------------
             # Create a new app registration
             # ----------------------------------------------------------------
-            Write-Host ""
-            $appNameInput = Read-Host "App registration name (default: M365 Dashboard)"
-            if ([string]::IsNullOrWhiteSpace($appNameInput)) { $appNameInput = "M365 Dashboard" }
+            $appNameInput = if ($NonInteractive) { "M365 Dashboard" } else {
+                Write-Host ""
+                $n = Read-Host "App registration name (default: M365 Dashboard)"
+                if ([string]::IsNullOrWhiteSpace($n)) { "M365 Dashboard" } else { $n }
+            }
 
             $graphAppId = "00000003-0000-0000-c000-000000000000"
             $ErrorActionPreference = "Continue"
@@ -343,12 +358,17 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             # Credential type selection
             # ----------------------------------------------------------------
             Write-Host ""
-            Write-Host "  Credential Type" -ForegroundColor Cyan
-            Write-Host "  [1] Client Secret  - simpler, but may be blocked by tenant credential policies" -ForegroundColor White
-            Write-Host "  [2] Certificate    - more secure, works even when client secrets are blocked" -ForegroundColor White
-            Write-Host ""
-            $credChoice = Read-Host "  Select credential type (1-2, default 1)"
-            $useCertAuth = ($credChoice -eq "2")
+            if ($NonInteractive) {
+                $useCertAuth = ($CredentialType -eq "Certificate")
+                Write-Host "  Using credential type: $CredentialType" -ForegroundColor Gray
+            } else {
+                Write-Host "  Credential Type" -ForegroundColor Cyan
+                Write-Host "  [1] Client Secret  - simpler, but may be blocked by tenant credential policies" -ForegroundColor White
+                Write-Host "  [2] Certificate    - more secure, works even when client secrets are blocked" -ForegroundColor White
+                Write-Host ""
+                $credChoice = Read-Host "  Select credential type (1-2, default 1)"
+                $useCertAuth = ($credChoice -eq "2")
+            }
             $certThumbprint = $null
             $certPfxBase64 = $null
 
@@ -598,7 +618,10 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
     }
 }
 
-# Prompt for resource name prefix
+# Prompt for resource name prefix — skip in non-interactive mode (passed as parameter)
+if ($NonInteractive -and -not $NamePrefix) {
+    Write-Host "ERROR: -NamePrefix is required in non-interactive mode" -ForegroundColor Red; exit 1
+}
 if (-not $NamePrefix) {
     Write-Host ""
     Write-Host "Resource Naming" -ForegroundColor Cyan
@@ -616,7 +639,10 @@ if (-not $NamePrefix) {
     $NamePrefix = $NamePrefix.ToLower()
 }
 
-# Prompt for Azure region
+# Prompt for Azure region — skip in non-interactive mode (passed as parameter)
+if ($NonInteractive -and -not $Location) {
+    Write-Host "ERROR: -Location is required in non-interactive mode" -ForegroundColor Red; exit 1
+}
 if (-not $Location) {
     Write-Host ""
     Write-Host "Azure Region" -ForegroundColor Cyan
@@ -650,7 +676,7 @@ if (-not $isMspMode) {
     $subscriptionsJson = cmd /c "az account list --query [?state=='Enabled'] -o json 2>nul"
     $subscriptions = $subscriptionsJson | ConvertFrom-Json
 
-    if ($subscriptions.Count -gt 1) {
+    if ($subscriptions.Count -gt 1 -and -not $NonInteractive) {
         Write-Host "Multiple subscriptions found. Select one for deployment:"
         Write-Host ""
         $i = 1
@@ -674,13 +700,19 @@ if (-not $isMspMode) {
             Write-Host "  Invalid choice. Using current: $selectedSubscriptionName" -ForegroundColor Yellow
         }
     } else {
-        $currentAccount = $currentAccountJson | ConvertFrom-Json
-        $selectedSubscriptionName = $currentAccount.name
+        # Non-interactive or single subscription: use default/current
+        $defaultSub = $subscriptions | Where-Object { $_.isDefault } | Select-Object -First 1
+        if (-not $defaultSub) { $defaultSub = $subscriptions[0] }
+        $selectedSubscriptionName = $defaultSub.name
         Write-Host "Using subscription: $selectedSubscriptionName" -ForegroundColor Green
     }
 }
 
-# Prompt for SQL password
+# Prompt for SQL password — skip in non-interactive mode
+if ($NonInteractive -and -not $SqlPassword) {
+    $SqlPassword = $env:WIZARD_SQL_PASSWORD
+    if (-not $SqlPassword) { Write-Host "ERROR: SQL password required in non-interactive mode" -ForegroundColor Red; exit 1 }
+}
 if (-not $SqlPassword) {
     Write-Host ""
     Write-Host "SQL Server Password" -ForegroundColor Cyan
@@ -778,10 +810,12 @@ Write-Host "Client ID:       $ClientId"
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 
-$confirm = Read-Host "Proceed with deployment? (Y/n)"
-if ($confirm -eq "n" -or $confirm -eq "N") {
-    Write-Host "Deployment cancelled." -ForegroundColor Yellow
-    exit 0
+if (-not $NonInteractive) {
+    $confirm = Read-Host "Proceed with deployment? (Y/n)"
+    if ($confirm -eq "n" -or $confirm -eq "N") {
+        Write-Host "Deployment cancelled." -ForegroundColor Yellow
+        exit 0
+    }
 }
 Write-Host ""
 
@@ -809,7 +843,7 @@ if ($isMspMode) {
     Write-Host "  (The app registration in the client tenant is complete)" -ForegroundColor Gray
     Write-Host "  Now logging in to your MSP Azure subscription for resource deployment..." -ForegroundColor Gray
     Write-Host ""
-    Read-Host "  Press Enter when ready to log in to YOUR Azure subscription"
+    if (-not $NonInteractive) { Read-Host "  Press Enter when ready to log in to YOUR Azure subscription" }
     $yourAccountJson = Invoke-AzLogin
     $yourAccount = $yourAccountJson | ConvertFrom-Json
     Write-Host "  Logged in as: $($yourAccount.user.name) (tenant: $($yourAccount.tenantId))" -ForegroundColor Green
@@ -821,7 +855,7 @@ if ($isMspMode) {
     $subscriptionsJson = cmd /c "az account list --query [?state=='Enabled'] -o json 2>nul"
     $subscriptions = $subscriptionsJson | ConvertFrom-Json
 
-    if ($subscriptions.Count -gt 1) {
+    if ($subscriptions.Count -gt 1 -and -not $NonInteractive) {
         Write-Host "Multiple subscriptions found. Select one for deployment:"
         Write-Host ""
         $i = 1
@@ -844,7 +878,9 @@ if ($isMspMode) {
             Write-Host "  Invalid choice. Using current: $selectedSubscriptionName" -ForegroundColor Yellow
         }
     } else {
-        $selectedSubscriptionName = $yourAccount.name
+        $defaultSub = $subscriptions | Where-Object { $_.isDefault } | Select-Object -First 1
+        if (-not $defaultSub) { $defaultSub = $subscriptions[0] }
+        $selectedSubscriptionName = $defaultSub.name
         Write-Host "Using subscription: $selectedSubscriptionName" -ForegroundColor Green
     }
     Write-Host ""

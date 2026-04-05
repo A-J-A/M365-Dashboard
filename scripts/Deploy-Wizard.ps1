@@ -1179,11 +1179,13 @@ function Start-Deploy {
     $env:WIZARD_SQL_PASSWORD = $sqlPwd
 
     $argList = @(
-        "-NamePrefix", $prefix,
-        "-Location",   $region
+        "-NamePrefix",      $prefix,
+        "-Location",        $region,
+        "-DeployMode",      $(if ($isMsp) { "MSP" } else { "Standard" }),
+        "-CredentialType",  $(if ($useCert) { "Certificate" } else { "Secret" }),
+        "-SqlPassword",     $sqlPwd,
+        "-NonInteractive"
     )
-    if ($useCert) { $argList += @("-CredentialType", "Certificate") }
-    if ($isMsp)   { $argList += @("-DeployMode", "MSP") }
 
     # Step patterns — matched against each output line
     $script:StepMap = @(
