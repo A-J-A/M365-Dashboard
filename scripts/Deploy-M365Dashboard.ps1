@@ -1,4 +1,4 @@
-<# 
+﻿<# 
 .SYNOPSIS
     Deploy M365 Dashboard to Azure
 .DESCRIPTION
@@ -1594,7 +1594,7 @@ if ($ghAvailable) {
         Write-Host "  The deployment script needs to configure GitHub" -ForegroundColor White
         Write-Host "  Actions secrets to enable automatic CI/CD." -ForegroundColor White
         Write-Host ""
-        $ghAccountHint = if ($repoSlug -and $repoSlug -match '^([^/]+)/') { $Matches[1] } else { "the repository owner" }
+        $ghAccountHint = if ($repoSlug -and $repoSlug -match '^([a-zA-Z0-9_.-]+)/') { $Matches[1] } else { "the repository owner" }
         Write-Host "  Please sign in with the GitHub account that" -ForegroundColor White
         Write-Host "  owns the repository ($ghAccountHint)." -ForegroundColor White
         Write-Host ""

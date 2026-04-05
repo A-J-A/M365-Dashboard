@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     M365 Dashboard - Deployment Wizard (WPF GUI)
@@ -188,6 +188,80 @@ $C = @{
       <Setter Property="BorderBrush"     Value="#30363D"/>
       <Setter Property="BorderThickness" Value="1"/>
       <Setter Property="Padding"         Value="10,7"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBox">
+            <Grid>
+              <ToggleButton x:Name="ToggleButton" Focusable="false"
+                            IsChecked="{Binding Path=IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                            ClickMode="Press">
+                <ToggleButton.Template>
+                  <ControlTemplate TargetType="ToggleButton">
+                    <Border x:Name="border" Background="#0D1117" BorderBrush="#30363D" BorderThickness="1" CornerRadius="5">
+                      <Grid>
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*"/>
+                          <ColumnDefinition Width="24"/>
+                        </Grid.ColumnDefinitions>
+                        <ContentPresenter Grid.Column="0" Margin="10,7" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                        <Path Grid.Column="1" Data="M 0 0 L 4 4 L 8 0 Z" Fill="#8B949E"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                      </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                      <Trigger Property="IsMouseOver" Value="True">
+                        <Setter TargetName="border" Property="BorderBrush" Value="#58A6FF"/>
+                      </Trigger>
+                    </ControlTemplate.Triggers>
+                  </ControlTemplate>
+                </ToggleButton.Template>
+              </ToggleButton>
+              <ContentPresenter x:Name="ContentSite" IsHitTestVisible="False"
+                                Content="{TemplateBinding SelectionBoxItem}"
+                                ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                Margin="12,7,30,7" VerticalAlignment="Center"
+                                HorizontalAlignment="Left"/>
+              <Popup x:Name="Popup" Placement="Bottom" IsOpen="{TemplateBinding IsDropDownOpen}"
+                     AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+                <Grid x:Name="DropDown" SnapsToDevicePixels="True"
+                      MinWidth="{TemplateBinding ActualWidth}" MaxHeight="300">
+                  <Border x:Name="DropDownBorder" Background="#161B22"
+                          BorderBrush="#30363D" BorderThickness="1" CornerRadius="0,0,5,5"/>
+                  <ScrollViewer Margin="1" SnapsToDevicePixels="True">
+                    <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
+                  </ScrollViewer>
+                </Grid>
+              </Popup>
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- ComboBoxItem -->
+    <Style TargetType="ComboBoxItem">
+      <Setter Property="Background"  Value="#161B22"/>
+      <Setter Property="Foreground"  Value="#E6EDF3"/>
+      <Setter Property="Padding"     Value="12,8"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ComboBoxItem">
+            <Border x:Name="bd" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+              <ContentPresenter/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsHighlighted" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#0D2137"/>
+                <Setter Property="Foreground" Value="#58A6FF"/>
+              </Trigger>
+              <Trigger Property="IsSelected" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="#0D2137"/>
+                <Setter Property="Foreground" Value="#58A6FF"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
     </Style>
 
     <!-- Separator -->
@@ -365,8 +439,8 @@ $C = @{
             </TextBlock>
 
             <!-- Prerequisites card -->
-            <TextBlock Text="PREREQUISITES" FontSize="10" FontWeight="Bold"
-                       Foreground="#8B949E" LetterSpacing="2" Margin="0,0,0,10"/>
+            <TextBlock Text="P R E R E Q U I S I T E S" FontSize="10" FontWeight="Bold"
+                       Foreground="#8B949E" Margin="0,0,0,10"/>
             <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1"
                     CornerRadius="8" Padding="20,16" Margin="0,0,0,28">
               <StackPanel>
@@ -441,8 +515,8 @@ $C = @{
             </Border>
 
             <!-- Deployment mode -->
-            <TextBlock Text="DEPLOYMENT MODE" FontSize="10" FontWeight="Bold"
-                       Foreground="#8B949E" LetterSpacing="2" Margin="0,0,0,10"/>
+            <TextBlock Text="D E P L O Y M E N T   M O D E" FontSize="10" FontWeight="Bold"
+                       Foreground="#8B949E" Margin="0,0,0,10"/>
             <Grid Margin="0,0,0,8">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
@@ -549,7 +623,9 @@ $C = @{
               Used for the Azure SQL database. Min 12 chars with uppercase, lowercase,
               number and special character. Store this securely — it will not be shown again.
             </TextBlock>
-            <PasswordBox x:Name="TxtPwd1" Margin="0,0,0,6"/>
+            <TextBlock Text="Password" Foreground="#8B949E" FontSize="11" Margin="0,0,0,4"/>
+            <PasswordBox x:Name="TxtPwd1" Margin="0,0,0,10"/>
+            <TextBlock Text="Confirm Password" Foreground="#8B949E" FontSize="11" Margin="0,0,0,4"/>
             <PasswordBox x:Name="TxtPwd2" Margin="0,0,0,4"/>
             <TextBlock x:Name="TxtPwdErr" Foreground="#F85149" FontSize="11"
                        Margin="0,0,0,0" Visibility="Collapsed" TextWrapping="Wrap"/>
@@ -988,7 +1064,7 @@ function Set-DeployStep($i, $state) {
 
 function Add-Log($line) {
     if ([string]::IsNullOrWhiteSpace($line)) { return }
-    $LogBox.Text += $line + "`n"
+    $LogBox.Text = $LogBox.Text + [string]$line + "`n"
     $LogScroll.ScrollToEnd()
 }
 
@@ -996,29 +1072,34 @@ function Check-Prereqs {
     # Azure CLI
     $az = Get-Command az -ErrorAction SilentlyContinue
     if ($az) {
-        $ver = (az version --query '"azure-cli"' -o tsv 2>$null).Trim()
-        Set-Prereq $P.AzIcon $P.AzText $P.AzBadge "ok" "Azure CLI $ver found"
+        try {
+            $azVer = (& az --version 2>$null) | Select-Object -First 1
+            $ver = if ($azVer -match 'azure-cli\s+([\d\.]+)') { $Matches[1] } else { $azVer.ToString().Trim() }
+        } catch { $ver = "found" }
+        Set-Prereq $P.AzIcon $P.AzText $P.AzBadge "ok" "Azure CLI $ver"
     } else {
         Set-Prereq $P.AzIcon $P.AzText $P.AzBadge "err" "Not found — install from aka.ms/installazurecliwindows"
         $BtnNext.IsEnabled = $false
-        $FooterMsg.Text = "⚠ Azure CLI is required. Install it and restart the wizard."
+        $FooterMsg.Text = "WARNING: Azure CLI is required. Install it and restart the wizard."
     }
 
     # Git
     $git = Get-Command git -ErrorAction SilentlyContinue
     if ($git) {
-        $ver = (git --version 2>$null) -replace "git version ",""
+        try { $ver = (& git --version 2>$null) -replace "git version ","" } catch { $ver = "" }
+        $ver = if ($ver) { $ver.ToString().Trim() } else { "(version unknown)" }
         Set-Prereq $P.GitIcon $P.GitText $P.GitBadge "ok" "Git $ver found"
     } else {
         Set-Prereq $P.GitIcon $P.GitText $P.GitBadge "err" "Not found — install from git-scm.com"
         $BtnNext.IsEnabled = $false
-        $FooterMsg.Text = "⚠ Git is required. Install it and restart the wizard."
+        $FooterMsg.Text = "WARNING: Git is required. Install it and restart the wizard."
     }
 
     # GitHub CLI
     $gh = Get-Command gh -ErrorAction SilentlyContinue
     if ($gh) {
-        $ver = (gh --version 2>$null | Select-Object -First 1) -replace "gh version ",""
+        try { $ver = (& gh --version 2>$null | Select-Object -First 1) -replace "gh version ","" } catch { $ver = "" }
+        $ver = if ($ver) { $ver.ToString().Trim() } else { "(version unknown)" }
         Set-Prereq $P.GhIcon $P.GhText $P.GhBadge "ok" "GitHub CLI $ver found"
     } else {
         Set-Prereq $P.GhIcon $P.GhText $P.GhBadge "warn" "Not found — will be installed automatically during deployment"
@@ -1053,7 +1134,7 @@ function Check-Prereqs {
 function Validate-Page2 {
     $prefix = $TxtPrefix.Text.Trim()
     if ($prefix -notmatch "^[a-zA-Z][a-zA-Z0-9]{2,11}$") {
-        $FooterMsg.Text = "⚠ Prefix must be 3–12 chars, start with a letter, letters/numbers only."
+        $FooterMsg.Text = "Prefix must be 3-12 chars, start with a letter, letters/numbers only."
         return $false
     }
     $p1 = $TxtPwd1.Password; $p2 = $TxtPwd2.Password
@@ -1118,17 +1199,19 @@ function Start-Deploy {
     $script:RunningStep    = 1
 
     # Launch deploy script as background job
+    # Note: avoid $args as param name — it's a reserved variable in PowerShell
     $script:DeployJob = Start-Job -ScriptBlock {
-        param($ps, $args, $pwd)
-        $env:WIZARD_SQL_PASSWORD = $pwd
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $ps @args 2>&1
+        param($scriptPath, $scriptArgs, $sqlPassword)
+        $env:WIZARD_SQL_PASSWORD = $sqlPassword
+        $ErrorActionPreference = 'Continue'
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scriptPath @scriptArgs 2>&1
     } -ArgumentList $deployPs, $argList, $sqlPwd
 
     # Poll timer (every 600ms)
-    $timer = New-Object System.Windows.Threading.DispatcherTimer
-    $timer.Interval = [TimeSpan]::FromMilliseconds(600)
-    $timer.Add_Tick({
-        if (-not $script:DeployJob) { $timer.Stop(); return }
+    $script:PollTimer = New-Object System.Windows.Threading.DispatcherTimer
+    $script:PollTimer.Interval = [TimeSpan]::FromMilliseconds(600)
+    $script:PollTimer.Add_Tick({
+        if (-not $script:DeployJob) { $script:PollTimer.Stop(); return }
 
         $lines = Receive-Job $script:DeployJob -ErrorAction SilentlyContinue
         foreach ($line in $lines) {
@@ -1165,22 +1248,23 @@ function Start-Deploy {
         }
 
         if ($script:DeployJob.State -in @("Completed","Failed","Stopped")) {
-            $timer.Stop()
+            $script:PollTimer.Stop()
             $ok = ($script:DeployJob.State -eq "Completed")
 
             1..6 | ForEach-Object {
                 if (-not $script:CompletedSteps[$_]) {
-                    Set-DeployStep $_ (if ($ok) { "done" } else { "error" })
+                    $stepState = if ($ok) { "done" } else { "error" }
+                    Set-DeployStep $_ $stepState
                 }
             }
-            $PBar.Value = if ($ok) { 100 } else { $PBar.Value }
+            if ($ok) { $PBar.Value = 100 }
 
             Remove-Job $script:DeployJob -Force -ErrorAction SilentlyContinue
             $script:DeployJob = $null
             Finish-Deploy $ok
         }
     })
-    $timer.Start()
+    $script:PollTimer.Start()
 }
 
 function Finish-Deploy($ok) {
