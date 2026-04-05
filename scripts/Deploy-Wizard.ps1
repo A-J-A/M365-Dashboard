@@ -1215,7 +1215,7 @@ function Show-MspLoginDialog {
         <StackPanel Grid.Column="1">
           <TextBlock Text="YOUR Azure Subscription Login" FontWeight="Bold" Foreground="#3FB950" Margin="0,0,0,4"/>
           <TextBlock TextWrapping="Wrap" Foreground="#E6EDF3" FontSize="12">
-            Sign in to YOUR Azure subscription (Cloud1st / MSP).
+            Sign in to YOUR Azure subscription (your MSP Azure account).
           </TextBlock>
           <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,6,0,0">
             This is where the Container App, SQL, Key Vault and ACR will be created.
