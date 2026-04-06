@@ -413,7 +413,7 @@ $C = @{
         <StackPanel x:Name="DeploySubSteps" DockPanel.Dock="Top" Margin="0,4,0,0" Visibility="Collapsed">
           <Rectangle Height="1" Fill="#30363D" Margin="18,0,18,10"/>
           <TextBlock Text="D E P L O Y I N G" FontSize="9" FontWeight="Bold"
-                     Foreground="#484F58" Margin="22,0,0,8" LetterSpacing="1"/>
+                     Foreground="#484F58" Margin="22,0,0,8"/>
 
           <!-- Sub-step A: Azure Login -->
           <Grid x:Name="DSideA" Margin="14,3">
