@@ -910,11 +910,11 @@ $C = @{
             <!-- Log output -->
             <TextBlock Text="DEPLOYMENT LOG" FontSize="10" FontWeight="Bold"
                        Foreground="#8B949E" Margin="0,0,0,8"/>
-            <Border Background="#0D1117" BorderBrush="#30363D" BorderThickness="1" CornerRadius="7">
+            <Border Background="White" BorderBrush="#D0D7DE" BorderThickness="1" CornerRadius="7">
               <ScrollViewer x:Name="LogScroll" Height="200"
                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <RichTextBox x:Name="LogBox" FontFamily="Consolas" FontSize="11.5"
-                             Background="#0D1117" BorderThickness="0" Padding="12"
+                             Background="White" BorderThickness="0" Padding="12"
                              IsReadOnly="True" IsDocumentEnabled="False"
                              VerticalScrollBarVisibility="Disabled"
                              HorizontalScrollBarVisibility="Disabled"/>
@@ -1449,20 +1449,20 @@ function Add-Log($line) {
 
     # Pick colour based on phase
     $colour = switch ($script:LogPhase) {
-        "entra"   { "#58A6FF" }   # blue  — Entra/app registration
-        "azure"   { "#3FB950" }   # green — Azure infrastructure
-        "github"  { "#D29922" }   # amber — GitHub CI/CD
-        "done"    { "#7EE787" }   # bright green — complete
-        default   { "#8B949E" }   # grey  — general
+        "entra"   { "#0969DA" }   # blue  — Entra/app registration
+        "azure"   { "#1A7F37" }   # green — Azure infrastructure
+        "github"  { "#9A6700" }   # amber — GitHub CI/CD
+        "done"    { "#1A7F37" }   # green — complete
+        default   { "#57606A" }   # grey  — general
     }
 
     # Error/warning lines always stand out regardless of phase
     if ($line -match '^\s*(ERROR|FAILED|error:|Error )') {
-        $colour = "#F85149"   # red
+        $colour = "#CF222E"   # red
     } elseif ($line -match '^\s*(WARNING|Warning:|WARN)') {
-        $colour = "#D29922"   # amber
+        $colour = "#9A6700"   # amber
     } elseif ($line -match '^\s*(OK|success|complete|done|granted|assigned|uploaded|created|configured)' -and $script:LogPhase -ne "done") {
-        $colour = "#3FB950"   # green for success lines
+        $colour = "#1A7F37"   # green for success lines
     }
 
     # Append a coloured paragraph to the RichTextBox document
