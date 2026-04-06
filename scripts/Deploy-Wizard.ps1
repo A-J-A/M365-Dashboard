@@ -928,13 +928,26 @@ $C = @{
             </Border>
 
             <!-- Log output -->
-            <TextBlock Text="DEPLOYMENT LOG" FontSize="10" FontWeight="Bold"
-                       Foreground="#8B949E" Margin="0,0,0,8"/>
-            <Border Background="White" BorderBrush="#D0D7DE" BorderThickness="1" CornerRadius="7">
+            <Grid Margin="0,0,0,8">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="DEPLOYMENT LOG" FontSize="10" FontWeight="Bold"
+                         Foreground="#8B949E" VerticalAlignment="Center"/>
+              <Button x:Name="BtnLogMode" Grid.Column="1" Content="☀ Light"
+                      FontSize="10" Padding="8,3" Cursor="Hand"
+                      Foreground="#8B949E" Background="Transparent"
+                      BorderBrush="#30363D" BorderThickness="1"/>
+            </Grid>
+            <Border x:Name="LogBorder" Background="#0D1117" BorderBrush="#30363D" BorderThickness="1" CornerRadius="7">
               <ScrollViewer x:Name="LogScroll" Height="200"
                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <RichTextBox x:Name="LogBox" Style="{StaticResource LogRichTextBox}"
-                             FontFamily="Consolas" FontSize="11.5"/>
+                <RichTextBox x:Name="LogBox" FontFamily="Consolas" FontSize="11.5"
+                             Background="#0D1117" BorderThickness="0" Padding="12"
+                             IsReadOnly="True" IsDocumentEnabled="False"
+                             VerticalScrollBarVisibility="Disabled"
+                             HorizontalScrollBarVisibility="Disabled"/>
               </ScrollViewer>
             </Border>
           </StackPanel>
@@ -1122,9 +1135,13 @@ $RevSub    = G "RevSub"
 # Deploy page
 $PBar     = G "PBar"
 $LogScroll= G "LogScroll"; $LogBox = G "LogBox"
+$LogBorder= G "LogBorder"; $BtnLogMode = G "BtnLogMode"
 $TxtDeployStatus = G "TxtDeployStatus"
 $DI = 1..6 | ForEach-Object { G "DI$_" }
 $DT = 1..6 | ForEach-Object { G "DT$_" }
+
+# Log display mode: dark (default) or light
+$script:LogLightMode = $false
 
 # Sidebar deploy sub-steps (A=login, B=entra, C=azure, D=docker, E=github)
 $DeploySubSteps = G "DeploySubSteps"
@@ -1448,7 +1465,73 @@ function Set-DeploySideStep($key, $state) {
 }
 
 # Log phase tracker — changes colour of log lines based on deployment stage
-$script:LogPhase = "entra"   # entra | azure | github | general
+$script:LogPhase    = "general"
+$script:LogLightMode = $false
+
+# Colour palettes — dark (default) and light
+$script:LogColours = @{
+    dark = @{
+        entra   = "#58A6FF"   # bright blue
+        azure   = "#3FB950"   # bright green
+        github  = "#E3B341"   # bright amber
+        done    = "#7EE787"   # bright lime
+        general = "#C9D1D9"   # light grey
+        error   = "#FF7B72"   # bright red
+        warn    = "#E3B341"   # amber
+        success = "#3FB950"   # green
+    }
+    light = @{
+        entra   = "#0969DA"   # dark blue
+        azure   = "#1A7F37"   # dark green
+        github  = "#9A6700"   # dark amber
+        done    = "#1A7F37"   # dark green
+        general = "#24292F"   # near black
+        error   = "#CF222E"   # dark red
+        warn    = "#9A6700"   # dark amber
+        success = "#1A7F37"   # dark green
+    }
+}
+
+function Get-LogColour($phase, $line) {
+    $p = if ($script:LogLightMode) { "light" } else { "dark" }
+    $c = $script:LogColours[$p]
+    if ($line -match '^\s*(ERROR|FAILED|error:|Error )') { return $c.error }
+    if ($line -match '^\s*(WARNING|Warning:|WARN)')       { return $c.warn  }
+    if ($line -match '^\s*(OK|success|complete|done|granted|assigned|uploaded|created|configured)' -and $phase -ne 'done') { return $c.success }
+    switch ($phase) {
+        'entra'   { return $c.entra   }
+        'azure'   { return $c.azure   }
+        'github'  { return $c.github  }
+        'done'    { return $c.done    }
+        default   { return $c.general }
+    }
+}
+
+function Set-LogMode($light) {
+    $script:LogLightMode = $light
+    $bg = if ($light) { [System.Windows.Media.Brushes]::White } else { [System.Windows.Media.BrushConverter]::new().ConvertFrom("#0D1117") }
+    $borderBg  = if ($light) { "White"   } else { "#0D1117" }
+    $borderBdr = if ($light) { "#D0D7DE" } else { "#30363D" }
+    $LogBox.Background            = $bg
+    $LogBox.Document.Background   = $bg
+    $LogBorder.Background         = $borderBg
+    $LogBorder.BorderBrush        = $borderBdr
+    $BtnLogMode.Content           = if ($light) { "🌙 Dark" } else { "☀ Light" }
+
+    # Re-colour all existing paragraphs
+    foreach ($block in $LogBox.Document.Blocks) {
+        foreach ($inline in $block.Inlines) {
+            $txt = $inline.Text
+            # Re-detect phase from text content
+            $ph = 'general'
+            if ($txt -match 'Entra|App registration|Graph permissions|Admin consent|Exchange') { $ph = 'entra' }
+            elseif ($txt -match 'Azure infrastructure|Docker|Container App|SQL|Key Vault|ACR|Bicep') { $ph = 'azure' }
+            elseif ($txt -match 'GitHub|gh secret|CI/CD') { $ph = 'github' }
+            elseif ($txt -match 'Deployment Complete|DASHBOARD_URL') { $ph = 'done' }
+            $inline.Foreground = Get-LogColour $ph $txt
+        }
+    }
+}
 
 function Add-Log($line) {
     if ([string]::IsNullOrWhiteSpace($line)) { return }
@@ -1464,25 +1547,8 @@ function Add-Log($line) {
         $script:LogPhase = "done"
     }
 
-    # Pick colour based on phase
-    $colour = switch ($script:LogPhase) {
-        "entra"   { "#0969DA" }   # blue  — Entra/app registration
-        "azure"   { "#1A7F37" }   # green — Azure infrastructure
-        "github"  { "#9A6700" }   # amber — GitHub CI/CD
-        "done"    { "#1A7F37" }   # green — complete
-        default   { "#57606A" }   # grey  — general
-    }
+    $colour = Get-LogColour $script:LogPhase $line
 
-    # Error/warning lines always stand out regardless of phase
-    if ($line -match '^\s*(ERROR|FAILED|error:|Error )') {
-        $colour = "#CF222E"   # red
-    } elseif ($line -match '^\s*(WARNING|Warning:|WARN)') {
-        $colour = "#9A6700"   # amber
-    } elseif ($line -match '^\s*(OK|success|complete|done|granted|assigned|uploaded|created|configured)' -and $script:LogPhase -ne "done") {
-        $colour = "#1A7F37"   # green for success lines
-    }
-
-    # Append a coloured paragraph to the RichTextBox document
     $para = New-Object System.Windows.Documents.Paragraph
     $para.Margin = "0"
     $run = New-Object System.Windows.Documents.Run
@@ -1738,8 +1804,9 @@ function Start-Deploy {
     $PBar.Value = 5
     $script:LogPhase = "general"
     $LogBox.Document.Blocks.Clear()
-    $LogBox.Document.Background = [System.Windows.Media.Brushes]::White
-    $LogBox.Background          = [System.Windows.Media.Brushes]::White
+    # Reset to dark mode on each new deployment
+    $script:LogLightMode = $false
+    Set-LogMode $false
 
     # For Standard mode: do Azure login in wizard process, then show subscription picker
     # This lets us show a WPF dialog after auth rather than relying on the background job
@@ -1943,6 +2010,10 @@ $BtnCopyUrl.Add_Click({
     }
 })
 
+$BtnLogMode.Add_Click({
+    Set-LogMode (-not $script:LogLightMode)
+})
+
 $BtnRetry.Add_Click({ Show-Page 3 })
 
 # ---------------------------------------------------------------------------
@@ -1951,9 +2022,6 @@ $BtnRetry.Add_Click({ Show-Page 3 })
 $Win.Add_Loaded({
     Show-Page 1
     Check-Prereqs
-    # RichTextBox ignores Background set in XAML — must be set on the document after load
-    $LogBox.Document.Background = [System.Windows.Media.Brushes]::White
-    $LogBox.Background          = [System.Windows.Media.Brushes]::White
 })
 
 $Win.Add_Closing({
