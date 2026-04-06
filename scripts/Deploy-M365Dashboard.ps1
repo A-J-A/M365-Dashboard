@@ -147,6 +147,15 @@ if ($isMspMode) {
     $currentAccountJson = (cmd /c "az account show -o json 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
     $ErrorActionPreference = "Stop"
 
+    # In NonInteractive mode, if account show fails but SubscriptionId was provided,
+    # try setting the subscription first (handles --allow-no-subscriptions login state)
+    if (-not $currentAccountJson -and $NonInteractive -and $SubscriptionId) {
+        cmd /c "az account set --subscription $SubscriptionId 2>nul" | Out-Null
+        $ErrorActionPreference = "Continue"
+        $currentAccountJson = (cmd /c "az account show -o json 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
+        $ErrorActionPreference = "Stop"
+    }
+
     if ($currentAccountJson) {
         $currentAccount = $currentAccountJson | ConvertFrom-Json
         $currentUser = $currentAccount.user.name
