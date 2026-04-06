@@ -427,8 +427,8 @@ $C = @{
                          FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
             <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
-              <TextBlock x:Name="DSideLblA" Text="Azure login" Foreground="#484F58" FontSize="11"/>
-              <TextBlock Text="Sign in to Azure" Foreground="#30363D" FontSize="9"/>
+              <TextBlock x:Name="DSideLblA" Text="Sign in" Foreground="#484F58" FontSize="11"/>
+              <TextBlock x:Name="DSideSubA" Text="Your M365 / Azure account" Foreground="#30363D" FontSize="9"/>
             </StackPanel>
           </Grid>
 
@@ -445,7 +445,7 @@ $C = @{
             </Border>
             <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
               <TextBlock x:Name="DSideLblB" Text="Entra app" Foreground="#484F58" FontSize="11"/>
-              <TextBlock Text="App registration" Foreground="#30363D" FontSize="9"/>
+              <TextBlock x:Name="DSideSubB" Text="App reg &amp; permissions" Foreground="#30363D" FontSize="9"/>
             </StackPanel>
           </Grid>
 
@@ -462,7 +462,7 @@ $C = @{
             </Border>
             <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
               <TextBlock x:Name="DSideLblC" Text="Azure infra" Foreground="#484F58" FontSize="11"/>
-              <TextBlock Text="Container App &amp; SQL" Foreground="#30363D" FontSize="9"/>
+              <TextBlock x:Name="DSideSubC" Text="Container App, SQL, KV" Foreground="#30363D" FontSize="9"/>
             </StackPanel>
           </Grid>
 
@@ -479,7 +479,7 @@ $C = @{
             </Border>
             <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
               <TextBlock x:Name="DSideLblD" Text="Docker build" Foreground="#484F58" FontSize="11"/>
-              <TextBlock Text="Build &amp; push image" Foreground="#30363D" FontSize="9"/>
+              <TextBlock x:Name="DSideSubD" Text="Build &amp; push image" Foreground="#30363D" FontSize="9"/>
             </StackPanel>
           </Grid>
 
@@ -496,7 +496,7 @@ $C = @{
             </Border>
             <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
               <TextBlock x:Name="DSideLblE" Text="GitHub CI/CD" Foreground="#484F58" FontSize="11"/>
-              <TextBlock Text="Actions secrets" Foreground="#30363D" FontSize="9"/>
+              <TextBlock x:Name="DSideSubE" Text="Sign in to GitHub" Foreground="#30363D" FontSize="9"/>
             </StackPanel>
           </Grid>
         </StackPanel>
@@ -853,7 +853,7 @@ $C = @{
           <StackPanel x:Name="PageDeploy" Margin="40,36,40,24" Visibility="Collapsed">
             <TextBlock Text="Deploying..." FontSize="28" FontWeight="Bold"
                        Foreground="White" Margin="0,0,0,6"/>
-            <TextBlock TextWrapping="Wrap" Foreground="#8B949E" Margin="0,0,0,20">
+            <TextBlock x:Name="TxtDeployStatus" TextWrapping="Wrap" Foreground="#8B949E" Margin="0,0,0,20">
               Deployment is running. Do not close this window.
             </TextBlock>
 
@@ -1105,6 +1105,7 @@ $RevSub    = G "RevSub"
 # Deploy page
 $PBar     = G "PBar"
 $LogScroll= G "LogScroll"; $LogBox = G "LogBox"
+$TxtDeployStatus = G "TxtDeployStatus"
 $DI = 1..6 | ForEach-Object { G "DI$_" }
 $DT = 1..6 | ForEach-Object { G "DT$_" }
 
@@ -1724,7 +1725,8 @@ function Start-Deploy {
     # For Standard mode: do Azure login in wizard process, then show subscription picker
     # This lets us show a WPF dialog after auth rather than relying on the background job
     if (-not $isMsp) {
-        Add-Log "Opening Azure login..."
+        $TxtDeployStatus.Text = "Sign in with your Microsoft 365 Global Admin account. This account is used to create the Entra app registration and deploy Azure resources."
+        Add-Log "Opening Azure login — sign in with your Microsoft 365 Global Admin account..."
         $ErrorActionPreference = "Continue"
         cmd /c "az login" | Out-Null
         $rawAccount = (cmd /c "az account show -o json 2>nul")
@@ -1746,6 +1748,7 @@ function Start-Deploy {
             return
         }
         Add-Log "Subscription: $($script:SelectedSubName)"
+        $TxtDeployStatus.Text = "Deployment is running. Do not close this window."
     }
 
     # Pass SQL password via environment variable to avoid shell quoting issues
