@@ -409,6 +409,98 @@ $C = @{
           <TextBlock Text="github.com" Foreground="#484F58" FontSize="10" Margin="0,2,0,0"/>
         </StackPanel>
 
+        <!-- Deployment sub-steps (visible only during page 4) -->
+        <StackPanel x:Name="DeploySubSteps" DockPanel.Dock="Top" Margin="0,4,0,0" Visibility="Collapsed">
+          <Rectangle Height="1" Fill="#30363D" Margin="18,0,18,10"/>
+          <TextBlock Text="D E P L O Y I N G" FontSize="9" FontWeight="Bold"
+                     Foreground="#484F58" Margin="22,0,0,8" LetterSpacing="1"/>
+
+          <!-- Sub-step A: Azure Login -->
+          <Grid x:Name="DSideA" Margin="14,3">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="30"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Border x:Name="DSideDotA" Width="18" Height="18" CornerRadius="9"
+                    Background="#21262D" HorizontalAlignment="Center" VerticalAlignment="Center">
+              <TextBlock x:Name="DSideNumA" Text="○" Foreground="#484F58"
+                         FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+              <TextBlock x:Name="DSideLblA" Text="Azure login" Foreground="#484F58" FontSize="11"/>
+              <TextBlock Text="Sign in to Azure" Foreground="#30363D" FontSize="9"/>
+            </StackPanel>
+          </Grid>
+
+          <!-- Sub-step B: Entra App Registration -->
+          <Grid x:Name="DSideB" Margin="14,3">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="30"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Border x:Name="DSideDotB" Width="18" Height="18" CornerRadius="9"
+                    Background="#21262D" HorizontalAlignment="Center" VerticalAlignment="Center">
+              <TextBlock x:Name="DSideNumB" Text="○" Foreground="#484F58"
+                         FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+              <TextBlock x:Name="DSideLblB" Text="Entra app" Foreground="#484F58" FontSize="11"/>
+              <TextBlock Text="App registration" Foreground="#30363D" FontSize="9"/>
+            </StackPanel>
+          </Grid>
+
+          <!-- Sub-step C: Azure Infrastructure -->
+          <Grid x:Name="DSideC" Margin="14,3">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="30"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Border x:Name="DSideDotC" Width="18" Height="18" CornerRadius="9"
+                    Background="#21262D" HorizontalAlignment="Center" VerticalAlignment="Center">
+              <TextBlock x:Name="DSideNumC" Text="○" Foreground="#484F58"
+                         FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+              <TextBlock x:Name="DSideLblC" Text="Azure infra" Foreground="#484F58" FontSize="11"/>
+              <TextBlock Text="Container App &amp; SQL" Foreground="#30363D" FontSize="9"/>
+            </StackPanel>
+          </Grid>
+
+          <!-- Sub-step D: Docker Build -->
+          <Grid x:Name="DSideD" Margin="14,3">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="30"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Border x:Name="DSideDotD" Width="18" Height="18" CornerRadius="9"
+                    Background="#21262D" HorizontalAlignment="Center" VerticalAlignment="Center">
+              <TextBlock x:Name="DSideNumD" Text="○" Foreground="#484F58"
+                         FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+              <TextBlock x:Name="DSideLblD" Text="Docker build" Foreground="#484F58" FontSize="11"/>
+              <TextBlock Text="Build &amp; push image" Foreground="#30363D" FontSize="9"/>
+            </StackPanel>
+          </Grid>
+
+          <!-- Sub-step E: GitHub CI/CD -->
+          <Grid x:Name="DSideE" Margin="14,3">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="30"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Border x:Name="DSideDotE" Width="18" Height="18" CornerRadius="9"
+                    Background="#21262D" HorizontalAlignment="Center" VerticalAlignment="Center">
+              <TextBlock x:Name="DSideNumE" Text="○" Foreground="#484F58"
+                         FontSize="10" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+              <TextBlock x:Name="DSideLblE" Text="GitHub CI/CD" Foreground="#484F58" FontSize="11"/>
+              <TextBlock Text="Actions secrets" Foreground="#30363D" FontSize="9"/>
+            </StackPanel>
+          </Grid>
+        </StackPanel>
+
         <Grid/>
       </DockPanel>
     </Border>
@@ -1016,6 +1108,12 @@ $LogScroll= G "LogScroll"; $LogBox = G "LogBox"
 $DI = 1..6 | ForEach-Object { G "DI$_" }
 $DT = 1..6 | ForEach-Object { G "DT$_" }
 
+# Sidebar deploy sub-steps (A=login, B=entra, C=azure, D=docker, E=github)
+$DeploySubSteps = G "DeploySubSteps"
+$DSideDots  = @{ A=G "DSideDotA";  B=G "DSideDotB";  C=G "DSideDotC";  D=G "DSideDotD";  E=G "DSideDotE" }
+$DSideNums  = @{ A=G "DSideNumA";  B=G "DSideNumB";  C=G "DSideNumC";  D=G "DSideNumD";  E=G "DSideNumE" }
+$DSideLabels= @{ A=G "DSideLblA";  B=G "DSideLblB";  C=G "DSideLblC";  D=G "DSideLblD";  E=G "DSideLblE" }
+
 # Done page
 $PanelSuccess = G "PanelSuccess";  $PanelError = G "PanelError"
 $TxtUrl       = G "TxtUrl";        $BtnCopyUrl = G "BtnCopyUrl"
@@ -1259,7 +1357,7 @@ function Show-Page($n) {
             $PanelClientUser.Visibility = if ($ModeMsp.IsChecked) { "Visible" } else { "Collapsed" }
         }
         3 { $Pages.Review.Visibility  = "Visible" }
-        4 { $Pages.Deploy.Visibility  = "Visible" }
+        4 { $Pages.Deploy.Visibility  = "Visible"; $DeploySubSteps.Visibility = "Visible" }
         5 { $Pages.Done.Visibility    = "Visible" }
     }
     $script:Page = $n
@@ -1271,8 +1369,10 @@ function Show-Page($n) {
         1 { $BtnNext.Content = "Next →";      $BtnNext.IsEnabled = $true  }
         2 { $BtnNext.Content = "Next →";      $BtnNext.IsEnabled = $true  }
         3 { $BtnNext.Content = "🚀  Deploy";  $BtnNext.IsEnabled = $true  }
-        4 { $BtnNext.Content = "Deploying…";  $BtnNext.IsEnabled = $false }
-        5 { $BtnNext.Content = "Close";       $BtnNext.IsEnabled = $true  }
+        4 { $BtnNext.Content = "Deploying…";  $BtnNext.IsEnabled = $false
+            $DeploySubSteps.Visibility = "Visible" }
+        5 { $BtnNext.Content = "Close";       $BtnNext.IsEnabled = $true
+            $DeploySubSteps.Visibility = "Collapsed" }
     }
     $FooterMsg.Text = ""
 }
@@ -1284,6 +1384,48 @@ function Set-DeployStep($i, $state) {
         "running" { $icon.Text = "◉"; $icon.Foreground = "#D29922"; $txt.Foreground = "White"   }
         "done"    { $icon.Text = "✓"; $icon.Foreground = "#3FB950"; $txt.Foreground = "#3FB950" }
         "error"   { $icon.Text = "✗"; $icon.Foreground = "#F85149"; $txt.Foreground = "#F85149" }
+    }
+}
+
+# Sidebar deploy sub-step colours match the log phase colours
+# A=login(grey), B=entra(blue), C=azure(green), D=docker(green), E=github(amber)
+$script:DSideColours = @{
+    A = @{ running="#8B949E"; done="#3FB950" }  # login — grey active, green done
+    B = @{ running="#58A6FF"; done="#3FB950" }  # entra — blue active
+    C = @{ running="#3FB950"; done="#3FB950" }  # azure — green active
+    D = @{ running="#3FB950"; done="#3FB950" }  # docker — green active
+    E = @{ running="#D29922"; done="#3FB950" }  # github — amber active
+}
+
+function Set-DeploySideStep($key, $state) {
+    $dot = $DSideDots[$key]
+    $num = $DSideNums[$key]
+    $lbl = $DSideLabels[$key]
+    $colours = $script:DSideColours[$key]
+    switch ($state) {
+        "pending" {
+            $dot.Background = "#21262D"
+            $num.Text = "○"; $num.Foreground = "#484F58"
+            $lbl.Foreground = "#484F58"
+        }
+        "running" {
+            $dot.Background = $colours.running
+            $num.Text = "◉"; $num.Foreground = "White"
+            $lbl.Foreground = "White"
+            $lbl.FontWeight = "SemiBold"
+        }
+        "done" {
+            $dot.Background = $colours.done
+            $num.Text = "✓"; $num.Foreground = "White"
+            $lbl.Foreground = "#3FB950"
+            $lbl.FontWeight = "Normal"
+        }
+        "error" {
+            $dot.Background = "#F85149"
+            $num.Text = "✗"; $num.Foreground = "White"
+            $lbl.Foreground = "#F85149"
+            $lbl.FontWeight = "Normal"
+        }
     }
 }
 
@@ -1572,7 +1714,9 @@ function Start-Deploy {
 
     Show-Page 4
     1..6 | ForEach-Object { Set-DeployStep $_ "pending" }
+    foreach ($k in @('A','B','C','D','E')) { Set-DeploySideStep $k "pending" }
     Set-DeployStep 1 "running"
+    Set-DeploySideStep 'A' "running"
     $PBar.Value = 5
     $script:LogPhase = "general"
     $LogBox.Document.Blocks.Clear()
@@ -1667,6 +1811,23 @@ function Start-Deploy {
                         $script:RunningStep = $sm.Step
                         Set-DeployStep $sm.Step "running"
                         if ($sm.Pct -gt $PBar.Value) { $PBar.Value = $sm.Pct }
+
+                        # Advance the sidebar sub-step indicator
+                        $sideKey = switch ($sm.Step) {
+                            1 { 'A' }  # Azure login
+                            2 { 'B' }  # Entra app
+                            3 { 'C' }  # Azure infra
+                            4 { 'D' }  # Docker build
+                            5 { 'D' }  # App config (still in azure/docker phase)
+                            6 { 'E' }  # GitHub CI/CD
+                            default { $null }
+                        }
+                        if ($sideKey) {
+                            $allKeys = @('A','B','C','D','E')
+                            $sideIdx = [array]::IndexOf($allKeys, $sideKey)
+                            for ($si = 0; $si -lt $sideIdx; $si++) { Set-DeploySideStep $allKeys[$si] "done" }
+                            Set-DeploySideStep $sideKey "running"
+                        }
                     }
                 }
             }
@@ -1695,7 +1856,14 @@ function Start-Deploy {
                     Set-DeployStep $_ $stepState
                 }
             }
-            if ($ok) { $PBar.Value = 100 }
+            if ($ok) {
+                $PBar.Value = 100
+                foreach ($k in @('A','B','C','D','E')) { Set-DeploySideStep $k "done" }
+            } else {
+                foreach ($k in @('A','B','C','D','E')) {
+                    if ($DSideNums[$k].Text -eq "◉") { Set-DeploySideStep $k "error" }
+                }
+            }
 
             Remove-Job $script:DeployJob -Force -ErrorAction SilentlyContinue
             $script:DeployJob = $null
