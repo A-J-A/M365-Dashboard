@@ -271,21 +271,29 @@ $C = @{
       <Setter Property="Margin"     Value="0,8"/>
     </Style>
 
-    <!-- Log RichTextBox: force white background and dark text by overriding the full template -->
-    <Style x:Key="LogRichTextBox" TargetType="RichTextBox">
-      <Setter Property="Background"      Value="White"/>
-      <Setter Property="Foreground"      Value="#24292F"/>
-      <Setter Property="BorderThickness" Value="0"/>
-      <Setter Property="Padding"         Value="12"/>
-      <Setter Property="IsReadOnly"      Value="True"/>
+    <!-- Force white background on the log ScrollViewer -->
+    <Style x:Key="LogScrollStyle" TargetType="ScrollViewer">
+      <Setter Property="Background" Value="White"/>
       <Setter Property="Template">
         <Setter.Value>
-          <ControlTemplate TargetType="RichTextBox">
-            <Border Background="White" CornerRadius="0">
-              <ScrollViewer x:Name="PART_ContentHost" Background="White"
-                            VerticalScrollBarVisibility="Auto"
-                            HorizontalScrollBarVisibility="Disabled"/>
-            </Border>
+          <ControlTemplate TargetType="ScrollViewer">
+            <Grid Background="White">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+              </Grid.RowDefinitions>
+              <ScrollContentPresenter Grid.Column="0" Grid.Row="0" Background="White"/>
+              <ScrollBar x:Name="PART_VerticalScrollBar" Grid.Column="1" Grid.Row="0"
+                         Orientation="Vertical"
+                         Value="{TemplateBinding VerticalOffset}"
+                         Maximum="{TemplateBinding ScrollableHeight}"
+                         ViewportSize="{TemplateBinding ViewportHeight}"
+                         Visibility="{TemplateBinding ComputedVerticalScrollBarVisibility}"/>
+            </Grid>
           </ControlTemplate>
         </Setter.Value>
       </Setter>
@@ -448,7 +456,7 @@ $C = @{
             </Border>
             <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
               <TextBlock x:Name="DSideLblA" Text="Sign in" Foreground="#484F58" FontSize="11"/>
-              <TextBlock x:Name="DSideSubA" Text="Your M365 / Azure account" Foreground="#30363D" FontSize="9"/>
+              <TextBlock x:Name="DSideSubA" Text="Global Admin of M365 tenant" Foreground="#30363D" FontSize="9"/>
             </StackPanel>
           </Grid>
 
@@ -928,26 +936,12 @@ $C = @{
             </Border>
 
             <!-- Log output -->
-            <Grid Margin="0,0,0,8">
-              <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-              </Grid.ColumnDefinitions>
-              <TextBlock Text="DEPLOYMENT LOG" FontSize="10" FontWeight="Bold"
-                         Foreground="#8B949E" VerticalAlignment="Center"/>
-              <Button x:Name="BtnLogMode" Grid.Column="1" Content="☀ Light"
-                      FontSize="10" Padding="8,3" Cursor="Hand"
-                      Foreground="#8B949E" Background="Transparent"
-                      BorderBrush="#30363D" BorderThickness="1"/>
-            </Grid>
-            <Border x:Name="LogBorder" Background="#0D1117" BorderBrush="#30363D" BorderThickness="1" CornerRadius="7">
+            <TextBlock Text="DEPLOYMENT LOG" FontSize="10" FontWeight="Bold"
+                       Foreground="#8B949E" Margin="0,0,0,8"/>
+            <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1" CornerRadius="7">
               <ScrollViewer x:Name="LogScroll" Height="200"
                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <RichTextBox x:Name="LogBox" FontFamily="Consolas" FontSize="11.5"
-                             Background="#0D1117" BorderThickness="0" Padding="12"
-                             IsReadOnly="True" IsDocumentEnabled="False"
-                             VerticalScrollBarVisibility="Disabled"
-                             HorizontalScrollBarVisibility="Disabled"/>
+                <StackPanel x:Name="LogBox" Margin="12,8"/>
               </ScrollViewer>
             </Border>
           </StackPanel>
@@ -1135,13 +1129,9 @@ $RevSub    = G "RevSub"
 # Deploy page
 $PBar     = G "PBar"
 $LogScroll= G "LogScroll"; $LogBox = G "LogBox"
-$LogBorder= G "LogBorder"; $BtnLogMode = G "BtnLogMode"
 $TxtDeployStatus = G "TxtDeployStatus"
 $DI = 1..6 | ForEach-Object { G "DI$_" }
 $DT = 1..6 | ForEach-Object { G "DT$_" }
-
-# Log display mode: dark (default) or light
-$script:LogLightMode = $false
 
 # Sidebar deploy sub-steps (A=login, B=entra, C=azure, D=docker, E=github)
 $DeploySubSteps = G "DeploySubSteps"
@@ -1239,13 +1229,7 @@ function Show-SubscriptionPicker($loggedInAs) {
     $subs = @()
     try { $subs = ($rawSubs -join "") | ConvertFrom-Json } catch {}
 
-    # If only one subscription, skip the picker entirely
-    if ($subs.Count -eq 1) {
-        $script:SelectedSubId   = $subs[0].id
-        $script:SelectedSubName = $subs[0].name
-        return $true
-    }
-
+    # If only one subscription, still show picker so user can confirm
     if ($subs.Count -eq 0) {
         [System.Windows.MessageBox]::Show(
             "No Azure subscriptions found for this account.`nMake sure you are logged in with the correct account.",
@@ -1464,79 +1448,25 @@ function Set-DeploySideStep($key, $state) {
     }
 }
 
-# Log phase tracker — changes colour of log lines based on deployment stage
-$script:LogPhase    = "general"
-$script:LogLightMode = $false
-
-# Colour palettes — dark (default) and light
-$script:LogColours = @{
-    dark = @{
-        entra   = "#58A6FF"   # bright blue
-        azure   = "#3FB950"   # bright green
-        github  = "#E3B341"   # bright amber
-        done    = "#7EE787"   # bright lime
-        general = "#C9D1D9"   # light grey
-        error   = "#FF7B72"   # bright red
-        warn    = "#E3B341"   # amber
-        success = "#3FB950"   # green
-    }
-    light = @{
-        entra   = "#0969DA"   # dark blue
-        azure   = "#1A7F37"   # dark green
-        github  = "#9A6700"   # dark amber
-        done    = "#1A7F37"   # dark green
-        general = "#24292F"   # near black
-        error   = "#CF222E"   # dark red
-        warn    = "#9A6700"   # dark amber
-        success = "#1A7F37"   # dark green
-    }
-}
+# Log phase tracker
+$script:LogPhase = "general"
 
 function Get-LogColour($phase, $line) {
-    $p = if ($script:LogLightMode) { "light" } else { "dark" }
-    $c = $script:LogColours[$p]
-    if ($line -match '^\s*(ERROR|FAILED|error:|Error )') { return $c.error }
-    if ($line -match '^\s*(WARNING|Warning:|WARN)')       { return $c.warn  }
-    if ($line -match '^\s*(OK|success|complete|done|granted|assigned|uploaded|created|configured)' -and $phase -ne 'done') { return $c.success }
+    if ($line -match '^\s*(ERROR|FAILED|error:|Error )') { return "#FF7B72" }
+    if ($line -match '^\s*(WARNING|Warning:|WARN)')       { return "#E3B341" }
+    if ($line -match '^\s*(OK|success|complete|done|granted|assigned|uploaded|created|configured)' -and $phase -ne 'done') { return "#3FB950" }
     switch ($phase) {
-        'entra'   { return $c.entra   }
-        'azure'   { return $c.azure   }
-        'github'  { return $c.github  }
-        'done'    { return $c.done    }
-        default   { return $c.general }
-    }
-}
-
-function Set-LogMode($light) {
-    $script:LogLightMode = $light
-    $bg = if ($light) { [System.Windows.Media.Brushes]::White } else { [System.Windows.Media.BrushConverter]::new().ConvertFrom("#0D1117") }
-    $borderBg  = if ($light) { "White"   } else { "#0D1117" }
-    $borderBdr = if ($light) { "#D0D7DE" } else { "#30363D" }
-    $LogBox.Background            = $bg
-    $LogBox.Document.Background   = $bg
-    $LogBorder.Background         = $borderBg
-    $LogBorder.BorderBrush        = $borderBdr
-    $BtnLogMode.Content           = if ($light) { "🌙 Dark" } else { "☀ Light" }
-
-    # Re-colour all existing paragraphs
-    foreach ($block in $LogBox.Document.Blocks) {
-        foreach ($inline in $block.Inlines) {
-            $txt = $inline.Text
-            # Re-detect phase from text content
-            $ph = 'general'
-            if ($txt -match 'Entra|App registration|Graph permissions|Admin consent|Exchange') { $ph = 'entra' }
-            elseif ($txt -match 'Azure infrastructure|Docker|Container App|SQL|Key Vault|ACR|Bicep') { $ph = 'azure' }
-            elseif ($txt -match 'GitHub|gh secret|CI/CD') { $ph = 'github' }
-            elseif ($txt -match 'Deployment Complete|DASHBOARD_URL') { $ph = 'done' }
-            $inline.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString((Get-LogColour $ph $txt))
-        }
+        'entra'   { return "#58A6FF" }
+        'azure'   { return "#3FB950" }
+        'github'  { return "#E3B341" }
+        'done'    { return "#7EE787" }
+        default   { return "#C9D1D9" }
     }
 }
 
 function Add-Log($line) {
     if ([string]::IsNullOrWhiteSpace($line)) { return }
 
-    # Detect phase transitions
     if ($line -match 'Entra ID App Registration|Creating app registration|App created|Client ID:|Graph permissions|app roles|Admin consent|Exchange Recipient') {
         $script:LogPhase = "entra"
     } elseif ($line -match 'Deploying Azure infrastructure|Creating Azure resources|Building Docker|az acr build|Updating Container App|Key Vault|Container App|SQL|ACR|Bicep|infrastructure deployed') {
@@ -1547,16 +1477,15 @@ function Add-Log($line) {
         $script:LogPhase = "done"
     }
 
-    $colourHex = Get-LogColour $script:LogPhase $line
-    $brush = [System.Windows.Media.BrushConverter]::new().ConvertFromString($colourHex)
+    $colour = Get-LogColour $script:LogPhase $line
 
-    $para = New-Object System.Windows.Documents.Paragraph
-    $para.Margin = "0"
-    $run = New-Object System.Windows.Documents.Run
-    $run.Text = [string]$line
-    $run.Foreground = $brush
-    $para.Inlines.Add($run) | Out-Null
-    $LogBox.Document.Blocks.Add($para) | Out-Null
+    $tb = New-Object System.Windows.Controls.TextBlock
+    $tb.Text       = [string]$line
+    $tb.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString($colour)
+    $tb.FontFamily = "Consolas"
+    $tb.FontSize   = 11.5
+    $tb.TextWrapping = "Wrap"
+    $LogBox.Children.Add($tb) | Out-Null
     $LogScroll.ScrollToEnd()
 }
 
@@ -1804,10 +1733,7 @@ function Start-Deploy {
     Set-DeploySideStep 'A' "running"
     $PBar.Value = 5
     $script:LogPhase = "general"
-    $LogBox.Document.Blocks.Clear()
-    # Reset to dark mode on each new deployment
-    $script:LogLightMode = $false
-    Set-LogMode $false
+    $LogBox.Children.Clear()
 
     # For Standard mode: do Azure login in wizard process, then show subscription picker
     # This lets us show a WPF dialog after auth rather than relying on the background job
@@ -1815,7 +1741,7 @@ function Start-Deploy {
         $TxtDeployStatus.Text = "Sign in with your Microsoft 365 Global Admin account. This account is used to create the Entra app registration and deploy Azure resources."
         Add-Log "Opening Azure login — sign in with your Microsoft 365 Global Admin account..."
         $ErrorActionPreference = "Continue"
-        cmd /c "az login" | Out-Null
+        cmd /c "az login --allow-no-subscriptions" | Out-Null
         $rawAccount = (cmd /c "az account show -o json 2>nul")
         $accountJson = ($rawAccount | Where-Object { $_ -notmatch '^WARNING:' }) -join ""
         $ErrorActionPreference = "Stop"
@@ -1865,6 +1791,7 @@ function Start-Deploy {
     )
     $script:CompletedSteps = @{}
     $script:RunningStep    = 1
+    $script:DeploySucceeded = $false
 
     # Launch deploy script as background job
     # Note: avoid $args as param name — it's a reserved variable in PowerShell
@@ -1890,6 +1817,7 @@ function Start-Deploy {
                 if ($line -match $sm.Re) {
                     if ($sm.Step -eq 0) {
                         $PBar.Value = 100
+                        $script:DeploySucceeded = $true
                         if ($line -match "https://\S+azurecontainerapps") {
                             $script:DashUrl = ($line | Select-String "https://\S+").Matches[0].Value.TrimEnd('.')
                         }
@@ -1938,7 +1866,7 @@ function Start-Deploy {
 
         if ($script:DeployJob.State -in @("Completed","Failed","Stopped")) {
             $script:PollTimer.Stop()
-            $ok = ($script:DeployJob.State -eq "Completed")
+            $ok = $script:DeploySucceeded
 
             1..6 | ForEach-Object {
                 if (-not $script:CompletedSteps[$_]) {
@@ -2009,10 +1937,6 @@ $BtnCopyUrl.Add_Click({
         $timer2.Add_Tick({ $BtnCopyUrl.Content = "Copy"; $timer2.Stop() })
         $timer2.Start()
     }
-})
-
-$BtnLogMode.Add_Click({
-    Set-LogMode (-not $script:LogLightMode)
 })
 
 $BtnRetry.Add_Click({ Show-Page 3 })
