@@ -1721,6 +1721,8 @@ function Start-Deploy {
     $PBar.Value = 5
     $script:LogPhase = "general"
     $LogBox.Document.Blocks.Clear()
+    $LogBox.Document.Background = [System.Windows.Media.Brushes]::White
+    $LogBox.Background          = [System.Windows.Media.Brushes]::White
 
     # For Standard mode: do Azure login in wizard process, then show subscription picker
     # This lets us show a WPF dialog after auth rather than relying on the background job
@@ -1932,6 +1934,9 @@ $BtnRetry.Add_Click({ Show-Page 3 })
 $Win.Add_Loaded({
     Show-Page 1
     Check-Prereqs
+    # RichTextBox ignores Background set in XAML — must be set on the document after load
+    $LogBox.Document.Background = [System.Windows.Media.Brushes]::White
+    $LogBox.Background          = [System.Windows.Media.Brushes]::White
 })
 
 $Win.Add_Closing({
