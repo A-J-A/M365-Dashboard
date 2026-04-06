@@ -1528,7 +1528,7 @@ function Set-LogMode($light) {
             elseif ($txt -match 'Azure infrastructure|Docker|Container App|SQL|Key Vault|ACR|Bicep') { $ph = 'azure' }
             elseif ($txt -match 'GitHub|gh secret|CI/CD') { $ph = 'github' }
             elseif ($txt -match 'Deployment Complete|DASHBOARD_URL') { $ph = 'done' }
-            $inline.Foreground = Get-LogColour $ph $txt
+            $inline.Foreground = [System.Windows.Media.BrushConverter]::new().ConvertFromString((Get-LogColour $ph $txt))
         }
     }
 }
@@ -1547,13 +1547,14 @@ function Add-Log($line) {
         $script:LogPhase = "done"
     }
 
-    $colour = Get-LogColour $script:LogPhase $line
+    $colourHex = Get-LogColour $script:LogPhase $line
+    $brush = [System.Windows.Media.BrushConverter]::new().ConvertFromString($colourHex)
 
     $para = New-Object System.Windows.Documents.Paragraph
     $para.Margin = "0"
     $run = New-Object System.Windows.Documents.Run
     $run.Text = [string]$line
-    $run.Foreground = $colour
+    $run.Foreground = $brush
     $para.Inlines.Add($run) | Out-Null
     $LogBox.Document.Blocks.Add($para) | Out-Null
     $LogScroll.ScrollToEnd()
