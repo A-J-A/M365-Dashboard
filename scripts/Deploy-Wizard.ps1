@@ -271,6 +271,26 @@ $C = @{
       <Setter Property="Margin"     Value="0,8"/>
     </Style>
 
+    <!-- Log RichTextBox: force white background and dark text by overriding the full template -->
+    <Style x:Key="LogRichTextBox" TargetType="RichTextBox">
+      <Setter Property="Background"      Value="White"/>
+      <Setter Property="Foreground"      Value="#24292F"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Padding"         Value="12"/>
+      <Setter Property="IsReadOnly"      Value="True"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="RichTextBox">
+            <Border Background="White" CornerRadius="0">
+              <ScrollViewer x:Name="PART_ContentHost" Background="White"
+                            VerticalScrollBarVisibility="Auto"
+                            HorizontalScrollBarVisibility="Disabled"/>
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
   </Window.Resources>
 
   <Grid>
@@ -913,11 +933,8 @@ $C = @{
             <Border Background="White" BorderBrush="#D0D7DE" BorderThickness="1" CornerRadius="7">
               <ScrollViewer x:Name="LogScroll" Height="200"
                             VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <RichTextBox x:Name="LogBox" FontFamily="Consolas" FontSize="11.5"
-                             Background="White" BorderThickness="0" Padding="12"
-                             IsReadOnly="True" IsDocumentEnabled="False"
-                             VerticalScrollBarVisibility="Disabled"
-                             HorizontalScrollBarVisibility="Disabled"/>
+                <RichTextBox x:Name="LogBox" Style="{StaticResource LogRichTextBox}"
+                             FontFamily="Consolas" FontSize="11.5"/>
               </ScrollViewer>
             </Border>
           </StackPanel>
