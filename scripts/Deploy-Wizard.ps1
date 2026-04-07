@@ -1372,7 +1372,6 @@ function Show-Page($n) {
     switch ($n) {
         1 { $Pages.Welcome.Visibility = "Visible" }
         2 { $Pages.Config.Visibility  = "Visible"
-            Detect-AzureUser
             $PanelClientUser.Visibility = if ($ModeMsp.IsChecked) { "Visible" } else { "Collapsed" }
         }
         3 { $Pages.Review.Visibility  = "Visible" }
