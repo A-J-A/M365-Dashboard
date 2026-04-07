@@ -1223,7 +1223,7 @@ function Detect-AzureUser {
 function Show-SubscriptionPicker($loggedInAs) {
     # Fetch subscriptions
     $ErrorActionPreference = "Continue"
-    $rawSubs = (cmd /c "az account list --query ""[?state=='Enabled']"" -o json 2>nul")
+    $rawSubs = (cmd /c "az account list --all --query ""[?state=='Enabled']"" -o json 2>nul")
     $ErrorActionPreference = "Stop"
 
     $subs = @()
@@ -1740,7 +1740,7 @@ function Start-Deploy {
         $TxtDeployStatus.Text = "Sign in with your Microsoft 365 Global Admin account. This account is used to create the Entra app registration and deploy Azure resources."
         Add-Log "Opening Azure login — sign in with your Microsoft 365 Global Admin account..."
         $ErrorActionPreference = "Continue"
-        cmd /c "az login --allow-no-subscriptions" | Out-Null
+        cmd /c "az login" | Out-Null
         $rawAccount = (cmd /c "az account show -o json 2>nul")
         $accountJson = ($rawAccount | Where-Object { $_ -notmatch '^WARNING:' }) -join ""
         $ErrorActionPreference = "Stop"
