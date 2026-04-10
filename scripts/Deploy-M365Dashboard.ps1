@@ -133,8 +133,17 @@ if ($isMspMode) {
     Write-Host ""
     Write-Host "  MSP mode selected." -ForegroundColor Cyan
     Write-Host "  Step 1 of 2: Login as a Global Admin in the CLIENT'S Microsoft 365 tenant" -ForegroundColor Yellow
-    if (-not $NonInteractive) { Read-Host "  Press Enter when ready to log in to the CLIENT tenant" }
-    $clientTenantAccountJson = Invoke-AzLogin -AllowNoSubscriptions
+    if ($NonInteractive) {
+        # In NonInteractive mode the wizard already handled both logins before launching this job.
+        # The current az session is already the CLIENT tenant — just read it.
+        $ErrorActionPreference = "Continue"
+        $clientTenantAccountJson = (cmd /c "az account show -o json 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
+        $ErrorActionPreference = "Stop"
+        Write-Host "  Using existing login session" -ForegroundColor Gray
+    } else {
+        Read-Host "  Press Enter when ready to log in to the CLIENT tenant"
+        $clientTenantAccountJson = Invoke-AzLogin -AllowNoSubscriptions
+    }
     $clientTenantAccount = $clientTenantAccountJson | ConvertFrom-Json
     Write-Host "  Logged in as: $($clientTenantAccount.user.name) (tenant: $($clientTenantAccount.tenantId))" -ForegroundColor Green
     $clientTenantId = $clientTenantAccount.tenantId
@@ -914,7 +923,15 @@ if ($isMspMode) {
     Write-Host "  Now logging in to your MSP Azure subscription for resource deployment..." -ForegroundColor Gray
     Write-Host ""
     if (-not $NonInteractive) { Read-Host "  Press Enter when ready to log in to YOUR Azure subscription" }
-    $yourAccountJson = Invoke-AzLogin
+    if ($NonInteractive) {
+        # Wizard already logged in to MSP subscription — read the current session
+        $ErrorActionPreference = "Continue"
+        $yourAccountJson = (cmd /c "az account show -o json 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
+        $ErrorActionPreference = "Stop"
+        Write-Host "  Using existing login session" -ForegroundColor Gray
+    } else {
+        $yourAccountJson = Invoke-AzLogin
+    }
     $yourAccount = $yourAccountJson | ConvertFrom-Json
     Write-Host "  Logged in as: $($yourAccount.user.name) (tenant: $($yourAccount.tenantId))" -ForegroundColor Green
     Write-Host ""
