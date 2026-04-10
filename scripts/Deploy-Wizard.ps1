@@ -736,39 +736,6 @@ $C = @{
               </RadioButton>
             </Grid>
 
-            <!-- Login accounts (optional hints) -->
-            <TextBlock Text="LOGIN ACCOUNTS  (optional)" FontSize="10" FontWeight="Bold"
-                       Foreground="#8B949E" Margin="0,0,0,8"/>
-            <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1"
-                    CornerRadius="8" Padding="16,14" Margin="0,0,0,20">
-              <StackPanel>
-                <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,0,0,12">
-                  Enter the accounts you will use to log in. These are shown in the login prompts
-                  so you pick the right account each time.
-                </TextBlock>
-
-                <!-- Client tenant — MSP only -->
-                <StackPanel x:Name="PanelClientUser">
-                  <TextBlock Text="Client tenant admin" Foreground="#58A6FF" FontSize="11"
-                             FontWeight="SemiBold" Margin="0,0,0,4"/>
-                  <TextBox x:Name="TxtClientUser" Margin="0,0,0,12"
-                           Tag="e.g. admin@clientdomain.com"/>
-                </StackPanel>
-
-                <!-- Your Azure account -->
-                <TextBlock Text="Your Azure account" Foreground="#3FB950" FontSize="11"
-                           FontWeight="SemiBold" Margin="0,0,0,4"/>
-                <TextBox x:Name="TxtAzureUser" Margin="0,0,0,12"
-                         Tag="e.g. you@yourdomain.com"/>
-
-                <!-- GitHub username -->
-                <TextBlock Text="GitHub username" Foreground="#D29922" FontSize="11"
-                           FontWeight="SemiBold" Margin="0,0,0,4"/>
-                <TextBox x:Name="TxtGitHubUser" Margin="0,0,0,0"
-                         Tag="e.g. your-github-username"/>
-              </StackPanel>
-            </Border>
-
             <!-- SQL Password -->
             <TextBlock Text="SQL ADMIN PASSWORD" FontSize="10" FontWeight="Bold"
                        Foreground="#8B949E" Margin="0,0,0,8"/>
@@ -1114,9 +1081,6 @@ $CredSecret   = G "CredSecret";    $CredCert  = G "CredCert"
 $TxtPrefix       = G "TxtPrefix";  $CmbRegion = G "CmbRegion"
 $TxtPwd1         = G "TxtPwd1";    $TxtPwd2   = G "TxtPwd2"
 $TxtPwdErr       = G "TxtPwdErr"
-$TxtClientUser   = G "TxtClientUser";  $TxtAzureUser = G "TxtAzureUser"
-$TxtGitHubUser   = G "TxtGitHubUser";  $PanelClientUser = G "PanelClientUser"
-
 # No subscription combo on page 2 — picked via popup after login
 $script:SelectedSubId   = ""
 $script:SelectedSubName = ""
@@ -1381,9 +1345,7 @@ function Show-Page($n) {
     foreach ($k in $Pages.Keys) { $Pages[$k].Visibility = "Collapsed" }
     switch ($n) {
         1 { $Pages.Welcome.Visibility = "Visible" }
-        2 { $Pages.Config.Visibility  = "Visible"
-            $PanelClientUser.Visibility = if ($ModeMsp.IsChecked) { "Visible" } else { "Collapsed" }
-        }
+        2 { $Pages.Config.Visibility  = "Visible" }
         3 { $Pages.Review.Visibility  = "Visible" }
         4 { $Pages.Deploy.Visibility  = "Visible"; $DeploySubSteps.Visibility = "Visible" }
         5 { $Pages.Done.Visibility    = "Visible" }
@@ -1602,147 +1564,52 @@ function Populate-Review {
     if ($RevSub) { $RevSub.Text = if ($script:SelectedSubName) { $script:SelectedSubName } else { "(selected after login)" } }
 }
 
-function Show-MspLoginDialog($clientUser, $azureUser, $gitHubUser) {
-    # Build account hint lines — only show if values were entered
-    $hint1 = if ($clientUser) { "Account: $clientUser" } else { "" }
-    $hint2 = if ($azureUser)  { "Account: $azureUser"  } else { "" }
-    $hint3 = if ($gitHubUser) { "Username: $gitHubUser" } else { "" }
-    # Show a clear modal dialog explaining the two MSP login steps before any popups appear
-    $dlgXaml = [xml]@'
-<Window
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="MSP Deployment — Login Guide"
-    Width="540" Height="600"
-    WindowStartupLocation="CenterOwner"
-    ResizeMode="NoResize"
-    Background="#0D1117" Foreground="#E6EDF3"
-    FontFamily="Segoe UI" FontSize="13">
+function Show-LoginPrompt($title, $subtitle, $body, $accentColour, $buttonText) {
+    # Show a focused modal prompt before each browser login so the user knows what's expected
+    $dlgXaml = [xml]"<Window
+    xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
+    xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'
+    Title='$title'
+    Width='480' Height='Auto' SizeToContent='Height'
+    WindowStartupLocation='CenterOwner' ResizeMode='NoResize' Topmost='True'
+    Background='#0D1117' Foreground='#E6EDF3' FontFamily='Segoe UI' FontSize='13'>
   <Grid>
     <Grid.RowDefinitions>
-      <RowDefinition Height="*"/>
-      <RowDefinition Height="Auto"/>
+      <RowDefinition Height='Auto'/>
+      <RowDefinition Height='Auto'/>
     </Grid.RowDefinitions>
-
-    <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" Padding="32,28,32,8">
-      <StackPanel>
-        <TextBlock Text="Logins required" FontSize="20" FontWeight="Bold" Foreground="White" Margin="0,0,0,6"/>
-        <TextBlock TextWrapping="Wrap" Foreground="#8B949E" Margin="0,0,0,20" FontSize="12">
-          This deployment requires three sign-ins. Browser windows will open automatically at each step.
-        </TextBlock>
-
-        <!-- Login 1 -->
-        <Border Background="#0D2137" BorderBrush="#0078D4" BorderThickness="1" CornerRadius="7" Padding="16,14" Margin="0,0,0,10">
-          <Grid>
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="36"/>
-              <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <Border Width="28" Height="28" CornerRadius="14" Background="#0078D4" VerticalAlignment="Top" Margin="0,2,0,0">
-              <TextBlock Text="1" Foreground="White" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
-            <StackPanel Grid.Column="1">
-              <TextBlock Text="CLIENT Tenant — Azure login" FontWeight="Bold" Foreground="#58A6FF" Margin="0,0,0,4"/>
-              <TextBlock TextWrapping="Wrap" Foreground="#E6EDF3" FontSize="12">
-                Sign in as a Global Admin of the CLIENT&apos;s Microsoft 365 tenant.
-              </TextBlock>
-              <TextBlock x:Name="Hint1" TextWrapping="Wrap" FontSize="12" FontWeight="SemiBold"
-                         Foreground="#58A6FF" Margin="0,8,0,0"/>
-              <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,4,0,0">
-                Used to create the app registration in their tenant. The client tenant may have no Azure subscription — that is normal.
-              </TextBlock>
-            </StackPanel>
-          </Grid>
-        </Border>
-
-        <!-- Login 2 -->
-        <Border Background="#0D1F0D" BorderBrush="#238636" BorderThickness="1" CornerRadius="7" Padding="16,14" Margin="0,0,0,10">
-          <Grid>
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="36"/>
-              <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <Border Width="28" Height="28" CornerRadius="14" Background="#238636" VerticalAlignment="Top" Margin="0,2,0,0">
-              <TextBlock Text="2" Foreground="White" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
-            <StackPanel Grid.Column="1">
-              <TextBlock Text="YOUR Azure Subscription — Azure login" FontWeight="Bold" Foreground="#3FB950" Margin="0,0,0,4"/>
-              <TextBlock TextWrapping="Wrap" Foreground="#E6EDF3" FontSize="12">
-                Sign in to your own Azure subscription.
-              </TextBlock>
-              <TextBlock x:Name="Hint2" TextWrapping="Wrap" FontSize="12" FontWeight="SemiBold"
-                         Foreground="#3FB950" Margin="0,8,0,0"/>
-              <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,4,0,0">
-                This is where the Container App, SQL, Key Vault and ACR are created.
-              </TextBlock>
-            </StackPanel>
-          </Grid>
-        </Border>
-
-        <!-- Login 3 -->
-        <Border Background="#1A1207" BorderBrush="#7D4F12" BorderThickness="1" CornerRadius="7" Padding="16,14" Margin="0,0,0,20">
-          <Grid>
-            <Grid.ColumnDefinitions>
-              <ColumnDefinition Width="36"/>
-              <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <Border Width="28" Height="28" CornerRadius="14" Background="#7D4F12" VerticalAlignment="Top" Margin="0,2,0,0">
-              <TextBlock Text="3" Foreground="White" FontWeight="Bold" FontSize="13" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-            </Border>
-            <StackPanel Grid.Column="1">
-              <TextBlock Text="GitHub — gh auth login" FontWeight="Bold" Foreground="#D29922" Margin="0,0,0,4"/>
-              <TextBlock TextWrapping="Wrap" Foreground="#E6EDF3" FontSize="12">
-                Sign in to the GitHub account that owns the repository.
-              </TextBlock>
-              <TextBlock x:Name="Hint3" TextWrapping="Wrap" FontSize="12" FontWeight="SemiBold"
-                         Foreground="#D29922" Margin="0,8,0,0"/>
-              <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11" Margin="0,4,0,0">
-                Used to automatically configure GitHub Actions CI/CD secrets so every push to main auto-deploys.
-              </TextBlock>
-            </StackPanel>
-          </Grid>
-        </Border>
-
-        <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1" CornerRadius="6" Padding="12,10">
-          <TextBlock TextWrapping="Wrap" Foreground="#8B949E" FontSize="11">
-            Tip: have all three accounts ready before clicking Start. If you miss a login the wizard will still complete — GitHub secrets can be set manually afterwards.
-          </TextBlock>
-        </Border>
-      </StackPanel>
-    </ScrollViewer>
-
-    <Border Grid.Row="1" Background="#161B22" BorderBrush="#30363D" BorderThickness="0,1,0,0" Padding="32,16">
-      <Button x:Name="BtnOk" Content="Got it — start deployment"
-              Height="40" FontSize="13" FontWeight="SemiBold"
-              Foreground="White" Background="#0078D4" BorderThickness="0" Cursor="Hand"/>
+    <StackPanel Grid.Row='0' Margin='32,28,32,20'>
+      <Border Background='$accentColour' Width='48' Height='48' CornerRadius='24'
+              HorizontalAlignment='Left' Margin='0,0,0,16'>
+        <TextBlock Text='🔐' FontSize='24' HorizontalAlignment='Center' VerticalAlignment='Center'/>
+      </Border>
+      <TextBlock Text='$title' FontSize='20' FontWeight='Bold' Foreground='White' Margin='0,0,0,6' TextWrapping='Wrap'/>
+      <TextBlock Text='$subtitle' Foreground='#8B949E' FontSize='12' Margin='0,0,0,20' TextWrapping='Wrap'/>
+      <Border Background='#161B22' BorderBrush='#30363D' BorderThickness='1' CornerRadius='7' Padding='16,14'>
+        <TextBlock Text='$body' TextWrapping='Wrap' Foreground='#E6EDF3' FontSize='12' LineHeight='20'/>
+      </Border>
+    </StackPanel>
+    <Border Grid.Row='1' Background='#161B22' BorderBrush='#30363D' BorderThickness='0,1,0,0' Padding='32,16'>
+      <Button x:Name='BtnGo' Content='$buttonText'
+              Height='40' FontSize='13' FontWeight='SemiBold'
+              Foreground='White' Background='#0078D4' BorderThickness='0' Cursor='Hand'/>
     </Border>
   </Grid>
-</Window>
-'@
+</Window>"
     $dlgReader = New-Object System.Xml.XmlNodeReader $dlgXaml
     $dlg = [Windows.Markup.XamlReader]::Load($dlgReader)
     $dlg.Owner = $Win
-    # Populate hint labels with entered usernames
-    if ($hint1) { $dlg.FindName("Hint1").Text = $hint1 }
-    if ($hint2) { $dlg.FindName("Hint2").Text = $hint2 }
-    if ($hint3) { $dlg.FindName("Hint3").Text = $hint3 }
-    $dlg.FindName("BtnOk").Add_Click({ $dlg.Close() })
+    $dlg.FindName('BtnGo').Add_Click({ $dlg.Close() })
     [void]$dlg.ShowDialog()
 }
 
 function Start-Deploy {
-    $prefix      = $TxtPrefix.Text.Trim().ToLower()
-    $region      = ($CmbRegion.SelectedItem).Tag
-    $useCert     = [bool]$CredCert.IsChecked
-    $isMsp       = [bool]$ModeMsp.IsChecked
-    $sqlPwd      = $TxtPwd1.Password
-    $clientUser  = $TxtClientUser.Text.Trim()
-    $azureUser   = $TxtAzureUser.Text.Trim()
-    $gitHubUser  = $TxtGitHubUser.Text.Trim()
-    $deployPs    = Join-Path $PSScriptRoot "Deploy-M365Dashboard.ps1"
-
-    # Show MSP login briefing with entered account hints before starting
-    if ($isMsp) { Show-MspLoginDialog $clientUser $azureUser $gitHubUser }
+    $prefix   = $TxtPrefix.Text.Trim().ToLower()
+    $region   = ($CmbRegion.SelectedItem).Tag
+    $useCert  = [bool]$CredCert.IsChecked
+    $isMsp    = [bool]$ModeMsp.IsChecked
+    $sqlPwd   = $TxtPwd1.Password
+    $deployPs = Join-Path $PSScriptRoot "Deploy-M365Dashboard.ps1"
 
     # Clear any existing az session so we always start fresh
     cmd /c "az logout 2>nul" | Out-Null
@@ -1759,6 +1626,11 @@ function Start-Deploy {
     # For MSP mode: also do Azure login and subscription picker here in the wizard
     # so the user picks the right subscription before the background job starts
     if ($isMsp) {
+        Show-LoginPrompt `
+            "Sign in to YOUR Azure Subscription" `
+            "Login 1 of 2 — MSP Azure infrastructure account" `
+            "Sign in with the account that has access to your MSP Azure subscription. This is where the Container App, SQL Server, Key Vault and ACR will be created." `
+            "#0078D4" "Open browser to sign in"
         $TxtDeployStatus.Text = "Sign in to YOUR Azure subscription for MSP infrastructure deployment..."
         Add-Log "Opening Azure login — sign in to your MSP Azure subscription..."
         $ErrorActionPreference = "Continue"
@@ -1780,13 +1652,24 @@ function Start-Deploy {
             return
         }
         Add-Log "MSP Subscription: $($script:SelectedSubName)"
+        # Warn that a second browser login for the client tenant is coming in the background job
+        Show-LoginPrompt `
+            "Sign in to the Client Entra Tenant" `
+            "Login 2 of 2 — Client tenant Global Admin account" `
+            "A browser window will now open to sign in to the CLIENT'S Microsoft 365 tenant.`n`nSign in as a Global Admin of the client tenant. This is used to create the Entra app registration in their tenant.`n`nNote: The client tenant may not have an Azure subscription — that is expected." `
+            "#58A6FF" "Open browser to sign in to client tenant"
         $TxtDeployStatus.Text = "Deployment is running. Do not close this window."
     }
 
     # For Standard mode: do Azure login in wizard process, then show subscription picker
     # This lets us show a WPF dialog after auth rather than relying on the background job
     if (-not $isMsp) {
-        $TxtDeployStatus.Text = "Sign in with your Microsoft 365 Global Admin account. This account is used to create the Entra app registration and deploy Azure resources."
+        Show-LoginPrompt `
+            "Sign in to Azure" `
+            "Sign in with your Microsoft 365 Global Admin account" `
+            "This account is used to create the Entra ID app registration and deploy Azure resources into your subscription. You will be able to select which subscription to use after signing in." `
+            "#0078D4" "Open browser to sign in"
+        $TxtDeployStatus.Text = "Sign in with your Microsoft 365 Global Admin account..."
         Add-Log "Opening Azure login — sign in with your Microsoft 365 Global Admin account..."
         $ErrorActionPreference = "Continue"
         Invoke-AzLogin
