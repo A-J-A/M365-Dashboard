@@ -1469,7 +1469,12 @@ $script:LogFile = Join-Path $PSScriptRoot "deploy-wizard-$(Get-Date -Format 'yyy
 
 function Add-Log($line) {
     if ([string]::IsNullOrWhiteSpace($line)) { return }
-    "$(Get-Date -Format 'HH:mm:ss')  $line" | Out-File $script:LogFile -Append -Encoding UTF8
+    # Redact sensitive values before writing to log
+    $safeLine = $line
+    $safeLine = $safeLine -replace '(?i)(password|secret|acrpassword|clientsecret|clientSecret)([":\s=]+)[^\s"''\]},]+', '$1$2********'
+    $safeLine = $safeLine -replace '"password"\s*:\s*"[^"]+"', '"password": "********"'
+    $safeLine = $safeLine -replace '"clientSecret"\s*:\s*"[^"]+"', '"clientSecret": "********"'
+    "$(Get-Date -Format 'HH:mm:ss')  $safeLine" | Out-File $script:LogFile -Append -Encoding UTF8
 
     if ($line -match 'Entra ID App Registration|Creating app registration|App created|Client ID:|Graph permissions|app roles|Admin consent|Exchange Recipient') {
         $script:LogPhase = "entra"
