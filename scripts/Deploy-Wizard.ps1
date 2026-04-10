@@ -1565,40 +1565,47 @@ function Populate-Review {
 }
 
 function Show-LoginPrompt($title, $subtitle, $body, $accentColour, $buttonText) {
-    # Show a focused modal prompt before each browser login so the user knows what's expected
-    $dlgXaml = [xml]"<Window
-    xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
-    xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'
-    Title='$title'
-    Width='480' Height='Auto' SizeToContent='Height'
-    WindowStartupLocation='CenterOwner' ResizeMode='NoResize' Topmost='True'
-    Background='#0D1117' Foreground='#E6EDF3' FontFamily='Segoe UI' FontSize='13'>
+    # Build XAML with safe XML — no apostrophes or special chars in attribute values
+    $xamlStr = @"
+<Window
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Sign In Required"
+    Width="480" SizeToContent="Height"
+    WindowStartupLocation="CenterOwner" ResizeMode="NoResize" Topmost="True"
+    Background="#0D1117" Foreground="#E6EDF3" FontFamily="Segoe UI" FontSize="13">
   <Grid>
     <Grid.RowDefinitions>
-      <RowDefinition Height='Auto'/>
-      <RowDefinition Height='Auto'/>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
-    <StackPanel Grid.Row='0' Margin='32,28,32,20'>
-      <Border Background='$accentColour' Width='48' Height='48' CornerRadius='24'
-              HorizontalAlignment='Left' Margin='0,0,0,16'>
-        <TextBlock Text='🔐' FontSize='24' HorizontalAlignment='Center' VerticalAlignment='Center'/>
+    <StackPanel Grid.Row="0" Margin="32,28,32,20">
+      <Border Background="$accentColour" Width="48" Height="48" CornerRadius="24"
+              HorizontalAlignment="Left" Margin="0,0,0,16">
+        <TextBlock Text="&#x1F510;" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Center"/>
       </Border>
-      <TextBlock Text='$title' FontSize='20' FontWeight='Bold' Foreground='White' Margin='0,0,0,6' TextWrapping='Wrap'/>
-      <TextBlock Text='$subtitle' Foreground='#8B949E' FontSize='12' Margin='0,0,0,20' TextWrapping='Wrap'/>
-      <Border Background='#161B22' BorderBrush='#30363D' BorderThickness='1' CornerRadius='7' Padding='16,14'>
-        <TextBlock Text='$body' TextWrapping='Wrap' Foreground='#E6EDF3' FontSize='12' LineHeight='20'/>
+      <TextBlock x:Name="TxtTitle" FontSize="20" FontWeight="Bold" Foreground="White" Margin="0,0,0,6" TextWrapping="Wrap"/>
+      <TextBlock x:Name="TxtSubtitle" Foreground="#8B949E" FontSize="12" Margin="0,0,0,20" TextWrapping="Wrap"/>
+      <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1" CornerRadius="7" Padding="16,14">
+        <TextBlock x:Name="TxtBody" TextWrapping="Wrap" Foreground="#E6EDF3" FontSize="12" LineHeight="20"/>
       </Border>
     </StackPanel>
-    <Border Grid.Row='1' Background='#161B22' BorderBrush='#30363D' BorderThickness='0,1,0,0' Padding='32,16'>
-      <Button x:Name='BtnGo' Content='$buttonText'
-              Height='40' FontSize='13' FontWeight='SemiBold'
-              Foreground='White' Background='#0078D4' BorderThickness='0' Cursor='Hand'/>
+    <Border Grid.Row="1" Background="#161B22" BorderBrush="#30363D" BorderThickness="0,1,0,0" Padding="32,16">
+      <Button x:Name="BtnGo"
+              Height="40" FontSize="13" FontWeight="SemiBold"
+              Foreground="White" Background="#0078D4" BorderThickness="0" Cursor="Hand"/>
     </Border>
   </Grid>
-</Window>"
+</Window>
+"@
+    $dlgXaml = [xml]$xamlStr
     $dlgReader = New-Object System.Xml.XmlNodeReader $dlgXaml
     $dlg = [Windows.Markup.XamlReader]::Load($dlgReader)
     $dlg.Owner = $Win
+    $dlg.FindName('TxtTitle').Text    = $title
+    $dlg.FindName('TxtSubtitle').Text = $subtitle
+    $dlg.FindName('TxtBody').Text     = $body
+    $dlg.FindName('BtnGo').Content    = $buttonText
     $dlg.FindName('BtnGo').Add_Click({ $dlg.Close() })
     [void]$dlg.ShowDialog()
 }
@@ -1610,9 +1617,6 @@ function Start-Deploy {
     $isMsp    = [bool]$ModeMsp.IsChecked
     $sqlPwd   = $TxtPwd1.Password
     $deployPs = Join-Path $PSScriptRoot "Deploy-M365Dashboard.ps1"
-
-    # Clear any existing az session so we always start fresh
-    cmd /c "az logout 2>nul" | Out-Null
 
     Show-Page 4
     1..6 | ForEach-Object { Set-DeployStep $_ "pending" }
