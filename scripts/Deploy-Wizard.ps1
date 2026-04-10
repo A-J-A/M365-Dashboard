@@ -1204,7 +1204,8 @@ function Update-Sidebar($page) {
 }
 
 function Invoke-AzLogin {
-    # Minimise the wizard so the browser/auth window appears in front, then restore
+    # Logout first to ensure a clean session, then minimise so browser appears in front
+    cmd /c "az logout 2>nul" | Out-Null
     $Win.WindowState = "Minimized"
     cmd /c "az login" | Out-Null
     $Win.WindowState = "Normal"
@@ -1742,6 +1743,9 @@ function Start-Deploy {
 
     # Show MSP login briefing with entered account hints before starting
     if ($isMsp) { Show-MspLoginDialog $clientUser $azureUser $gitHubUser }
+
+    # Clear any existing az session so we always start fresh
+    cmd /c "az logout 2>nul" | Out-Null
 
     Show-Page 4
     1..6 | ForEach-Object { Set-DeployStep $_ "pending" }
