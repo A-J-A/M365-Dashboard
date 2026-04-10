@@ -1228,6 +1228,7 @@ function Show-SubscriptionPicker($loggedInAs) {
 
     $subs = @()
     try { $subs = ($rawSubs -join "") | ConvertFrom-Json } catch {}
+    Add-Log "DEBUG: Found $($subs.Count) subscriptions"
 
     # If only one subscription, still show picker so user can confirm
     if ($subs.Count -eq 0) {
@@ -1243,9 +1244,9 @@ function Show-SubscriptionPicker($loggedInAs) {
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="Select Azure Subscription"
-    Width="520" Height="Auto" SizeToContent="Height" MaxHeight="600"
+    Width="520" Height="500"
     WindowStartupLocation="CenterOwner"
-    ResizeMode="NoResize"
+    ResizeMode="NoResize" Topmost="True"
     Background="#0D1117" Foreground="#E6EDF3"
     FontFamily="Segoe UI" FontSize="13">
   <Grid>
@@ -1463,8 +1464,12 @@ function Get-LogColour($phase, $line) {
     }
 }
 
+$script:LogFile = Join-Path $PSScriptRoot "deploy-wizard.log"
+"" | Out-File $script:LogFile -Encoding UTF8  # clear on each run
+
 function Add-Log($line) {
     if ([string]::IsNullOrWhiteSpace($line)) { return }
+    "$(Get-Date -Format 'HH:mm:ss')  $line" | Out-File $script:LogFile -Append -Encoding UTF8
 
     if ($line -match 'Entra ID App Registration|Creating app registration|App created|Client ID:|Graph permissions|app roles|Admin consent|Exchange Recipient') {
         $script:LogPhase = "entra"
@@ -1734,6 +1739,33 @@ function Start-Deploy {
     $script:LogPhase = "general"
     $LogBox.Children.Clear()
 
+    # For MSP mode: also do Azure login and subscription picker here in the wizard
+    # so the user picks the right subscription before the background job starts
+    if ($isMsp) {
+        $TxtDeployStatus.Text = "Sign in to YOUR Azure subscription for MSP infrastructure deployment..."
+        Add-Log "Opening Azure login — sign in to your MSP Azure subscription..."
+        $ErrorActionPreference = "Continue"
+        cmd /c "az login" | Out-Null
+        $rawAccount = (cmd /c "az account show -o json 2>nul")
+        $accountJson = ($rawAccount | Where-Object { $_ -notmatch '^WARNING:' }) -join ""
+        $ErrorActionPreference = "Stop"
+        $loggedInAs = ""
+        try {
+            if ($accountJson -match '"user"') {
+                $loggedInAs = ($accountJson | ConvertFrom-Json).user.name
+                Add-Log "Logged in as: $loggedInAs"
+            }
+        } catch {}
+
+        $picked = Show-SubscriptionPicker $loggedInAs
+        if (-not $picked) {
+            Show-Page 3
+            return
+        }
+        Add-Log "MSP Subscription: $($script:SelectedSubName)"
+        $TxtDeployStatus.Text = "Deployment is running. Do not close this window."
+    }
+
     # For Standard mode: do Azure login in wizard process, then show subscription picker
     # This lets us show a WPF dialog after auth rather than relying on the background job
     if (-not $isMsp) {
@@ -1754,6 +1786,7 @@ function Start-Deploy {
         } catch {}
 
         $picked = Show-SubscriptionPicker $loggedInAs
+        Add-Log "DEBUG: PickedSubId=$($script:PickedSubId) SelectedSubId=$($script:SelectedSubId)"
         if (-not $picked) {
             # User cancelled — go back to review
             Show-Page 3

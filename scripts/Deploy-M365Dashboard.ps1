@@ -925,7 +925,13 @@ if ($isMspMode) {
     $subscriptionsJson = cmd /c "az account list --query [?state=='Enabled'] -o json 2>nul"
     $subscriptions = $subscriptionsJson | ConvertFrom-Json
 
-    if ($subscriptions.Count -gt 1 -and -not $NonInteractive) {
+    # In NonInteractive mode, honour the SubscriptionId passed from the wizard
+    if ($NonInteractive -and $SubscriptionId) {
+        cmd /c "az account set --subscription $SubscriptionId 2>nul" | Out-Null
+        $selectedSub = $subscriptions | Where-Object { $_.id -eq $SubscriptionId } | Select-Object -First 1
+        $selectedSubscriptionName = if ($selectedSub) { $selectedSub.name } else { $SubscriptionId }
+        Write-Host "Using subscription: $selectedSubscriptionName" -ForegroundColor Green
+    } elseif ($subscriptions.Count -gt 1 -and -not $NonInteractive) {
         Write-Host "Multiple subscriptions found. Select one for deployment:"
         Write-Host ""
         $i = 1
@@ -980,21 +986,29 @@ $deploymentName = "$NamePrefix-$Environment-$(Get-Date -Format 'yyyyMMddHHmmss')
 $deployingUserObjectId = cmd /c "az ad signed-in-user show --query id -o tsv 2>nul"
 $deployingUserObjectId = $deployingUserObjectId.Trim()
 
+# Write sensitive parameters to a JSON file to avoid shell quoting/escaping issues
+$paramsFile = [System.IO.Path]::GetTempFileName() + ".json"
+$paramsObj = @{
+    namePrefix             = @{ value = $NamePrefix }
+    location               = @{ value = $Location }
+    environment            = @{ value = $Environment }
+    entraIdTenantId        = @{ value = $TenantId }
+    entraIdClientId        = @{ value = $ClientId }
+    entraIdClientSecret    = @{ value = $ClientSecret }
+    sqlAdminPassword       = @{ value = $SqlPassword }
+    deployingUserObjectId  = @{ value = $deployingUserObjectId }
+}
+[System.IO.File]::WriteAllText($paramsFile, ($paramsObj | ConvertTo-Json -Depth 5), [System.Text.Encoding]::UTF8)
+
 $ErrorActionPreference = "Continue"
 $deploymentResult = az deployment sub create `
     --name $deploymentName `
     --location $Location `
     --template-file $infraPath `
-    --parameters namePrefix=$NamePrefix `
-    --parameters location=$Location `
-    --parameters environment=$Environment `
-    --parameters entraIdTenantId=$TenantId `
-    --parameters entraIdClientId=$ClientId `
-    --parameters entraIdClientSecret="$ClientSecret" `
-    --parameters sqlAdminPassword="$SqlPassword" `
-    --parameters deployingUserObjectId=$deployingUserObjectId `
+    --parameters "@$paramsFile" `
     --query properties.outputs -o json 2>&1
 
+Remove-Item $paramsFile -ErrorAction SilentlyContinue
 $ErrorActionPreference = "Stop"
 
 if ($deploymentResult -match "ERROR" -or -not $deploymentResult -or $LASTEXITCODE -ne 0) {
