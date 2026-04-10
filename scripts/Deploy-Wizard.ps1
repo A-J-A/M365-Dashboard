@@ -1203,6 +1203,14 @@ function Update-Sidebar($page) {
     }
 }
 
+function Invoke-AzLogin {
+    # Minimise the wizard so the browser/auth window appears in front, then restore
+    $Win.WindowState = "Minimized"
+    cmd /c "az login" | Out-Null
+    $Win.WindowState = "Normal"
+    $Win.Activate()
+}
+
 function Detect-AzureUser {
     # Auto-fill Azure account field from current az login session
     $ErrorActionPreference = "Continue"
@@ -1750,7 +1758,7 @@ function Start-Deploy {
         $TxtDeployStatus.Text = "Sign in to YOUR Azure subscription for MSP infrastructure deployment..."
         Add-Log "Opening Azure login — sign in to your MSP Azure subscription..."
         $ErrorActionPreference = "Continue"
-        cmd /c "az login" | Out-Null
+        Invoke-AzLogin
         $rawAccount = (cmd /c "az account show -o json 2>nul")
         $accountJson = ($rawAccount | Where-Object { $_ -notmatch '^WARNING:' }) -join ""
         $ErrorActionPreference = "Stop"
@@ -1777,7 +1785,7 @@ function Start-Deploy {
         $TxtDeployStatus.Text = "Sign in with your Microsoft 365 Global Admin account. This account is used to create the Entra app registration and deploy Azure resources."
         Add-Log "Opening Azure login — sign in with your Microsoft 365 Global Admin account..."
         $ErrorActionPreference = "Continue"
-        cmd /c "az login" | Out-Null
+        Invoke-AzLogin
         $rawAccount = (cmd /c "az account show -o json 2>nul")
         $accountJson = ($rawAccount | Where-Object { $_ -notmatch '^WARNING:' }) -join ""
         $ErrorActionPreference = "Stop"
