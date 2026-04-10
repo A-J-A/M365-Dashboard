@@ -1464,8 +1464,8 @@ function Get-LogColour($phase, $line) {
     }
 }
 
-$script:LogFile = Join-Path $PSScriptRoot "deploy-wizard.log"
-"" | Out-File $script:LogFile -Encoding UTF8  # clear on each run
+$script:LogFile = Join-Path $PSScriptRoot "deploy-wizard-$(Get-Date -Format 'yyyy-MM-dd_HH-mm-ss').log"
+"" | Out-File $script:LogFile -Encoding UTF8
 
 function Add-Log($line) {
     if ([string]::IsNullOrWhiteSpace($line)) { return }
