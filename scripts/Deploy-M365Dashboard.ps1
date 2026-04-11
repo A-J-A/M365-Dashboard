@@ -34,6 +34,7 @@ param(
     [string]$DeployMode = "Standard",        # Standard or MSP
     [string]$CredentialType = "Secret",      # Secret or Certificate
     [string]$SubscriptionId = "",            # If set, az account set to this before deploying
+    [string]$GraphToken = "",                 # Pre-captured Graph token for client tenant (MSP NonInteractive)
     [switch]$NonInteractive                  # Skip all prompts (used by wizard)
 )
 
@@ -134,17 +135,21 @@ if ($isMspMode) {
     Write-Host "  MSP mode selected." -ForegroundColor Cyan
     Write-Host "  Step 1 of 2: Login as a Global Admin in the CLIENT'S Microsoft 365 tenant" -ForegroundColor Yellow
     if ($NonInteractive) {
-        # In NonInteractive mode the wizard already handled client tenant login.
-        # If TenantId was passed directly, use it — otherwise read from current session.
+        # In NonInteractive mode the wizard already logged in to the client tenant
+        # and passed us the tenant ID and a Graph token. Use them directly.
+        # Background jobs cannot open browser windows, so we never attempt az login here.
         if ($TenantId) {
             $clientTenantId = $TenantId
-            $clientTenantAccountJson = "{`"tenantId`":`"$TenantId`",`"user`":{`"name`":`"(passed via parameter)`"}}"
-            Write-Host "  Using client tenant ID from parameter: $clientTenantId" -ForegroundColor Gray
+            $clientTenantAccountJson = "{`"tenantId`":`"$TenantId`",`"user`":{`"name`":`"(wizard pre-authenticated)`"}}"
+            Write-Host "  Using client tenant from wizard: $clientTenantId" -ForegroundColor Gray
+            if ($GraphToken) {
+                Write-Host "  Graph token received from wizard" -ForegroundColor Gray
+            } else {
+                Write-Host "  WARNING: No Graph token passed — post-deployment config may fail" -ForegroundColor Yellow
+            }
         } else {
-            $ErrorActionPreference = "Continue"
-            $clientTenantAccountJson = (cmd /c "az account show -o json 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
-            $ErrorActionPreference = "Stop"
-            Write-Host "  Using existing login session" -ForegroundColor Gray
+            Write-Host "  ERROR: No client tenant ID passed from wizard. Cannot proceed." -ForegroundColor Red
+            exit 1
         }
     } else {
         Read-Host "  Press Enter when ready to log in to the CLIENT tenant"
@@ -291,8 +296,79 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             $graphAppId = "00000003-0000-0000-c000-000000000000"
             $ErrorActionPreference = "Continue"
 
+            # Determine which token to use for Graph API calls.
+            # In MSP NonInteractive mode, use the pre-captured token from the wizard.
+            # In interactive or Standard mode, get a token from the current CLI session.
+            $appRegToken = if ($NonInteractive -and $isMspMode -and $GraphToken) {
+                Write-Host "  Using pre-captured Graph token for client tenant app registration" -ForegroundColor Gray
+                $GraphToken
+            } else {
+                (cmd /c "az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv 2>nul").Trim()
+            }
+
+            if (-not $appRegToken) {
+                Write-Host "  ERROR: No Graph token available for app registration" -ForegroundColor Red
+                exit 1
+            }
+
             Write-Host "  Creating app registration '$appNameInput'..." -ForegroundColor Gray
-            $newAppRaw = cmd /c "az ad app create --display-name `"$appNameInput`" --sign-in-audience AzureADMyOrg --enable-access-token-issuance true --enable-id-token-issuance true 2>&1"
+            $graphPermissions = @(
+                @{ id = "df021288-bdef-4463-88db-98f22de89214"; name = "User.Read.All" }
+                @{ id = "5b567255-7703-4780-807c-7be8301ae99b"; name = "Group.Read.All" }
+                @{ id = "7ab1d382-f21e-4acd-a863-ba3e13f7da61"; name = "Directory.Read.All" }
+                @{ id = "498476ce-e0fe-48b0-b801-37ba7e2685c6"; name = "Organization.Read.All" }
+                @{ id = "246dd0d5-5bd0-4def-940b-0421030a5b68"; name = "Policy.Read.All" }
+                @{ id = "dbb9058a-0e50-45d7-ae91-66909b5d4664"; name = "Domain.Read.All" }
+                @{ id = "7438b122-aefc-4978-80ed-43db9fcc7715"; name = "Device.Read.All" }
+                @{ id = "2f51be20-0bb4-4fed-bf7b-db946066c75e"; name = "DeviceManagementManagedDevices.Read.All" }
+                @{ id = "dc377aa6-52d8-4e23-b271-2a7ae04cedf3"; name = "DeviceManagementConfiguration.Read.All" }
+                @{ id = "7a6ee1e7-141e-4cec-ae74-d9db155731ff"; name = "DeviceManagementApps.Read.All" }
+                @{ id = "06a5fe6d-c49d-46a7-b082-56b1b14103c7"; name = "DeviceManagementServiceConfig.Read.All" }
+                @{ id = "810c84a8-4a9e-49e6-bf7d-12d183f40d01"; name = "Mail.Read" }
+                @{ id = "b633e1c5-b582-4048-a93e-9f11b44c7e96"; name = "Mail.Send" }
+                @{ id = "230c1aed-a721-4c5d-9cb4-a90514e508ef"; name = "Reports.Read.All" }
+                @{ id = "bf394140-e372-4bf9-a898-299cfc7564e5"; name = "SecurityEvents.Read.All" }
+                @{ id = "dc5007c0-2d7d-4c42-879c-2dab87571379"; name = "IdentityRiskyUser.Read.All" }
+                @{ id = "6e472fd1-ad78-48da-a0f0-97ab2c6b769e"; name = "IdentityRiskEvent.Read.All" }
+                @{ id = "b0afded3-3588-46d8-8b3d-9842eff778da"; name = "AuditLog.Read.All" }
+                @{ id = "e0b77adb-e790-44a3-b0a0-257d06303687"; name = "UserAuthenticationMethod.Read.All" }
+                @{ id = "93283d0a-6322-4fa8-966b-8c121624760d"; name = "AttackSimulation.Read.All" }
+                @{ id = "332a536c-c7ef-4017-ab91-336970924f0d"; name = "Sites.Read.All" }
+                @{ id = "45bbb07e-7321-4fd7-a8f6-3ff27e6a81c8"; name = "CallRecords.Read.All" }
+            )
+            $defenderPermissions = @(
+                @{ id = "ea8291d3-4b9a-44b5-bc3a-6cea3026dc79"; name = "Machine.Read.All" }
+                @{ id = "41269fc5-d04d-4bfd-bce7-43a51cea049a"; name = "Vulnerability.Read.All" }
+                @{ id = "02b005dd-f804-43b4-8fc7-078460413f74"; name = "Score.Read.All" }
+            )
+
+            $adminRoleId  = [guid]::NewGuid().ToString()
+            $readerRoleId = [guid]::NewGuid().ToString()
+
+            # Build the full app manifest with all permissions and roles in one API call
+            $graphPermsForManifest  = ($graphPermissions   | ForEach-Object { "{`"id`":`"$($_.id)`",`"type`":`"Role`"}" }) -join ","
+            $defenderPermsForManifest = ($defenderPermissions | ForEach-Object { "{`"id`":`"$($_.id)`",`"type`":`"Role`"}" }) -join ","
+
+            $createBody = @"
+{
+  "displayName": "$appNameInput",
+  "signInAudience": "AzureADMyOrg",
+  "web": { "implicitGrantSettings": { "enableAccessTokenIssuance": true, "enableIdTokenIssuance": true } },
+  "requiredResourceAccess": [
+    { "resourceAppId": "00000003-0000-0000-c000-000000000000", "resourceAccess": [ $graphPermsForManifest ] },
+    { "resourceAppId": "fc780465-2017-40d4-a0c5-307022471b92", "resourceAccess": [ $defenderPermsForManifest ] },
+    { "resourceAppId": "00000002-0000-0ff1-ce00-000000000000", "resourceAccess": [ {"id":"dc50a0fb-09a3-484d-be87-e023b12c6440","type":"Role"} ] }
+  ],
+  "appRoles": [
+    { "id": "$adminRoleId",  "allowedMemberTypes": ["User"], "description": "Full administrative access to M365 Dashboard", "displayName": "Dashboard Admin",  "isEnabled": true, "value": "Dashboard.Admin"  },
+    { "id": "$readerRoleId", "allowedMemberTypes": ["User"], "description": "Read-only access to M365 Dashboard",         "displayName": "Dashboard Reader", "isEnabled": true, "value": "Dashboard.Reader" }
+  ]
+}
+"@
+            $createFile = [System.IO.Path]::GetTempFileName() + ".json"
+            [System.IO.File]::WriteAllText($createFile, $createBody, [System.Text.Encoding]::UTF8)
+            $newAppRaw = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/applications`" --body @`"$createFile`" --headers Content-Type=application/json Authorization=`"Bearer $appRegToken`" 2>&1"
+            Remove-Item $createFile -ErrorAction SilentlyContinue
             $newAppJson = ($newAppRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
             if ($LASTEXITCODE -ne 0 -or -not $newAppJson -or $newAppJson -notmatch '"appId"') {
                 Write-Host "  Failed to create app registration:" -ForegroundColor Red
@@ -304,80 +380,20 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             $appObjectIdNew = $newApp.id
             Write-Host "  App created. Client ID: $ClientId" -ForegroundColor Green
 
-            # Create service principal
+            # Create service principal via Graph API
             Write-Host "  Creating service principal..." -ForegroundColor Gray
-            cmd /c "az ad sp create --id $ClientId 2>nul" | Out-Null
+            $spBody = "{`"appId`":`"$ClientId`"}"
+            $spFile = [System.IO.Path]::GetTempFileName() + ".json"
+            [System.IO.File]::WriteAllText($spFile, $spBody, [System.Text.Encoding]::UTF8)
+            $spRaw = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/servicePrincipals`" --body @`"$spFile`" --headers Content-Type=application/json Authorization=`"Bearer $appRegToken`" 2>&1"
+            Remove-Item $spFile -ErrorAction SilentlyContinue
 
-            # Add Microsoft Graph permissions
-            Write-Host "  Adding Microsoft Graph permissions..." -ForegroundColor Gray
-            $graphPermissions = @(
-                # Core
-                @{ id = "df021288-bdef-4463-88db-98f22de89214"; name = "User.Read.All" }
-                @{ id = "5b567255-7703-4780-807c-7be8301ae99b"; name = "Group.Read.All" }
-                @{ id = "7ab1d382-f21e-4acd-a863-ba3e13f7da61"; name = "Directory.Read.All" }
-                @{ id = "498476ce-e0fe-48b0-b801-37ba7e2685c6"; name = "Organization.Read.All" }
-                @{ id = "246dd0d5-5bd0-4def-940b-0421030a5b68"; name = "Policy.Read.All" }
-                @{ id = "dbb9058a-0e50-45d7-ae91-66909b5d4664"; name = "Domain.Read.All" }
-                # Devices & Intune
-                @{ id = "7438b122-aefc-4978-80ed-43db9fcc7715"; name = "Device.Read.All" }
-                @{ id = "2f51be20-0bb4-4fed-bf7b-db946066c75e"; name = "DeviceManagementManagedDevices.Read.All" }
-                @{ id = "dc377aa6-52d8-4e23-b271-2a7ae04cedf3"; name = "DeviceManagementConfiguration.Read.All" }
-                @{ id = "7a6ee1e7-141e-4cec-ae74-d9db155731ff"; name = "DeviceManagementApps.Read.All" }
-                @{ id = "06a5fe6d-c49d-46a7-b082-56b1b14103c7"; name = "DeviceManagementServiceConfig.Read.All" }
-                # Mail & Reports
-                @{ id = "810c84a8-4a9e-49e6-bf7d-12d183f40d01"; name = "Mail.Read" }
-                @{ id = "b633e1c5-b582-4048-a93e-9f11b44c7e96"; name = "Mail.Send" }
-                @{ id = "230c1aed-a721-4c5d-9cb4-a90514e508ef"; name = "Reports.Read.All" }
-                # Security
-                @{ id = "bf394140-e372-4bf9-a898-299cfc7564e5"; name = "SecurityEvents.Read.All" }
-                @{ id = "dc5007c0-2d7d-4c42-879c-2dab87571379"; name = "IdentityRiskyUser.Read.All" }
-                @{ id = "6e472fd1-ad78-48da-a0f0-97ab2c6b769e"; name = "IdentityRiskEvent.Read.All" }
-                @{ id = "b0afded3-3588-46d8-8b3d-9842eff778da"; name = "AuditLog.Read.All" }
-                @{ id = "e0b77adb-e790-44a3-b0a0-257d06303687"; name = "UserAuthenticationMethod.Read.All" }
-                @{ id = "93283d0a-6322-4fa8-966b-8c121624760d"; name = "AttackSimulation.Read.All" }
-                # SharePoint
-                @{ id = "332a536c-c7ef-4017-ab91-336970924f0d"; name = "Sites.Read.All" }
-                # Teams
-                @{ id = "45bbb07e-7321-4fd7-a8f6-3ff27e6a81c8"; name = "CallRecords.Read.All" }
-            )
-            foreach ($perm in $graphPermissions) {
-                cmd /c "az ad app permission add --id $ClientId --api $graphAppId --api-permissions $($perm.id)=Role 2>nul" | Out-Null
-                Write-Host "    + $($perm.name)" -ForegroundColor Gray
-            }
             Write-Host "  Graph permissions added (22 permissions)" -ForegroundColor Green
-
-            # Add Microsoft Defender for Endpoint permissions (separate API)
-            Write-Host "  Adding Microsoft Defender for Endpoint permissions..." -ForegroundColor Gray
-            $defenderAppId = "fc780465-2017-40d4-a0c5-307022471b92" # WindowsDefenderATP
-            $defenderPermissions = @(
-                @{ id = "ea8291d3-4b9a-44b5-bc3a-6cea3026dc79"; name = "Machine.Read.All" }
-                @{ id = "41269fc5-d04d-4bfd-bce7-43a51cea049a"; name = "Vulnerability.Read.All" }
-                @{ id = "02b005dd-f804-43b4-8fc7-078460413f74"; name = "Score.Read.All" }
-            )
-            foreach ($perm in $defenderPermissions) {
-                cmd /c "az ad app permission add --id $ClientId --api $defenderAppId --api-permissions $($perm.id)=Role 2>nul" | Out-Null
-                Write-Host "    + $($perm.name)" -ForegroundColor Gray
-            }
             Write-Host "  Defender for Endpoint permissions added" -ForegroundColor Green
-
-            # Add Exchange Online permissions (separate API)
-            Write-Host "  Adding Exchange Online permissions..." -ForegroundColor Gray
-            $exchangeAppId = "00000002-0000-0ff1-ce00-000000000000" # Office 365 Exchange Online
-            $exchangePermId = "dc50a0fb-09a3-484d-be87-e023b12c6440" # Exchange.ManageAsApp
-            cmd /c "az ad app permission add --id $ClientId --api $exchangeAppId --api-permissions $exchangePermId=Role 2>nul" | Out-Null
-            Write-Host "    + Exchange.ManageAsApp" -ForegroundColor Gray
             Write-Host "  Exchange Online permissions added" -ForegroundColor Green
-
-            # Add app roles
-            Write-Host "  Adding app roles..." -ForegroundColor Gray
-            $adminRoleId = [guid]::NewGuid().ToString()
-            $readerRoleId = [guid]::NewGuid().ToString()
-            $appRolesJson = "[{`"id`":`"$adminRoleId`",`"allowedMemberTypes`":[`"User`"],`"description`":`"Full administrative access to M365 Dashboard`",`"displayName`":`"Dashboard Admin`",`"isEnabled`":true,`"value`":`"Dashboard.Admin`"},{`"id`":`"$readerRoleId`",`"allowedMemberTypes`":[`"User`"],`"description`":`"Read-only access to M365 Dashboard`",`"displayName`":`"Dashboard Reader`",`"isEnabled`":true,`"value`":`"Dashboard.Reader`"}]"
-            $rolesFile = [System.IO.Path]::GetTempFileName()
-            [System.IO.File]::WriteAllText($rolesFile, $appRolesJson, [System.Text.Encoding]::UTF8)
-            cmd /c "az ad app update --id $ClientId --app-roles @`"$rolesFile`" 2>nul" | Out-Null
-            Remove-Item $rolesFile -ErrorAction SilentlyContinue
             Write-Host "  App roles added" -ForegroundColor Green
+
+            $defenderAppId = "fc780465-2017-40d4-a0c5-307022471b92"
 
             # ----------------------------------------------------------------
             # Credential type selection
@@ -464,7 +480,7 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
                 $keyBody = "{`"keyCredentials`":[{`"type`":`"AsymmetricX509Cert`",`"usage`":`"Verify`",`"key`":`"$cerB64`",`"displayName`":`"M365Dashboard-Cert`"}]}"
                 $keyFile = [System.IO.Path]::GetTempFileName() + ".json"
                 [System.IO.File]::WriteAllText($keyFile, $keyBody, [System.Text.Encoding]::UTF8)
-                $uploadResult = cmd /c "az rest --method PATCH --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectIdNew`" --body @`"$keyFile`" --headers Content-Type=application/json 2>&1"
+                $uploadResult = cmd /c "az rest --method PATCH --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectIdNew`" --body @`"$keyFile`" --headers Content-Type=application/json Authorization=`"Bearer $appRegToken`" 2>&1"
                 Remove-Item $keyFile -ErrorAction SilentlyContinue
                 Remove-Item $cerPath -ErrorAction SilentlyContinue
                 Remove-Item $pfxPath -ErrorAction SilentlyContinue
@@ -499,7 +515,7 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
                 $logoBytes = [Convert]::FromBase64String($logoB64)
                 $tempLogo  = [System.IO.Path]::GetTempFileName() + ".png"
                 [System.IO.File]::WriteAllBytes($tempLogo, $logoBytes)
-                $logoResult = cmd /c "az rest --method PUT --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectIdNew/logo`" --body `"@$tempLogo`" --headers Content-Type=image/png 2>&1"
+                $logoResult = cmd /c "az rest --method PUT --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectIdNew/logo`" --body `"@$tempLogo`" --headers Content-Type=image/png Authorization=`"Bearer $appRegToken`" 2>&1"
                 Remove-Item $tempLogo -ErrorAction SilentlyContinue
                 if ($LASTEXITCODE -eq 0) {
                     Write-Host "  App logo uploaded" -ForegroundColor Green
@@ -513,7 +529,11 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             # Set Application ID URI and expose access_as_user scope
             # The identifier URI must be set first
             Write-Host "  Setting Application ID URI..." -ForegroundColor Gray
-            cmd /c "az ad app update --id $ClientId --identifier-uris `"api://$ClientId`" 2>nul" | Out-Null
+            $uriBody = "{`"identifierUris`":[`"api://$ClientId`"]}"
+            $uriFile = [System.IO.Path]::GetTempFileName() + ".json"
+            [System.IO.File]::WriteAllText($uriFile, $uriBody, [System.Text.Encoding]::UTF8)
+            cmd /c "az rest --method PATCH --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectIdNew`" --body @`"$uriFile`" --headers Content-Type=application/json Authorization=`"Bearer $appRegToken`" 2>nul" | Out-Null
+            Remove-Item $uriFile -ErrorAction SilentlyContinue
             Write-Host "  Application ID URI set: api://$ClientId" -ForegroundColor Green
 
             Write-Host "  Exposing access_as_user scope..." -ForegroundColor Gray
@@ -522,7 +542,7 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             $scopeBody = "{`"api`":{`"oauth2PermissionScopes`":[{`"adminConsentDescription`":`"Allow the application to access M365 Dashboard on behalf of the signed-in user`",`"adminConsentDisplayName`":`"Access M365 Dashboard`",`"id`":`"$scopeId`",`"isEnabled`":true,`"type`":`"User`",`"userConsentDescription`":`"Allow the application to access M365 Dashboard on your behalf`",`"userConsentDisplayName`":`"Access M365 Dashboard`",`"value`":`"access_as_user`"} ] }}"
             $scopeFile = [System.IO.Path]::GetTempFileName() + ".json"
             [System.IO.File]::WriteAllText($scopeFile, $scopeBody, [System.Text.Encoding]::UTF8)
-            cmd /c "az rest --method PATCH --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectIdForScope`" --body @`"$scopeFile`" --headers Content-Type=application/json 2>nul" | Out-Null
+            cmd /c "az rest --method PATCH --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectIdForScope`" --body @`"$scopeFile`" --headers Content-Type=application/json Authorization=`"Bearer $appRegToken`" 2>nul" | Out-Null
             Remove-Item $scopeFile -ErrorAction SilentlyContinue
             Write-Host "  access_as_user scope exposed" -ForegroundColor Green
 
@@ -533,7 +553,7 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             $spObjIdForConsent = $null
             for ($attempt = 1; $attempt -le 12; $attempt++) {
                 Start-Sleep -Seconds 5
-                $spCheckRaw = cmd /c "az ad sp show --id $ClientId --query id -o tsv 2>nul"
+                $spCheckRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals?`$filter=appId eq '$ClientId'`" --headers Authorization=`"Bearer $appRegToken`" --query value[0].id -o tsv 2>nul"
                 $spObjIdForConsent = ($spCheckRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
                 if ($spObjIdForConsent) {
                     Write-Host "  Service principal confirmed (${attempt}x5s)" -ForegroundColor Gray
@@ -560,11 +580,13 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
                 # oauth2PermissionGrants only covers delegated permissions — it does nothing
                 # for Role-type (application) permissions like User.Read.All.
                 $ErrorActionPreference = "Continue"
-                $graphToken = (cmd /c "az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv 2>nul").Trim()
+                $graphToken = if ($appRegToken) { $appRegToken } else {
+                    (cmd /c "az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv 2>nul").Trim()
+                }
 
                 if ($graphToken -and $spObjIdForConsent) {
                     # Resolve the Graph SP object ID
-                    $graphSpRaw = cmd /c "az ad sp show --id 00000003-0000-0000-c000-000000000000 --query id -o tsv 2>nul"
+                    $graphSpRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals?`$filter=appId eq '00000003-0000-0000-c000-000000000000'`" --headers Authorization=`"Bearer $graphToken`" --query value[0].id -o tsv 2>nul"
                     $graphSpObjId = ($graphSpRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
 
                     if ($graphSpObjId) {
@@ -585,7 +607,7 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
                         }
 
                         # Also grant Exchange.ManageAsApp via appRoleAssignments
-                        $exSpRaw = cmd /c "az ad sp show --id 00000002-0000-0ff1-ce00-000000000000 --query id -o tsv 2>nul"
+                        $exSpRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals?`$filter=appId eq '00000002-0000-0ff1-ce00-000000000000'`" --headers Authorization=`"Bearer $graphToken`" --query value[0].id -o tsv 2>nul"
                         $exSpObjId = ($exSpRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
                         if ($exSpObjId) {
                             $exRoleBody = "{`"principalId`":`"$spObjIdForConsent`",`"resourceId`":`"$exSpObjId`",`"appRoleId`":`"dc50a0fb-09a3-484d-be87-e023b12c6440`"}"
@@ -629,7 +651,7 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             $ErrorActionPreference = "Continue"
             $exchangeRoleTemplateId = "31392ffb-586c-42d1-9346-e59415a2cc4e"
             # Activate the role in the tenant if not already active
-            $activeRoleRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/directoryRoles?`$filter=roleTemplateId eq '$exchangeRoleTemplateId'`" 2>nul"
+            $activeRoleRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/directoryRoles?`$filter=roleTemplateId eq '$exchangeRoleTemplateId'`" --headers Authorization=`"Bearer $appRegToken`" 2>nul"
             $activeRoleJson = ($activeRoleRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
             $activeRole = $activeRoleJson | ConvertFrom-Json
             $roleId = $activeRole.value[0].id
@@ -638,18 +660,22 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
                 $activateBody = "{`"roleTemplateId`":`"$exchangeRoleTemplateId`"}"
                 $activateFile = [System.IO.Path]::GetTempFileName() + ".json"
                 [System.IO.File]::WriteAllText($activateFile, $activateBody, [System.Text.Encoding]::UTF8)
-                $activateRaw = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/directoryRoles`" --body @`"$activateFile`" --headers Content-Type=application/json 2>nul"
+                $activateRaw = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/directoryRoles`" --body @`"$activateFile`" --headers Content-Type=application/json Authorization=`"Bearer $appRegToken`" 2>nul"
                 Remove-Item $activateFile -ErrorAction SilentlyContinue
                 $activateJson = ($activateRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
                 $roleId = ($activateJson | ConvertFrom-Json).id
             }
             # Get the service principal object ID
-            $spObjIdForRole = (cmd /c "az ad sp show --id $ClientId --query id -o tsv 2>nul").Trim()
+            $spObjIdForRole = $spObjIdForConsent
+            if (-not $spObjIdForRole) {
+                $spObjIdRoleRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals?`$filter=appId eq '$ClientId'`" --headers Authorization=`"Bearer $appRegToken`" --query value[0].id -o tsv 2>nul"
+                $spObjIdForRole = ($spObjIdRoleRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+            }
             if ($roleId -and $spObjIdForRole) {
                 $memberBody = "{`"@odata.id`":`"https://graph.microsoft.com/v1.0/directoryObjects/$spObjIdForRole`"}"
                 $memberFile = [System.IO.Path]::GetTempFileName() + ".json"
                 [System.IO.File]::WriteAllText($memberFile, $memberBody, [System.Text.Encoding]::UTF8)
-                $assignResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/directoryRoles/$roleId/members/`$ref`" --body @`"$memberFile`" --headers Content-Type=application/json 2>&1"
+                $assignResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/directoryRoles/$roleId/members/`$ref`" --body @`"$memberFile`" --headers Content-Type=application/json Authorization=`"Bearer $appRegToken`" 2>&1"
                 Remove-Item $memberFile -ErrorAction SilentlyContinue
                 if ($LASTEXITCODE -eq 0 -or ($assignResult -join "") -match "already exists") {
                     Write-Host "  Exchange Recipient Administrator role assigned" -ForegroundColor Green
@@ -915,13 +941,19 @@ $mspGraphToken = $null
 if ($isMspMode) {
     Write-Host "Capturing Graph token for client tenant (needed for post-deployment config)..." -ForegroundColor Yellow
     $ErrorActionPreference = "Continue"
-    $tokenRaw = cmd /c "az account get-access-token --resource https://graph.microsoft.com -o json 2>nul"
-    $tokenJson = ($tokenRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
-    if ($tokenJson -match '"accessToken"') {
-        $mspGraphToken = ($tokenJson | ConvertFrom-Json).accessToken
-        Write-Host "  Graph token obtained for client tenant" -ForegroundColor Green
+    # In NonInteractive mode, the wizard already passed the Graph token in as a parameter
+    if ($NonInteractive -and $GraphToken) {
+        $mspGraphToken = $GraphToken
+        Write-Host "  Graph token received from wizard" -ForegroundColor Green
     } else {
-        Write-Host "  Warning: Could not obtain Graph token - redirect URI will need to be set manually" -ForegroundColor Yellow
+        $tokenRaw = cmd /c "az account get-access-token --resource https://graph.microsoft.com -o json 2>nul"
+        $tokenJson = ($tokenRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
+        if ($tokenJson -match '"accessToken"') {
+            $mspGraphToken = ($tokenJson | ConvertFrom-Json).accessToken
+            Write-Host "  Graph token obtained for client tenant" -ForegroundColor Green
+        } else {
+            Write-Host "  Warning: Could not obtain Graph token - redirect URI will need to be set manually" -ForegroundColor Yellow
+        }
     }
     $ErrorActionPreference = "Stop"
 }

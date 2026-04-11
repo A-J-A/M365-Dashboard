@@ -1656,50 +1656,51 @@ function Start-Deploy {
             return
         }
         Add-Log "MSP Subscription: $($script:SelectedSubName)"
-        # Now do the client tenant login here in the wizard process before launching the job
+
+        # Login to client tenant HERE in the wizard process (background jobs cannot open browsers)
         Show-LoginPrompt `
-            "Sign in to the Client Entra Tenant" `
-            "Login 2 of 2 — Client tenant Global Admin account" `
-            "Sign in as a Global Admin of the CLIENT tenant. This creates the Entra app registration in their tenant. The client tenant may not have an Azure subscription — that is expected." `
+            "Sign in to the Client Tenant" `
+            "Login 2 of 2 — Client M365 Global Admin" `
+            "Sign in as Global Admin of the CLIENT tenant. This is used to create the Entra app registration in their tenant. The client tenant may not have Azure subscriptions — that is expected." `
             "#58A6FF" "Open browser to sign in to client tenant"
-        Add-Log "Opening Azure login — sign in as Global Admin of the client tenant..."
-        # Use az login --allow-no-subscriptions since client tenant may not have Azure
-        cmd /c "az logout 2>nul" | Out-Null
+        Add-Log "Opening browser — sign in to the CLIENT tenant..."
         $Win.WindowState = "Minimized"
+        cmd /c "az logout 2>nul" | Out-Null
         cmd /c "az login --allow-no-subscriptions" | Out-Null
-        $Win.WindowState = "Normal"
-        $Win.Activate()
+        $Win.WindowState = "Normal"; $Win.Activate()
+
+        # Capture the tenant ID and Graph token while still logged in to client tenant
         $ErrorActionPreference = "Continue"
-        $clientAccountRaw = (cmd /c "az account show -o json 2>nul")
-        $clientAccountJson = ($clientAccountRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join ""
-        $ErrorActionPreference = "Stop"
+        $clientRaw = (cmd /c "az account show -o json 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join ""
         $script:MspClientTenantId = ""
         try {
-            if ($clientAccountJson -match '"user"') {
-                $clientAccount = $clientAccountJson | ConvertFrom-Json
-                $script:MspClientTenantId = $clientAccount.tenantId
-                Add-Log "Logged in as: $($clientAccount.user.name) (tenant: $($clientAccount.tenantId))"
+            if ($clientRaw -match '"tenantId"') {
+                $clientAcct = $clientRaw | ConvertFrom-Json
+                $script:MspClientTenantId = $clientAcct.tenantId
+                Add-Log "Logged in as: $($clientAcct.user.name) (tenant: $($clientAcct.tenantId))"
             } else {
                 Add-Log "WARNING: Could not verify client tenant login"
             }
         } catch {}
 
-        # Switch back to MSP Azure subscription before launching the background job
-        # The background job's Step 2 reads az account show and needs the MSP session active
-        Show-LoginPrompt `
-            "Sign back in to YOUR Azure Subscription" `
-            "Switching back to MSP Azure account" `
-            "The client tenant setup is complete. Sign back in to your MSP Azure account so the deployment can create the Azure infrastructure (Container App, SQL, Key Vault, ACR) in your subscription." `
-            "#3FB950" "Open browser to sign back in"
-        Add-Log "Switching back to MSP Azure subscription..."
-        $ErrorActionPreference = "Continue"
-        cmd /c "az logout 2>nul" | Out-Null
-        $Win.WindowState = "Minimized"
-        cmd /c "az login" | Out-Null
-        $Win.WindowState = "Normal"
-        $Win.Activate()
-        cmd /c "az account set --subscription $($script:SelectedSubId) 2>nul" | Out-Null
+        # Capture Graph token for client tenant (needed post-deployment for redirect URI etc.)
+        $script:ClientGraphToken = ""
+        $tokenRaw = (cmd /c "az account get-access-token --resource https://graph.microsoft.com -o json 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join ""
+        try {
+            if ($tokenRaw -match '"accessToken"') {
+                $script:ClientGraphToken = ($tokenRaw | ConvertFrom-Json).accessToken
+                Add-Log "Graph token captured for client tenant"
+            }
+        } catch {}
         $ErrorActionPreference = "Stop"
+
+        # Switch back to MSP Azure so Step 2 of deploy script has the right subscription
+        Add-Log "Switching back to MSP Azure subscription..."
+        $Win.WindowState = "Minimized"
+        cmd /c "az logout 2>nul" | Out-Null
+        cmd /c "az login" | Out-Null
+        cmd /c "az account set --subscription $($script:SelectedSubId) 2>nul" | Out-Null
+        $Win.WindowState = "Normal"; $Win.Activate()
         Add-Log "MSP subscription active: $($script:SelectedSubName)"
         $TxtDeployStatus.Text = "Deployment is running. Do not close this window."
     }
@@ -1754,6 +1755,7 @@ function Start-Deploy {
     )
     if ($subId) { $argList += @("-SubscriptionId", $subId) }
     if ($script:MspClientTenantId) { $argList += @("-TenantId", $script:MspClientTenantId) }
+    if ($script:ClientGraphToken)  { $argList += @("-GraphToken",  $script:ClientGraphToken) }
 
     # Step patterns — matched against each output line
     $script:StepMap = @(
