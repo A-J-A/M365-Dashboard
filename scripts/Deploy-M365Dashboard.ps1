@@ -134,12 +134,18 @@ if ($isMspMode) {
     Write-Host "  MSP mode selected." -ForegroundColor Cyan
     Write-Host "  Step 1 of 2: Login as a Global Admin in the CLIENT'S Microsoft 365 tenant" -ForegroundColor Yellow
     if ($NonInteractive) {
-        # In NonInteractive mode the wizard already handled both logins before launching this job.
-        # The current az session is already the CLIENT tenant — just read it.
-        $ErrorActionPreference = "Continue"
-        $clientTenantAccountJson = (cmd /c "az account show -o json 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
-        $ErrorActionPreference = "Stop"
-        Write-Host "  Using existing login session" -ForegroundColor Gray
+        # In NonInteractive mode the wizard already handled client tenant login.
+        # If TenantId was passed directly, use it — otherwise read from current session.
+        if ($TenantId) {
+            $clientTenantId = $TenantId
+            $clientTenantAccountJson = "{`"tenantId`":`"$TenantId`",`"user`":{`"name`":`"(passed via parameter)`"}}"
+            Write-Host "  Using client tenant ID from parameter: $clientTenantId" -ForegroundColor Gray
+        } else {
+            $ErrorActionPreference = "Continue"
+            $clientTenantAccountJson = (cmd /c "az account show -o json 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
+            $ErrorActionPreference = "Stop"
+            Write-Host "  Using existing login session" -ForegroundColor Gray
+        }
     } else {
         Read-Host "  Press Enter when ready to log in to the CLIENT tenant"
         $clientTenantAccountJson = Invoke-AzLogin -AllowNoSubscriptions

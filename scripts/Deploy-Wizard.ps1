@@ -1673,14 +1673,34 @@ function Start-Deploy {
         $clientAccountRaw = (cmd /c "az account show -o json 2>nul")
         $clientAccountJson = ($clientAccountRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join ""
         $ErrorActionPreference = "Stop"
+        $script:MspClientTenantId = ""
         try {
             if ($clientAccountJson -match '"user"') {
                 $clientAccount = $clientAccountJson | ConvertFrom-Json
+                $script:MspClientTenantId = $clientAccount.tenantId
                 Add-Log "Logged in as: $($clientAccount.user.name) (tenant: $($clientAccount.tenantId))"
             } else {
                 Add-Log "WARNING: Could not verify client tenant login"
             }
         } catch {}
+
+        # Switch back to MSP Azure subscription before launching the background job
+        # The background job's Step 2 reads az account show and needs the MSP session active
+        Show-LoginPrompt `
+            "Sign back in to YOUR Azure Subscription" `
+            "Switching back to MSP Azure account" `
+            "The client tenant setup is complete. Sign back in to your MSP Azure account so the deployment can create the Azure infrastructure (Container App, SQL, Key Vault, ACR) in your subscription." `
+            "#3FB950" "Open browser to sign back in"
+        Add-Log "Switching back to MSP Azure subscription..."
+        $ErrorActionPreference = "Continue"
+        cmd /c "az logout 2>nul" | Out-Null
+        $Win.WindowState = "Minimized"
+        cmd /c "az login" | Out-Null
+        $Win.WindowState = "Normal"
+        $Win.Activate()
+        cmd /c "az account set --subscription $($script:SelectedSubId) 2>nul" | Out-Null
+        $ErrorActionPreference = "Stop"
+        Add-Log "MSP subscription active: $($script:SelectedSubName)"
         $TxtDeployStatus.Text = "Deployment is running. Do not close this window."
     }
 
@@ -1733,6 +1753,7 @@ function Start-Deploy {
         "-NonInteractive"
     )
     if ($subId) { $argList += @("-SubscriptionId", $subId) }
+    if ($script:MspClientTenantId) { $argList += @("-TenantId", $script:MspClientTenantId) }
 
     # Step patterns — matched against each output line
     $script:StepMap = @(
