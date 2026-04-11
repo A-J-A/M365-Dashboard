@@ -614,8 +614,13 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
 
             $ErrorActionPreference = "Stop"
 
-            # Get tenant ID from current login
-            $TenantId = (cmd /c "az account show --query tenantId -o tsv 2>nul").Trim()
+            # Get tenant ID — in MSP NonInteractive mode use the passed-in client tenant ID
+            # (az account show at this point returns the MSP tenant, not the client tenant)
+            if ($NonInteractive -and $isMspMode -and $clientTenantId) {
+                $TenantId = $clientTenantId
+            } else {
+                $TenantId = (cmd /c "az account show --query tenantId -o tsv 2>nul").Trim()
+            }
 
             # Assign Exchange Recipient Administrator role to the service principal
             # This is an Entra directory role and can be automated via Graph API
