@@ -1695,6 +1695,11 @@ function Start-Deploy {
         $ErrorActionPreference = "Stop"
 
         # Switch back to MSP Azure so Step 2 of deploy script has the right subscription
+        Show-LoginPrompt `
+            "Sign back in to YOUR Azure Subscription" `
+            "Login 3 of 3 — Back to MSP Azure account" `
+            "Client tenant setup is complete. Now sign back in to your MSP Azure account ($loggedInAs) so the deployment can create the Azure infrastructure in your subscription." `
+            "#3FB950" "Open browser to sign back in"
         Add-Log "Switching back to MSP Azure subscription..."
         $Win.WindowState = "Minimized"
         cmd /c "az logout 2>nul" | Out-Null
