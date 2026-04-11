@@ -1656,12 +1656,31 @@ function Start-Deploy {
             return
         }
         Add-Log "MSP Subscription: $($script:SelectedSubName)"
-        # Warn that a second browser login for the client tenant is coming in the background job
+        # Now do the client tenant login here in the wizard process before launching the job
         Show-LoginPrompt `
             "Sign in to the Client Entra Tenant" `
             "Login 2 of 2 — Client tenant Global Admin account" `
-            "A browser window will now open to sign in to the CLIENT'S Microsoft 365 tenant.`n`nSign in as a Global Admin of the client tenant. This is used to create the Entra app registration in their tenant.`n`nNote: The client tenant may not have an Azure subscription — that is expected." `
+            "Sign in as a Global Admin of the CLIENT tenant. This creates the Entra app registration in their tenant. The client tenant may not have an Azure subscription — that is expected." `
             "#58A6FF" "Open browser to sign in to client tenant"
+        Add-Log "Opening Azure login — sign in as Global Admin of the client tenant..."
+        # Use az login --allow-no-subscriptions since client tenant may not have Azure
+        cmd /c "az logout 2>nul" | Out-Null
+        $Win.WindowState = "Minimized"
+        cmd /c "az login --allow-no-subscriptions" | Out-Null
+        $Win.WindowState = "Normal"
+        $Win.Activate()
+        $ErrorActionPreference = "Continue"
+        $clientAccountRaw = (cmd /c "az account show -o json 2>nul")
+        $clientAccountJson = ($clientAccountRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join ""
+        $ErrorActionPreference = "Stop"
+        try {
+            if ($clientAccountJson -match '"user"') {
+                $clientAccount = $clientAccountJson | ConvertFrom-Json
+                Add-Log "Logged in as: $($clientAccount.user.name) (tenant: $($clientAccount.tenantId))"
+            } else {
+                Add-Log "WARNING: Could not verify client tenant login"
+            }
+        } catch {}
         $TxtDeployStatus.Text = "Deployment is running. Do not close this window."
     }
 
