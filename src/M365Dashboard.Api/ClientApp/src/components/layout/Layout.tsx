@@ -35,7 +35,6 @@ import {
   Grid24Regular,
   ChevronLeft24Regular,
   ChevronRight24Regular,
-  Question24Regular,
   Location24Regular,
   Location24Filled,
   ShareScreenStart24Regular,
@@ -337,14 +336,6 @@ export function Layout({ children }: LayoutProps) {
 
           {/* Right side actions */}
           <div className="flex items-center gap-1">
-            <Button
-              appearance="subtle"
-              icon={<Question24Regular />}
-              size="small"
-              aria-label="Help"
-              title="Help"
-            />
-            
             <Button
               appearance="subtle"
               icon={resolvedTheme === 'dark' ? <WeatherSunny24Regular /> : <WeatherMoon24Regular />}
