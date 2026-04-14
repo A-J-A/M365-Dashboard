@@ -110,7 +110,10 @@ Write-Host ""
 Write-Host "         Dashboard  Deployment" -ForegroundColor White
 Write-Host "  ─────────────────────────────────────" -ForegroundColor DarkGray
 Write-Host "  Microsoft 365 Tenant Management Portal" -ForegroundColor DarkGray
-Write-Host "  Open Source | github.com/A-J-A/M365-Dashboard" -ForegroundColor DarkGray
+# Detect repo slug from git remote for banner — avoids hardcoding the owner name
+$_bannerRemote = (cmd /c "git -C `"$PSScriptRoot`" remote get-url origin 2>nul").Trim()
+$_bannerSlug   = if ($_bannerRemote -match "github\.com[:/](.+?)(\.git)?$") { $Matches[1].Trim() } else { "github.com/M365-Dashboard" }
+Write-Host "  Open Source | github.com/$_bannerSlug" -ForegroundColor DarkGray
 Write-Host "" 
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host "M365 Dashboard - Deployment Script" -ForegroundColor Cyan

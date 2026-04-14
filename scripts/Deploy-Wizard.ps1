@@ -1757,10 +1757,11 @@ function Start-Deploy {
         $ghAuthed = ($LASTEXITCODE -eq 0)
         $ErrorActionPreference = "Stop"
         if (-not $ghAuthed) {
+            $ghRepoHint = if ($script:RepoSlug) { $script:RepoSlug } else { "your GitHub repository" }
             Show-LoginPrompt `
                 "Sign in to GitHub" `
                 "GitHub authentication for CI/CD secrets" `
-                "The deployment needs to store GitHub Actions secrets for automatic CI/CD. Sign in with the GitHub account that owns the repository (A-J-A/M365-Dashboard). A browser window will open." `
+                "The deployment needs to store GitHub Actions secrets for automatic CI/CD. Sign in with the GitHub account that owns the repository ($ghRepoHint). A browser window will open." `
                 "#24292F" "Open browser to sign in to GitHub"
             Add-Log "Opening GitHub login..."
             $Win.WindowState = "Minimized"
