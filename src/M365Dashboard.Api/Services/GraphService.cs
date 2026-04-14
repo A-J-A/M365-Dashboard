@@ -172,10 +172,9 @@ public class GraphService : IGraphService
 
             var successful = signInList.Count(s => s.Status?.ErrorCode == 0);
             var failed = signInList.Count(s => s.Status?.ErrorCode != 0);
-            var risky = signInList.Count(s => 
-                s.RiskState == RiskState.AtRisk || 
-                s.RiskLevelDuringSignIn == RiskLevel.High ||
-                s.RiskLevelDuringSignIn == RiskLevel.Medium);
+            // Only count sign-ins that are actively at risk — not dismissed or remediated historical events.
+            // riskState == 'atRisk' means the risk has not been resolved, matching what Entra ID Protection shows.
+            var risky = signInList.Count(s => s.RiskState == RiskState.AtRisk);
 
             var trend = signInList
                 .Where(s => s.CreatedDateTime.HasValue)
