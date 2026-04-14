@@ -41,7 +41,9 @@ $C = @{
     Width="900" Height="660" MinWidth="800" MinHeight="580"
     WindowStartupLocation="CenterScreen"
     Background="#0D1117" Foreground="#E6EDF3"
-    FontFamily="Segoe UI" FontSize="13">
+    FontFamily="Segoe UI" FontSize="13"
+    WindowStyle="SingleBorderWindow" ResizeMode="CanResize"
+    ShowInTaskbar="True">
 
   <Window.Resources>
 
@@ -1745,6 +1747,41 @@ function Start-Deploy {
         $TxtDeployStatus.Text = "Deployment is running. Do not close this window."
     }
 
+    # GitHub CLI auth — must happen HERE in the wizard process (background jobs can't open browsers)
+    $ErrorActionPreference = "Continue"
+    $ghAvailable = (cmd /c "gh --version 2>nul")
+    $ErrorActionPreference = "Stop"
+    if ($ghAvailable) {
+        $ErrorActionPreference = "Continue"
+        cmd /c "gh auth status 2>nul" | Out-Null
+        $ghAuthed = ($LASTEXITCODE -eq 0)
+        $ErrorActionPreference = "Stop"
+        if (-not $ghAuthed) {
+            Show-LoginPrompt `
+                "Sign in to GitHub" `
+                "GitHub authentication for CI/CD secrets" `
+                "The deployment needs to store GitHub Actions secrets for automatic CI/CD. Sign in with the GitHub account that owns the repository (A-J-A/M365-Dashboard). A browser window will open." `
+                "#24292F" "Open browser to sign in to GitHub"
+            Add-Log "Opening GitHub login..."
+            $Win.WindowState = "Minimized"
+            & gh auth login --web
+            $Win.WindowState = "Normal"; $Win.Activate()
+            $ErrorActionPreference = "Continue"
+            cmd /c "gh auth status 2>nul" | Out-Null
+            $ghAuthed = ($LASTEXITCODE -eq 0)
+            $ErrorActionPreference = "Stop"
+            if ($ghAuthed) {
+                Add-Log "GitHub CLI authenticated successfully"
+            } else {
+                Add-Log "WARNING: GitHub auth failed — secrets will be printed at end of deployment for manual entry"
+            }
+        } else {
+            Add-Log "GitHub CLI already authenticated"
+        }
+    } else {
+        Add-Log "GitHub CLI not found — secrets will be printed at end of deployment for manual entry"
+    }
+
     # Pass SQL password via environment variable to avoid shell quoting issues
     $env:WIZARD_SQL_PASSWORD = $sqlPwd
 
@@ -1928,6 +1965,23 @@ $BtnRetry.Add_Click({ Show-Page 3 })
 # Window events
 # ---------------------------------------------------------------------------
 $Win.Add_Loaded({
+    # Remove the '?' context help button from the title bar (Win32 extended style)
+    $helper = New-Object System.Windows.Interop.WindowInteropHelper($Win)
+    $exStyle = [System.Windows.Forms.NativeWindow]::new()
+    $GWL_EXSTYLE = -20
+    $WS_EX_CONTEXTHELP = 0x400
+    Add-Type -TypeDefinition @'
+        using System;
+        using System.Runtime.InteropServices;
+        public class WinHelper {
+            [DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr hwnd, int index);
+            [DllImport("user32.dll")] public static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
+        }
+'@
+    $hwnd = $helper.Handle
+    $style = [WinHelper]::GetWindowLong($hwnd, -20)
+    [WinHelper]::SetWindowLong($hwnd, -20, $style -band (-bnot 0x400)) | Out-Null
+
     Show-Page 1
     Check-Prereqs
 })

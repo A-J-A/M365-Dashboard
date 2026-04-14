@@ -1783,42 +1783,17 @@ if (-not $ghAvailable) {
 }
 
 # Authenticate gh CLI if installed but not authenticated
+# NOTE: Browser auth cannot happen here (background job has no display).
+# The wizard handles gh auth login before launching this script.
+# If still not authenticated, secrets will be printed for manual entry.
 if ($ghAvailable) {
     $ErrorActionPreference = "Continue"
     cmd /c "gh auth status 2>nul" | Out-Null
     $ghAuthed = ($LASTEXITCODE -eq 0)
     $ErrorActionPreference = "Stop"
-
     if (-not $ghAuthed) {
-        Write-Host ""
-        Write-Host "  ┌─────────────────────────────────────────────┐" -ForegroundColor Cyan
-        Write-Host "  │        GitHub Authentication Required         │" -ForegroundColor Cyan
-        Write-Host "  └─────────────────────────────────────────────┘" -ForegroundColor Cyan
-        Write-Host ""
-        Write-Host "  The deployment script needs to configure GitHub" -ForegroundColor White
-        Write-Host "  Actions secrets to enable automatic CI/CD." -ForegroundColor White
-        Write-Host ""
-        $ghAccountHint = if ($repoSlug -and $repoSlug -match '^([a-zA-Z0-9_.-]+)/') { $Matches[1] } else { "the repository owner" }
-        Write-Host "  Please sign in with the GitHub account that" -ForegroundColor White
-        Write-Host "  owns the repository ($ghAccountHint)." -ForegroundColor White
-        Write-Host ""
-        if ($repoSlug) {
-            Write-Host "  Repository: github.com/$repoSlug" -ForegroundColor DarkGray
-            Write-Host ""
-        }
-        Write-Host "  A browser window will open to complete login." -ForegroundColor Yellow
-        Write-Host ""
-        Read-Host "  Press Enter to continue to GitHub login"
-        & gh auth login
-        $ErrorActionPreference = "Continue"
-        cmd /c "gh auth status 2>nul" | Out-Null
-        $ghAuthed = ($LASTEXITCODE -eq 0)
-        $ErrorActionPreference = "Stop"
-        if ($ghAuthed) {
-            Write-Host "  GitHub CLI authenticated successfully" -ForegroundColor Green
-        } else {
-            Write-Host "  Authentication failed - secrets will be printed for manual entry" -ForegroundColor Yellow
-        }
+        Write-Host "  GitHub CLI not authenticated (wizard should have handled this)." -ForegroundColor Yellow
+        Write-Host "  Secrets will be printed below for manual entry." -ForegroundColor Yellow
     }
 }
 
