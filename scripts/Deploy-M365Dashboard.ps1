@@ -35,6 +35,7 @@ param(
     [string]$CredentialType = "Secret",      # Secret or Certificate
     [string]$SubscriptionId = "",            # If set, az account set to this before deploying
     [string]$GraphToken = "",                 # Pre-captured Graph token for client tenant (MSP NonInteractive)
+    [string]$DeployingUserObjectId = "",     # Object ID of the user deploying (for Dashboard Admin role assignment)
     [switch]$NonInteractive                  # Skip all prompts (used by wizard)
 )
 
@@ -1287,10 +1288,26 @@ if ($spId) {
     if ($adminRole) {
         $roleId = $adminRole.id
         if ($isMspMode) {
-            # In MSP mode the CLI is in the MSP tenant - we can't get the client tenant's signed-in user.
-            # The client admin will need to assign themselves the Dashboard.Admin role via Entra Enterprise Apps.
-            Write-Host "  MSP mode: Dashboard Admin role must be assigned manually in the client tenant." -ForegroundColor Yellow
-            Write-Host "  https://entra.microsoft.com/#view/Microsoft_AAD_IAM/ManagedAppMenuBlade/~/Users/objectId/$spId" -ForegroundColor Cyan
+            # In MSP mode the CLI is in the MSP tenant, but we captured the client tenant
+            # deploying user's object ID from the Graph token earlier — use it directly.
+            if ($DeployingUserObjectId) {
+                $roleBodyFile = [System.IO.Path]::GetTempFileName()
+                $roleBody = "{`"principalId`":`"$DeployingUserObjectId`",`"resourceId`":`"$spId`",`"appRoleId`":`"$roleId`"}"
+                [System.IO.File]::WriteAllText($roleBodyFile, $roleBody, [System.Text.Encoding]::UTF8)
+                $assignResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/servicePrincipals/$spId/appRoleAssignments`" --body @`"$roleBodyFile`" --headers Content-Type=application/json Authorization=`"Bearer $appRegToken`" 2>&1"
+                Remove-Item $roleBodyFile -ErrorAction SilentlyContinue
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "  Dashboard Admin role assigned to deploying user" -ForegroundColor Green
+                } elseif (($assignResult -join "") -match "already exists") {
+                    Write-Host "  Dashboard Admin role already assigned" -ForegroundColor Green
+                } else {
+                    Write-Host "  Could not assign role automatically — assign manually in the client tenant:" -ForegroundColor Yellow
+                    Write-Host "  https://entra.microsoft.com/#view/Microsoft_AAD_IAM/ManagedAppMenuBlade/~/Users/objectId/$spId" -ForegroundColor Cyan
+                }
+            } else {
+                Write-Host "  MSP mode: Dashboard Admin role must be assigned manually in the client tenant." -ForegroundColor Yellow
+                Write-Host "  https://entra.microsoft.com/#view/Microsoft_AAD_IAM/ManagedAppMenuBlade/~/Users/objectId/$spId" -ForegroundColor Cyan
+            }
         } else {
             $currentUser = (cmd /c "az ad signed-in-user show --query id -o tsv 2>nul").Trim()
             if ($currentUser) {

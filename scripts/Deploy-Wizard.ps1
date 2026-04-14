@@ -1687,6 +1687,7 @@ function Start-Deploy {
 
         # Capture Graph token for client tenant (needed post-deployment for redirect URI etc.)
         $script:ClientGraphToken = ""
+        $script:DeployingUserObjectId = ""
         $tokenRaw = (cmd /c "az account get-access-token --resource https://graph.microsoft.com -o json 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join ""
         try {
             if ($tokenRaw -match '"accessToken"') {
@@ -1694,6 +1695,14 @@ function Start-Deploy {
                 Add-Log "Graph token captured for client tenant"
             }
         } catch {}
+        # Capture the deploying user's object ID from the Graph token
+        # so we can assign them Dashboard Admin automatically after deployment
+        $ErrorActionPreference = "Continue"
+        $meRaw = (cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/me`" --query id -o tsv 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
+        $script:DeployingUserObjectId = $meRaw.Trim()
+        if ($script:DeployingUserObjectId) {
+            Add-Log "Deploying user object ID captured: $($script:DeployingUserObjectId.Substring(0,8))..."
+        }
         $ErrorActionPreference = "Stop"
 
         # Switch back to MSP Azure so Step 2 of deploy script has the right subscription
@@ -1797,8 +1806,9 @@ function Start-Deploy {
         "-NonInteractive"
     )
     if ($subId) { $argList += @("-SubscriptionId", $subId) }
-    if ($script:MspClientTenantId) { $argList += @("-TenantId", $script:MspClientTenantId) }
-    if ($script:ClientGraphToken)  { $argList += @("-GraphToken",  $script:ClientGraphToken) }
+    if ($script:MspClientTenantId)    { $argList += @("-TenantId",              $script:MspClientTenantId) }
+    if ($script:ClientGraphToken)     { $argList += @("-GraphToken",            $script:ClientGraphToken) }
+    if ($script:DeployingUserObjectId){ $argList += @("-DeployingUserObjectId", $script:DeployingUserObjectId) }
 
     # Step patterns — matched against each output line
     $script:StepMap = @(
