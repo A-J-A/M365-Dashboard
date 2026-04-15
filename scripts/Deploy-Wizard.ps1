@@ -1770,11 +1770,16 @@ function Start-Deploy {
             Show-LoginPrompt `
                 "Sign in to GitHub" `
                 "GitHub authentication for CI/CD secrets" `
-                "The deployment needs to store GitHub Actions secrets for automatic CI/CD. Sign in with the GitHub account that owns the repository ($ghRepoHint). A browser window will open." `
-                "#24292F" "Open browser to sign in to GitHub"
+                "The deployment needs to store GitHub Actions secrets for automatic CI/CD. Sign in with the GitHub account that owns the repository ($ghRepoHint). A console window will open — follow the instructions there to complete the sign-in." `
+                "#24292F" "Open GitHub login"
             Add-Log "Opening GitHub login..."
+            # gh auth login --web must run in its own console window.
+            # Calling it inline on the WPF STA thread blocks the message pump and
+            # prevents the browser OAuth callback from completing.
             $Win.WindowState = "Minimized"
-            & gh auth login --web
+            $ghProc = Start-Process powershell.exe `
+                -ArgumentList "-NoProfile","-ExecutionPolicy","Bypass","-Command","gh auth login --web; Write-Host ''; Write-Host 'Press Enter to close...' -ForegroundColor Cyan; Read-Host" `
+                -Wait -PassThru
             $Win.WindowState = "Normal"; $Win.Activate()
             $ErrorActionPreference = "Continue"
             cmd /c "gh auth status 2>nul" | Out-Null
