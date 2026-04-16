@@ -47,9 +47,12 @@ $ErrorActionPreference = "Stop"
 # entrypoint which fails with "Failed to load python executable".
 # az.cmd sets up the Python environment correctly before delegating to az.py.
 # ============================================================================
-$azCmd = (Get-Command az.cmd -ErrorAction SilentlyContinue)?.Source
+$azCmd = $null
+$_azTmp = Get-Command az.cmd -ErrorAction SilentlyContinue
+if ($_azTmp) { $azCmd = $_azTmp.Source }
 if (-not $azCmd) {
-    $azCmd = (Get-Command az -ErrorAction SilentlyContinue)?.Source
+    $_azTmp = Get-Command az -ErrorAction SilentlyContinue
+    if ($_azTmp) { $azCmd = $_azTmp.Source }
 }
 if (-not $azCmd) {
     # Last resort: search common install locations
@@ -1471,8 +1474,13 @@ if (-not $spJson -or ($spJson -notmatch '"clientId"')) {
 
 # Detect GitHub repo slug from git remote — resolve git.exe explicitly for background job PATH
 $repoRoot  = Split-Path $PSScriptRoot -Parent
-$gitExe    = (Get-Command git.exe -ErrorAction SilentlyContinue)?.Source
-if (-not $gitExe) { $gitExe = (Get-Command git -ErrorAction SilentlyContinue)?.Source }
+$gitExe    = $null
+$_gitTmp = Get-Command git.exe -ErrorAction SilentlyContinue
+if ($_gitTmp) { $gitExe = $_gitTmp.Source }
+if (-not $gitExe) {
+    $_gitTmp = Get-Command git -ErrorAction SilentlyContinue
+    if ($_gitTmp) { $gitExe = $_gitTmp.Source }
+}
 $gitRemote = if ($gitExe) { (& $gitExe -C "$repoRoot" remote get-url origin 2>$null) } else { "" }
 $gitRemote = ($gitRemote -join '').Trim()
 $repoSlug  = ""
@@ -1772,8 +1780,13 @@ $spJsonGh = ($spJsonGh | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
 
 # Detect GitHub repo slug from git remote — resolve git.exe explicitly for background job PATH
 $repoRoot  = Split-Path $PSScriptRoot -Parent
-$gitExe    = (Get-Command git.exe -ErrorAction SilentlyContinue)?.Source
-if (-not $gitExe) { $gitExe = (Get-Command git -ErrorAction SilentlyContinue)?.Source }
+$gitExe    = $null
+$_gitTmp = Get-Command git.exe -ErrorAction SilentlyContinue
+if ($_gitTmp) { $gitExe = $_gitTmp.Source }
+if (-not $gitExe) {
+    $_gitTmp = Get-Command git -ErrorAction SilentlyContinue
+    if ($_gitTmp) { $gitExe = $_gitTmp.Source }
+}
 $gitRemote = if ($gitExe) { (& $gitExe -C "$repoRoot" remote get-url origin 2>$null) } else { "" }
 $gitRemote = ($gitRemote -join '').Trim()
 $repoSlug  = ""
