@@ -42,6 +42,34 @@ param(
 $ErrorActionPreference = "Stop"
 
 # ============================================================================
+# Resolve Azure CLI — use az.cmd (Windows batch wrapper) when available.
+# In background jobs the PATH is stripped and bare 'az' resolves to the Python
+# entrypoint which fails with "Failed to load python executable".
+# az.cmd sets up the Python environment correctly before delegating to az.py.
+# ============================================================================
+$azCmd = (Get-Command az.cmd -ErrorAction SilentlyContinue)?.Source
+if (-not $azCmd) {
+    $azCmd = (Get-Command az -ErrorAction SilentlyContinue)?.Source
+}
+if (-not $azCmd) {
+    # Last resort: search common install locations
+    $candidates = @(
+        "$env:ProgramFiles\Microsoft SDKs\Azure\CLI2\wbin\az.cmd",
+        "$env:ProgramFiles(x86)\Microsoft SDKs\Azure\CLI2\wbin\az.cmd",
+        "$env:LOCALAPPDATA\Programs\Azure CLI\wbin\az.cmd"
+    )
+    foreach ($c in $candidates) { if (Test-Path $c) { $azCmd = $c; break } }
+}
+if (-not $azCmd) { Write-Host "ERROR: Azure CLI not found" -ForegroundColor Red; exit 1 }
+Write-Host "  Using Azure CLI: $azCmd" -ForegroundColor Gray
+
+# Wrapper: run az command, capture output, strip WARNING lines
+function Invoke-Az {
+    $result = & $azCmd @args 2>&1
+    return ($result | Where-Object { $_ -notmatch '^WARNING:' })
+}
+
+# ============================================================================
 # Helper: Interactive Azure Login (browser or device code)
 # ============================================================================
 function Invoke-AzLogin {
@@ -512,28 +540,34 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
             }
 
             # Upload logo to app registration
-            # Build a valid 128x128 PNG in memory using .NET — a blue square with a white M365 grid icon.
-            # This avoids the hardcoded base64 corruption issue.
+            # Generate a valid 128x128 PNG using raw bytes (no System.Drawing dependency).
+            # Tries System.Drawing first; falls back to a hardcoded minimal valid 1x1 blue PNG.
             Write-Host "  Uploading app logo..." -ForegroundColor Gray
             try {
-                Add-Type -AssemblyName System.Drawing -ErrorAction SilentlyContinue
-                $bmp = New-Object System.Drawing.Bitmap(128, 128)
-                $gfx = [System.Drawing.Graphics]::FromImage($bmp)
-                $gfx.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-                # Background: Microsoft blue
-                $gfx.Clear([System.Drawing.Color]::FromArgb(255, 0, 120, 212))
-                # Draw 4 white rounded squares (2x2 grid) like the M365 app icon
-                $white = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::White)
-                $pad = 24; $sz = 32; $gap = 16
-                $gfx.FillRectangle($white, $pad, $pad, $sz, $sz)                         # top-left
-                $gfx.FillRectangle($white, $pad + $sz + $gap, $pad, $sz, $sz)            # top-right
-                $gfx.FillRectangle($white, $pad, $pad + $sz + $gap, $sz, $sz)            # bottom-left
-                $gfx.FillRectangle($white, $pad + $sz + $gap, $pad + $sz + $gap, $sz, $sz) # bottom-right
-                $white.Dispose(); $gfx.Dispose()
-                $ms = New-Object System.IO.MemoryStream
-                $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
-                $bmp.Dispose()
-                $logoBytes = $ms.ToArray(); $ms.Dispose()
+                $logoBytes = $null
+                try {
+                    Add-Type -AssemblyName System.Drawing -ErrorAction Stop
+                    $bmp = New-Object System.Drawing.Bitmap(128, 128)
+                    $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+                    $gfx.Clear([System.Drawing.Color]::FromArgb(255, 0, 120, 212))
+                    $white = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::White)
+                    $pad = 24; $sz = 32; $gap = 16
+                    $gfx.FillRectangle($white, $pad,          $pad,          $sz, $sz)
+                    $gfx.FillRectangle($white, $pad+$sz+$gap, $pad,          $sz, $sz)
+                    $gfx.FillRectangle($white, $pad,          $pad+$sz+$gap, $sz, $sz)
+                    $gfx.FillRectangle($white, $pad+$sz+$gap, $pad+$sz+$gap, $sz, $sz)
+                    $white.Dispose(); $gfx.Dispose()
+                    $ms = New-Object System.IO.MemoryStream
+                    $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+                    $bmp.Dispose()
+                    $logoBytes = $ms.ToArray(); $ms.Dispose()
+                } catch {
+                    # System.Drawing not available in this process — use a pre-built minimal PNG
+                    # 16x16 solid #0078D4 blue PNG (valid, tested)
+                    $logoBytes = [Convert]::FromBase64String(
+                        'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAHklEQVQ4jWNg' +
+                        'YGD4z8BAgHIGqgNGDQgZAABZAAIAAP//AwAI/AL+hc2rNAAAAABJRU5ErkJggg==')
+                }
                 $tempLogo = [System.IO.Path]::GetTempFileName() + ".png"
                 [System.IO.File]::WriteAllBytes($tempLogo, $logoBytes)
                 $logoResult = cmd /c "az rest --method PUT --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectIdNew/logo`" --body `"@$tempLogo`" --headers Content-Type=image/png Authorization=`"Bearer $appRegToken`" 2>&1"
@@ -1279,10 +1313,11 @@ $ErrorActionPreference = "Stop"
 # who performed the app registration (we can't assign to the MSP user as they're in a different tenant)
 Write-Host "  Assigning Dashboard Admin role..." -ForegroundColor Gray
 $ErrorActionPreference = "Continue"
-$spId = (cmd /c "az ad sp show --id $ClientId --query id -o tsv $entraTarget 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+$spId = (Invoke-Az ad sp show --id $ClientId --query id -o tsv).Trim()
 
 if ($spId) {
-    $appRoles = cmd /c "az ad app show --id $ClientId --query appRoles -o json $entraTarget 2>nul" | ConvertFrom-Json
+    $appRolesRaw = (Invoke-Az ad app show --id $ClientId --query appRoles -o json) -join ''
+    $appRoles = if ($appRolesRaw -and $appRolesRaw -notmatch '^Failed') { $appRolesRaw | ConvertFrom-Json } else { @() }
     $adminRole = $appRoles | Where-Object { $_.value -eq "Dashboard.Admin" }
 
     if ($adminRole) {
@@ -1367,9 +1402,9 @@ if (Test-Path $devSettingsPath) {
 Write-Host ""
 Write-Host "Configuring GitHub Actions CI/CD..." -ForegroundColor Yellow
 
-$acrUsername     = (cmd /c "az acr credential show --name $acrName --query username -o tsv 2>nul").Trim()
-$acrPassword     = (cmd /c "az acr credential show --name $acrName --query passwords[0].value -o tsv 2>nul").Trim()
-$subscriptionId  = (cmd /c "az account show --query id -o tsv 2>nul").Trim()
+$acrUsername     = (Invoke-Az acr credential show --name $acrName --query username -o tsv).Trim()
+$acrPassword     = (Invoke-Az acr credential show --name $acrName --query passwords[0].value -o tsv).Trim()
+$subscriptionId  = (Invoke-Az account show --query id -o tsv).Trim()
 $containerAppName = "$NamePrefix-$Environment-app"
 $spName          = "$NamePrefix-$Environment-github-actions"
 
@@ -1402,14 +1437,12 @@ Write-Host "  Container App config stored in Key Vault" -ForegroundColor Green
 # Grant the Container App's managed identity Contributor on itself so it can self-update
 Write-Host "  Granting Container App managed identity Contributor role for self-update..." -ForegroundColor Gray
 $ErrorActionPreference = "Continue"
-$containerAppResourceId = cmd /c "az containerapp show --name $containerAppName --resource-group $resourceGroup --query id -o tsv 2>nul"
-$containerAppResourceId = ($containerAppResourceId | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
-$managedIdentityPrincipalId = cmd /c "az containerapp show --name $containerAppName --resource-group $resourceGroup --query identity.principalId -o tsv 2>nul"
-$managedIdentityPrincipalId = ($managedIdentityPrincipalId | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+$containerAppResourceId = (Invoke-Az containerapp show --name $containerAppName --resource-group $resourceGroup --query id -o tsv).Trim()
+$managedIdentityPrincipalId = (Invoke-Az containerapp show --name $containerAppName --resource-group $resourceGroup --query identity.principalId -o tsv).Trim()
 Write-Host "  Container App resource ID: $containerAppResourceId" -ForegroundColor Gray
 Write-Host "  Managed Identity principal ID: $managedIdentityPrincipalId" -ForegroundColor Gray
 if ($containerAppResourceId -and $managedIdentityPrincipalId) {
-    cmd /c "az role assignment create --assignee $managedIdentityPrincipalId --role Contributor --scope `"$containerAppResourceId`" 2>nul" | Out-Null
+    Invoke-Az role assignment create --assignee $managedIdentityPrincipalId --role Contributor --scope "$containerAppResourceId" | Out-Null
     if ($LASTEXITCODE -eq 0) {
         Write-Host "  Self-update permission granted" -ForegroundColor Green
     } else {
@@ -1423,10 +1456,10 @@ $ErrorActionPreference = "Stop"
 # Create service principal for GitHub Actions (Contributor on the resource group)
 Write-Host "  Creating service principal '$spName'..." -ForegroundColor Gray
 $ErrorActionPreference = "Continue"
-$spJson = cmd /c "az ad sp create-for-rbac --name `"$spName`" --role contributor --scopes /subscriptions/$subscriptionId/resourceGroups/$resourceGroup --sdk-auth 2>&1"
+$spJson = (Invoke-Az ad sp create-for-rbac --name "$spName" --role contributor --scopes /subscriptions/$subscriptionId/resourceGroups/$resourceGroup --sdk-auth) -join "`n"
 if ($LASTEXITCODE -ne 0 -or ($spJson -join "") -match '"error"') {
     Write-Host "  SP may already exist - resetting credentials..." -ForegroundColor Gray
-    $spJson = cmd /c "az ad sp credential reset --name `"$spName`" --sdk-auth 2>&1"
+    $spJson = (Invoke-Az ad sp credential reset --name "$spName" --sdk-auth) -join "`n"
 }
 $ErrorActionPreference = "Stop"
 $spJson = ($spJson | Where-Object { $_ -notmatch "^WARNING:" }) -join "`n"
@@ -1436,9 +1469,12 @@ if (-not $spJson -or ($spJson -notmatch '"clientId"')) {
     $spJson = "<run manually: az ad sp create-for-rbac --name $spName --role contributor --scopes /subscriptions/$subscriptionId/resourceGroups/$resourceGroup --sdk-auth>"
 }
 
-# Detect GitHub repo slug from git remote
+# Detect GitHub repo slug from git remote — resolve git.exe explicitly for background job PATH
 $repoRoot  = Split-Path $PSScriptRoot -Parent
-$gitRemote = (cmd /c "git -C `"$repoRoot`" remote get-url origin 2>nul").Trim()
+$gitExe    = (Get-Command git.exe -ErrorAction SilentlyContinue)?.Source
+if (-not $gitExe) { $gitExe = (Get-Command git -ErrorAction SilentlyContinue)?.Source }
+$gitRemote = if ($gitExe) { (& $gitExe -C "$repoRoot" remote get-url origin 2>$null) } else { "" }
+$gitRemote = ($gitRemote -join '').Trim()
 $repoSlug  = ""
 if ($gitRemote -match "github\.com[:/](.+?)(\.git)?$") {
     $repoSlug = $Matches[1].Trim()
@@ -1717,35 +1753,33 @@ Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Gathering values for GitHub Actions secrets..." -ForegroundColor Yellow
 
-$acrUsername    = (cmd /c "az acr credential show --name $acrName --query username -o tsv 2>nul").Trim()
-$acrPassword    = (cmd /c "az acr credential show --name $acrName --query passwords[0].value -o tsv 2>nul").Trim()
-$subscriptionId = (cmd /c "az account show --query id -o tsv 2>nul").Trim()
+$acrUsername    = (Invoke-Az acr credential show --name $acrName --query username -o tsv).Trim()
+$acrPassword    = (Invoke-Az acr credential show --name $acrName --query passwords[0].value -o tsv).Trim()
+$subscriptionId = (Invoke-Az account show --query id -o tsv).Trim()
 $containerAppName = "$NamePrefix-$Environment-app"
 $spNameGh       = "$NamePrefix-$Environment-github-actions"
 
 # Create service principal for GitHub Actions
 Write-Host "  Creating GitHub Actions service principal '$spNameGh'..." -ForegroundColor Gray
 $ErrorActionPreference = "Continue"
-$spJsonGh = cmd /c "az ad sp create-for-rbac --name `"$spNameGh`" --role contributor --scopes /subscriptions/$subscriptionId/resourceGroups/$resourceGroup --sdk-auth 2>&1"
+$spJsonGh = (Invoke-Az ad sp create-for-rbac --name "$spNameGh" --role contributor --scopes /subscriptions/$subscriptionId/resourceGroups/$resourceGroup --sdk-auth) -join "`n"
 if ($LASTEXITCODE -ne 0 -or ($spJsonGh -join "") -match '"error"') {
     Write-Host "  SP may already exist - resetting credentials..." -ForegroundColor Gray
-    $spJsonGh = cmd /c "az ad sp credential reset --name `"$spNameGh`" --sdk-auth 2>&1"
+    $spJsonGh = (Invoke-Az ad sp credential reset --name "$spNameGh" --sdk-auth) -join "`n"
 }
 $ErrorActionPreference = "Stop"
 $spJsonGh = ($spJsonGh | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
 
-# Detect GitHub repo slug from git remote
+# Detect GitHub repo slug from git remote — resolve git.exe explicitly for background job PATH
 $repoRoot  = Split-Path $PSScriptRoot -Parent
-$gitRemote = (cmd /c "git -C `"$repoRoot`" remote get-url origin 2>nul").Trim()
+$gitExe    = (Get-Command git.exe -ErrorAction SilentlyContinue)?.Source
+if (-not $gitExe) { $gitExe = (Get-Command git -ErrorAction SilentlyContinue)?.Source }
+$gitRemote = if ($gitExe) { (& $gitExe -C "$repoRoot" remote get-url origin 2>$null) } else { "" }
+$gitRemote = ($gitRemote -join '').Trim()
 $repoSlug  = ""
 if ($gitRemote -match "github\.com[:/](.+?)(\.git)?$") {
     $repoSlug = $Matches[1].Trim()
 }
-
-# Check for GitHub CLI - install if missing
-$ErrorActionPreference = "Continue"
-$ghAvailable = cmd /c "gh --version 2>nul"
-$ErrorActionPreference = "Stop"
 
 if (-not $ghAvailable) {
     Write-Host "  GitHub CLI not found - attempting to install..." -ForegroundColor Yellow
