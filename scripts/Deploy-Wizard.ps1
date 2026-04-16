@@ -1778,7 +1778,7 @@ function Start-Deploy {
             # prevents the browser OAuth callback from completing.
             $Win.WindowState = "Minimized"
             $ghProc = Start-Process powershell.exe `
-                -ArgumentList "-NoProfile","-ExecutionPolicy","Bypass","-Command","gh auth login --web; Write-Host ''; Write-Host 'Press Enter to close...' -ForegroundColor Cyan; Read-Host" `
+                -ArgumentList "-NoProfile","-ExecutionPolicy","Bypass","-Command","`$host.UI.RawUI.WindowTitle = 'M365 Dashboard - GitHub Login'; Write-Host ''; Write-Host 'Signing in to GitHub for CI/CD secret setup...' -ForegroundColor Cyan; Write-Host ''; gh auth login --web; Write-Host ''; if (`$LASTEXITCODE -eq 0) { Write-Host 'GitHub login successful! You can close this window.' -ForegroundColor Green } else { Write-Host 'Login failed or was cancelled.' -ForegroundColor Yellow }; Write-Host ''; Read-Host 'Press Enter to continue'" `
                 -Wait -PassThru
             $Win.WindowState = "Normal"; $Win.Activate()
             $ErrorActionPreference = "Continue"

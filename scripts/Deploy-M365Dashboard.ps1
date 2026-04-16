@@ -566,10 +566,10 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
                     $logoBytes = $ms.ToArray(); $ms.Dispose()
                 } catch {
                     # System.Drawing not available in this process — use a pre-built minimal PNG
-                    # 16x16 solid #0078D4 blue PNG (valid, tested)
+                    # 16x16 solid #0078D4 blue PNG (generated and verified)
                     $logoBytes = [Convert]::FromBase64String(
-                        'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAHklEQVQ4jWNg' +
-                        'YGD4z8BAgHIGqgNGDQgZAABZAAIAAP//AwAI/AL+hc2rNAAAAABJRU5ErkJggg==')
+                        'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAFUlEQVR4nGNg' +
+                        'qLhCGhrVMKph+GoAAKzFTBBwoh/QAAAAAElFTkSuQmCC')
                 }
                 $tempLogo = [System.IO.Path]::GetTempFileName() + ".png"
                 [System.IO.File]::WriteAllBytes($tempLogo, $logoBytes)
