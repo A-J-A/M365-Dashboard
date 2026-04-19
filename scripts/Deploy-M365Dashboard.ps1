@@ -1695,46 +1695,66 @@ try {
     if ($defenderLicensed) {
         Write-Host "  Granting Defender for Endpoint API consent..." -ForegroundColor Gray
 
-        # Ensure the WindowsDefenderATP service principal exists in this tenant
-        $defSpRaw = cmd /c "az ad sp show --id $defenderAppId --query id -o tsv 2>nul"
-        $defSpId  = ($defSpRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
-
-        if (-not $defSpId) {
-            # SP not yet in tenant - create it
-            cmd /c "az ad sp create --id $defenderAppId 2>nul" | Out-Null
-            Start-Sleep -Seconds 5
-            $defSpRaw = cmd /c "az ad sp show --id $defenderAppId --query id -o tsv 2>nul"
-            $defSpId  = ($defSpRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+        # Use client tenant Graph token — CLI is in MSP tenant at this point
+        $defToken = if ($mspGraphToken) { $mspGraphToken } else {
+            (cmd /c "az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv 2>nul").Trim()
         }
 
-        if ($spObjId -and $defSpId) {
-            # Grant each Defender app role assignment
-            $defenderRoles = @(
-                @{ id = "ea8291d3-4b9a-44b5-bc3a-6cea3026dc79"; name = "Machine.Read.All" }
-                @{ id = "41269fc5-d04d-4bfd-bce7-43a51cea049a"; name = "Vulnerability.Read.All" }
-                @{ id = "02b005dd-f804-43b4-8fc7-078460413f74"; name = "Score.Read.All" }
-            )
+        if (-not $defToken) {
+            Write-Host "  No Graph token available for Defender consent" -ForegroundColor Yellow
+        } else {
+            # Resolve the app's SP object ID using the client tenant token
+            $appSpRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals?`$filter=appId eq '$ClientId'`" --headers Authorization=`"Bearer $defToken`" --query value[0].id -o tsv 2>nul"
+            $appSpId  = ($appSpRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
 
-            $allRolesGranted = $true
-            foreach ($role in $defenderRoles) {
-                # Check if already assigned
-                $existingRaw  = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals/$spObjId/appRoleAssignments`" --query `"value[?appRoleId=='$($role.id)']`" -o json 2>nul"
-                $existingJson = ($existingRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
-                if ($existingJson -and $existingJson -ne '[]' -and $existingJson -ne 'null') {
-                    Write-Host "    + $($role.name) [already granted]" -ForegroundColor Gray
-                    continue
-                }
+            # Look up or create the WindowsDefenderATP SP in the client tenant
+            $defSpRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals?`$filter=appId eq '$defenderAppId'`" --headers Authorization=`"Bearer $defToken`" --query value[0].id -o tsv 2>nul"
+            $defSpId  = ($defSpRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
 
-                $body    = "{`"principalId`":`"$spObjId`",`"resourceId`":`"$defSpId`",`"appRoleId`":`"$($role.id)`"}"
-                $grantRaw = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/servicePrincipals/$spObjId/appRoleAssignments`" --body `"$body`" --headers Content-Type=application/json 2>&1"
-                if ($LASTEXITCODE -eq 0) {
-                    Write-Host "    + $($role.name) [granted]" -ForegroundColor Green
-                } else {
-                    Write-Host "    ! $($role.name) [failed]" -ForegroundColor Yellow
-                    $allRolesGranted = $false
-                }
+            if (-not $defSpId) {
+                # Create the Defender SP in the client tenant
+                $createDefSpBody = "{`"appId`":`"$defenderAppId`"}"
+                $createDefSpFile = [System.IO.Path]::GetTempFileName() + ".json"
+                [System.IO.File]::WriteAllText($createDefSpFile, $createDefSpBody, [System.Text.Encoding]::UTF8)
+                $createDefSpRaw = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/servicePrincipals`" --body @`"$createDefSpFile`" --headers Content-Type=application/json Authorization=`"Bearer $defToken`" 2>nul"
+                Remove-Item $createDefSpFile -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 5
+                $defSpRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals?`$filter=appId eq '$defenderAppId'`" --headers Authorization=`"Bearer $defToken`" --query value[0].id -o tsv 2>nul"
+                $defSpId  = ($defSpRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
             }
-            $defenderConsentDone = $allRolesGranted
+
+            if ($appSpId -and $defSpId) {
+                $defenderRoles = @(
+                    @{ id = "ea8291d3-4b9a-44b5-bc3a-6cea3026dc79"; name = "Machine.Read.All" }
+                    @{ id = "41269fc5-d04d-4bfd-bce7-43a51cea049a"; name = "Vulnerability.Read.All" }
+                    @{ id = "02b005dd-f804-43b4-8fc7-078460413f74"; name = "Score.Read.All" }
+                )
+
+                $allRolesGranted = $true
+                foreach ($role in $defenderRoles) {
+                    $existingRaw  = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals/$appSpId/appRoleAssignments`" --headers Authorization=`"Bearer $defToken`" --query `"value[?appRoleId=='$($role.id)']`" -o json 2>nul"
+                    $existingJson = ($existingRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
+                    if ($existingJson -and $existingJson -ne '[]' -and $existingJson -ne 'null') {
+                        Write-Host "    + $($role.name) [already granted]" -ForegroundColor Gray
+                        continue
+                    }
+
+                    $roleBody = "{`"principalId`":`"$appSpId`",`"resourceId`":`"$defSpId`",`"appRoleId`":`"$($role.id)`"}"
+                    $roleFile = [System.IO.Path]::GetTempFileName() + ".json"
+                    [System.IO.File]::WriteAllText($roleFile, $roleBody, [System.Text.Encoding]::UTF8)
+                    $grantRaw = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/servicePrincipals/$appSpId/appRoleAssignments`" --body @`"$roleFile`" --headers Content-Type=application/json Authorization=`"Bearer $defToken`" 2>&1"
+                    Remove-Item $roleFile -ErrorAction SilentlyContinue
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Host "    + $($role.name) [granted]" -ForegroundColor Green
+                    } else {
+                        Write-Host "    ! $($role.name) [failed]" -ForegroundColor Yellow
+                        $allRolesGranted = $false
+                    }
+                }
+                $defenderConsentDone = $allRolesGranted
+            } else {
+                Write-Host "  Could not resolve app SP or Defender SP in client tenant" -ForegroundColor Yellow
+            }
         }
     }
     $ErrorActionPreference = "Stop"
