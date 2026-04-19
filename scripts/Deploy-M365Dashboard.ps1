@@ -573,13 +573,20 @@ if ($TenantId -and $ClientId -and $ClientSecret) {
                 }
                 $tempLogo = [System.IO.Path]::GetTempFileName() + ".png"
                 [System.IO.File]::WriteAllBytes($tempLogo, $logoBytes)
-                $logoResult = cmd /c "az rest --method PUT --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectIdNew/logo`" --body `"@$tempLogo`" --headers Content-Type=image/png Authorization=`"Bearer $appRegToken`" 2>&1"
-                Remove-Item $tempLogo -ErrorAction SilentlyContinue
-                if ($LASTEXITCODE -eq 0) {
+                # Use Invoke-WebRequest directly — az rest doesn't reliably send binary bodies on Windows
+                try {
+                    $logoResponse = Invoke-WebRequest `
+                        -Uri "https://graph.microsoft.com/v1.0/applications/$appObjectIdNew/logo" `
+                        -Method PUT `
+                        -Headers @{ Authorization = "Bearer $appRegToken"; "Content-Type" = "image/png" } `
+                        -InFile $tempLogo `
+                        -UseBasicParsing `
+                        -ErrorAction Stop
                     Write-Host "  App logo uploaded" -ForegroundColor Green
-                } else {
-                    Write-Host "  Could not upload logo (non-critical): $logoResult" -ForegroundColor Yellow
+                } catch {
+                    Write-Host "  Could not upload logo (non-critical): $_" -ForegroundColor Yellow
                 }
+                Remove-Item $tempLogo -ErrorAction SilentlyContinue
             } catch {
                 Write-Host "  Could not upload logo (non-critical): $_" -ForegroundColor Yellow
             }
@@ -1316,7 +1323,7 @@ $ErrorActionPreference = "Stop"
 # who performed the app registration (we can't assign to the MSP user as they're in a different tenant)
 Write-Host "  Assigning Dashboard Admin role..." -ForegroundColor Gray
 $ErrorActionPreference = "Continue"
-$spId = (Invoke-Az ad sp show --id $ClientId --query id -o tsv).Trim()
+$spId = ((Invoke-Az ad sp show --id $ClientId --query id -o tsv) -join '').Trim()
 
 if ($spId) {
     $appRolesRaw = (Invoke-Az ad app show --id $ClientId --query appRoles -o json) -join ''
@@ -1405,9 +1412,9 @@ if (Test-Path $devSettingsPath) {
 Write-Host ""
 Write-Host "Configuring GitHub Actions CI/CD..." -ForegroundColor Yellow
 
-$acrUsername     = (Invoke-Az acr credential show --name $acrName --query username -o tsv).Trim()
-$acrPassword     = (Invoke-Az acr credential show --name $acrName --query passwords[0].value -o tsv).Trim()
-$subscriptionId  = (Invoke-Az account show --query id -o tsv).Trim()
+$acrUsername     = ((Invoke-Az acr credential show --name $acrName --query username -o tsv) -join '').Trim()
+$acrPassword     = ((Invoke-Az acr credential show --name $acrName --query passwords[0].value -o tsv) -join '').Trim()
+$subscriptionId  = ((Invoke-Az account show --query id -o tsv) -join '').Trim()
 $containerAppName = "$NamePrefix-$Environment-app"
 $spName          = "$NamePrefix-$Environment-github-actions"
 
@@ -1440,8 +1447,8 @@ Write-Host "  Container App config stored in Key Vault" -ForegroundColor Green
 # Grant the Container App's managed identity Contributor on itself so it can self-update
 Write-Host "  Granting Container App managed identity Contributor role for self-update..." -ForegroundColor Gray
 $ErrorActionPreference = "Continue"
-$containerAppResourceId = (Invoke-Az containerapp show --name $containerAppName --resource-group $resourceGroup --query id -o tsv).Trim()
-$managedIdentityPrincipalId = (Invoke-Az containerapp show --name $containerAppName --resource-group $resourceGroup --query identity.principalId -o tsv).Trim()
+$containerAppResourceId = ((Invoke-Az containerapp show --name $containerAppName --resource-group $resourceGroup --query id -o tsv) -join '').Trim()
+$managedIdentityPrincipalId = ((Invoke-Az containerapp show --name $containerAppName --resource-group $resourceGroup --query identity.principalId -o tsv) -join '').Trim()
 Write-Host "  Container App resource ID: $containerAppResourceId" -ForegroundColor Gray
 Write-Host "  Managed Identity principal ID: $managedIdentityPrincipalId" -ForegroundColor Gray
 if ($containerAppResourceId -and $managedIdentityPrincipalId) {
@@ -1462,7 +1469,11 @@ $ErrorActionPreference = "Continue"
 $spJson = (Invoke-Az ad sp create-for-rbac --name "$spName" --role contributor --scopes /subscriptions/$subscriptionId/resourceGroups/$resourceGroup --sdk-auth) -join "`n"
 if ($LASTEXITCODE -ne 0 -or ($spJson -join "") -match '"error"') {
     Write-Host "  SP may already exist - resetting credentials..." -ForegroundColor Gray
-    $spJson = (Invoke-Az ad sp credential reset --name "$spName" --sdk-auth) -join "`n"
+    # Look up existing SP by name to get its appId, then reset by appId
+    $existingSpId = ((Invoke-Az ad sp list --display-name "$spName" --query "[0].appId" -o tsv) -join '').Trim()
+    if ($existingSpId) {
+        $spJson = (Invoke-Az ad sp credential reset --id "$existingSpId" --sdk-auth) -join "`n"
+    }
 }
 $ErrorActionPreference = "Stop"
 $spJson = ($spJson | Where-Object { $_ -notmatch "^WARNING:" }) -join "`n"
@@ -1761,9 +1772,9 @@ Write-Host "============================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Gathering values for GitHub Actions secrets..." -ForegroundColor Yellow
 
-$acrUsername    = (Invoke-Az acr credential show --name $acrName --query username -o tsv).Trim()
-$acrPassword    = (Invoke-Az acr credential show --name $acrName --query passwords[0].value -o tsv).Trim()
-$subscriptionId = (Invoke-Az account show --query id -o tsv).Trim()
+$acrUsername    = ((Invoke-Az acr credential show --name $acrName --query username -o tsv) -join '').Trim()
+$acrPassword    = ((Invoke-Az acr credential show --name $acrName --query passwords[0].value -o tsv) -join '').Trim()
+$subscriptionId = ((Invoke-Az account show --query id -o tsv) -join '').Trim()
 $containerAppName = "$NamePrefix-$Environment-app"
 $spNameGh       = "$NamePrefix-$Environment-github-actions"
 
@@ -1773,7 +1784,10 @@ $ErrorActionPreference = "Continue"
 $spJsonGh = (Invoke-Az ad sp create-for-rbac --name "$spNameGh" --role contributor --scopes /subscriptions/$subscriptionId/resourceGroups/$resourceGroup --sdk-auth) -join "`n"
 if ($LASTEXITCODE -ne 0 -or ($spJsonGh -join "") -match '"error"') {
     Write-Host "  SP may already exist - resetting credentials..." -ForegroundColor Gray
-    $spJsonGh = (Invoke-Az ad sp credential reset --name "$spNameGh" --sdk-auth) -join "`n"
+    $existingSpIdGh = ((Invoke-Az ad sp list --display-name "$spNameGh" --query "[0].appId" -o tsv) -join '').Trim()
+    if ($existingSpIdGh) {
+        $spJsonGh = (Invoke-Az ad sp credential reset --id "$existingSpIdGh" --sdk-auth) -join "`n"
+    }
 }
 $ErrorActionPreference = "Stop"
 $spJsonGh = ($spJsonGh | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"

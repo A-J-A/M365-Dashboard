@@ -1203,7 +1203,6 @@ function Show-SubscriptionPicker($loggedInAs) {
 
     $subs = @()
     try { $subs = ($rawSubs -join "") | ConvertFrom-Json } catch {}
-    Add-Log "DEBUG: Found $($subs.Count) subscriptions"
 
     # If only one subscription, still show picker so user can confirm
     if ($subs.Count -eq 0) {
@@ -1658,8 +1657,6 @@ function Start-Deploy {
             return
         }
         Add-Log "MSP Subscription: $($script:SelectedSubName)"
-
-        # Login to client tenant HERE in the wizard process (background jobs cannot open browsers)
         Show-LoginPrompt `
             "Sign in to the Client Tenant" `
             "Login 2 of 2 — Client M365 Global Admin" `
@@ -1746,9 +1743,7 @@ function Start-Deploy {
         } catch {}
 
         $picked = Show-SubscriptionPicker $loggedInAs
-        Add-Log "DEBUG: PickedSubId=$($script:PickedSubId) SelectedSubId=$($script:SelectedSubId)"
         if (-not $picked) {
-            # User cancelled — go back to review
             Show-Page 3
             return
         }
