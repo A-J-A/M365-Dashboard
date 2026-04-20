@@ -1326,8 +1326,17 @@ $ErrorActionPreference = "Continue"
 $spId = ((Invoke-Az ad sp show --id $ClientId --query id -o tsv) -join '').Trim()
 
 if ($spId) {
-    $appRolesRaw = (Invoke-Az ad app show --id $ClientId --query appRoles -o json) -join ''
-    $appRoles = if ($appRolesRaw -and $appRolesRaw -notmatch '^Failed') { $appRolesRaw | ConvertFrom-Json } else { @() }
+    # Get app roles via Graph API with client tenant token (CLI may be in MSP tenant)
+    $appRolesToken = if ($mspGraphToken) { $mspGraphToken } else {
+        ((Invoke-Az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv) -join '').Trim()
+    }
+    $appRolesRaw = ''
+    if ($appRolesToken) {
+        $appRolesRaw = (cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/applications?`$filter=appId eq '$ClientId'`" --headers Authorization=`"Bearer $appRolesToken`" --query value[0].appRoles -o json 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
+    }
+    $appRoles = if ($appRolesRaw -and $appRolesRaw -notmatch '^(ERROR|Failed|null|\[\])') {
+        try { $appRolesRaw | ConvertFrom-Json } catch { @() }
+    } else { @() }
     $adminRole = $appRoles | Where-Object { $_.value -eq "Dashboard.Admin" }
 
     if ($adminRole) {
@@ -1467,11 +1476,12 @@ $ErrorActionPreference = "Stop"
 Write-Host "  Creating service principal '$spName'..." -ForegroundColor Gray
 $ErrorActionPreference = "Continue"
 $spJson = (Invoke-Az ad sp create-for-rbac --name "$spName" --role contributor --scopes /subscriptions/$subscriptionId/resourceGroups/$resourceGroup --sdk-auth) -join "`n"
-if ($LASTEXITCODE -ne 0 -or ($spJson -join "") -match '"error"') {
-    Write-Host "  SP may already exist - resetting credentials..." -ForegroundColor Gray
-    # Look up existing SP by name to get its appId, then reset by appId
+if ($LASTEXITCODE -ne 0 -or ($spJson -join "") -match '"error"|Insufficient privileges') {
+    Write-Host "  SP creation failed (insufficient privileges or already exists)" -ForegroundColor Yellow
+    $spJson = ""
     $existingSpId = ((Invoke-Az ad sp list --display-name "$spName" --query "[0].appId" -o tsv) -join '').Trim()
     if ($existingSpId) {
+        Write-Host "  Found existing SP, resetting credentials..." -ForegroundColor Gray
         $spJson = (Invoke-Az ad sp credential reset --id "$existingSpId" --sdk-auth) -join "`n"
     }
 }
@@ -1802,10 +1812,12 @@ $spNameGh       = "$NamePrefix-$Environment-github-actions"
 Write-Host "  Creating GitHub Actions service principal '$spNameGh'..." -ForegroundColor Gray
 $ErrorActionPreference = "Continue"
 $spJsonGh = (Invoke-Az ad sp create-for-rbac --name "$spNameGh" --role contributor --scopes /subscriptions/$subscriptionId/resourceGroups/$resourceGroup --sdk-auth) -join "`n"
-if ($LASTEXITCODE -ne 0 -or ($spJsonGh -join "") -match '"error"') {
-    Write-Host "  SP may already exist - resetting credentials..." -ForegroundColor Gray
+if ($LASTEXITCODE -ne 0 -or ($spJsonGh -join "") -match '"error"|Insufficient privileges') {
+    Write-Host "  SP creation failed (insufficient privileges or already exists)" -ForegroundColor Yellow
+    $spJsonGh = ""
     $existingSpIdGh = ((Invoke-Az ad sp list --display-name "$spNameGh" --query "[0].appId" -o tsv) -join '').Trim()
     if ($existingSpIdGh) {
+        Write-Host "  Found existing SP, resetting credentials..." -ForegroundColor Gray
         $spJsonGh = (Invoke-Az ad sp credential reset --id "$existingSpIdGh" --sdk-auth) -join "`n"
     }
 }
