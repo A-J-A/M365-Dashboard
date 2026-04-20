@@ -1323,17 +1323,19 @@ $ErrorActionPreference = "Stop"
 # who performed the app registration (we can't assign to the MSP user as they're in a different tenant)
 Write-Host "  Assigning Dashboard Admin role..." -ForegroundColor Gray
 $ErrorActionPreference = "Continue"
-$spId = ((Invoke-Az ad sp show --id $ClientId --query id -o tsv) -join '').Trim()
+# Always use client tenant Graph token to look up SP — CLI is in MSP tenant in MSP mode
+$adminRoleToken = if ($mspGraphToken) { $mspGraphToken } else {
+    ((Invoke-Az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv) -join '').Trim()
+}
+$spId = ''
+if ($adminRoleToken) {
+    $spIdRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals?`$filter=appId eq '$ClientId'`" --headers Authorization=`"Bearer $adminRoleToken`" --query value[0].id -o tsv 2>nul"
+    $spId = ($spIdRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+}
 
 if ($spId) {
-    # Get app roles via Graph API with client tenant token (CLI may be in MSP tenant)
-    $appRolesToken = if ($mspGraphToken) { $mspGraphToken } else {
-        ((Invoke-Az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv) -join '').Trim()
-    }
-    $appRolesRaw = ''
-    if ($appRolesToken) {
-        $appRolesRaw = (cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/applications?`$filter=appId eq '$ClientId'`" --headers Authorization=`"Bearer $appRolesToken`" --query value[0].appRoles -o json 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
-    }
+    # Get app roles via Graph API with client tenant token
+    $appRolesRaw = (cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/applications?`$filter=appId eq '$ClientId'`" --headers Authorization=`"Bearer $adminRoleToken`" --query value[0].appRoles -o json 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
     $appRoles = if ($appRolesRaw -and $appRolesRaw -notmatch '^(ERROR|Failed|null|\[\])') {
         try { $appRolesRaw | ConvertFrom-Json } catch { @() }
     } else { @() }
@@ -1348,7 +1350,7 @@ if ($spId) {
                 $roleBodyFile = [System.IO.Path]::GetTempFileName()
                 $roleBody = "{`"principalId`":`"$DeployingUserObjectId`",`"resourceId`":`"$spId`",`"appRoleId`":`"$roleId`"}"
                 [System.IO.File]::WriteAllText($roleBodyFile, $roleBody, [System.Text.Encoding]::UTF8)
-                $assignResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/servicePrincipals/$spId/appRoleAssignments`" --body @`"$roleBodyFile`" --headers Content-Type=application/json Authorization=`"Bearer $appRegToken`" 2>&1"
+                $assignResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/servicePrincipals/$spId/appRoleAssignments`" --body @`"$roleBodyFile`" --headers Content-Type=application/json Authorization=`"Bearer $adminRoleToken`" 2>&1"
                 Remove-Item $roleBodyFile -ErrorAction SilentlyContinue
                 if ($LASTEXITCODE -eq 0) {
                     Write-Host "  Dashboard Admin role assigned to deploying user" -ForegroundColor Green
@@ -1486,7 +1488,7 @@ if ($LASTEXITCODE -ne 0 -or ($spJson -join "") -match '"error"|Insufficient priv
     }
 }
 $ErrorActionPreference = "Stop"
-$spJson = ($spJson | Where-Object { $_ -notmatch "^WARNING:" }) -join "`n"
+$spJson = ($spJson | Where-Object { $_ -notmatch '^WARNING:|^System\.Management\.Automation\.' }) -join "`n"
 
 if (-not $spJson -or ($spJson -notmatch '"clientId"')) {
     Write-Host "  Could not create service principal automatically." -ForegroundColor Yellow
@@ -1822,7 +1824,7 @@ if ($LASTEXITCODE -ne 0 -or ($spJsonGh -join "") -match '"error"|Insufficient pr
     }
 }
 $ErrorActionPreference = "Stop"
-$spJsonGh = ($spJsonGh | Where-Object { $_ -notmatch '^WARNING:' }) -join "`n"
+$spJsonGh = ($spJsonGh | Where-Object { $_ -notmatch '^WARNING:|^System\.Management\.Automation\.' }) -join "`n"
 
 # Detect GitHub repo slug from git remote — resolve git.exe explicitly for background job PATH
 $repoRoot  = Split-Path $PSScriptRoot -Parent
