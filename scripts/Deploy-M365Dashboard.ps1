@@ -1355,7 +1355,8 @@ if ($spId) {
                 $roleBodyFile = [System.IO.Path]::GetTempFileName()
                 $roleBody = "{`"principalId`":`"$DeployingUserObjectId`",`"resourceId`":`"$spId`",`"appRoleId`":`"$roleId`"}"
                 [System.IO.File]::WriteAllText($roleBodyFile, $roleBody, [System.Text.Encoding]::UTF8)
-                $assignResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/servicePrincipals/$spId/appRoleAssignments`" --body @`"$roleBodyFile`" --headers Content-Type=application/json Authorization=`"Bearer $adminRoleToken`" 2>&1"
+                # POST to /users/{userId}/appRoleAssignments — required when principalId is a user object
+                $assignResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/users/$DeployingUserObjectId/appRoleAssignments`" --body @`"$roleBodyFile`" --headers Content-Type=application/json Authorization=`"Bearer $adminRoleToken`" 2>&1"
                 Remove-Item $roleBodyFile -ErrorAction SilentlyContinue
                 $assignResultClean = ($assignResult | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
                 if ($LASTEXITCODE -eq 0) {
