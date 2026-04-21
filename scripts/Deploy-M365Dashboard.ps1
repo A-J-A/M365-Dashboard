@@ -1360,63 +1360,60 @@ $ErrorActionPreference = "Continue"
 if ($script:DashboardAdminAssigned) {
     Write-Host "  Dashboard Admin role already assigned (pre-deployment)" -ForegroundColor Green
 } else {
-$adminRoleToken = if ($appRegToken -and $appRegToken.Length -gt 20) { $appRegToken }
-                  elseif ($mspGraphToken -and $mspGraphToken.Length -gt 20) { $mspGraphToken }
-                  else { '' }
-$spId = ''
-if ($adminRoleToken) {
-    $spIdRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals?`$filter=appId eq '$ClientId'`" --headers Authorization=`"Bearer $adminRoleToken`" --query value[0].id -o tsv 2>nul"
-    $spId = ($spIdRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
-}
+    $adminRoleToken = if ($appRegToken -and $appRegToken.Length -gt 20) { $appRegToken }
+                      elseif ($mspGraphToken -and $mspGraphToken.Length -gt 20) { $mspGraphToken }
+                      else { '' }
+    $spId = ''
+    if ($adminRoleToken) {
+        $spIdRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals?`$filter=appId eq '$ClientId'`" --headers Authorization=`"Bearer $adminRoleToken`" --query value[0].id -o tsv 2>nul"
+        $spId = ($spIdRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+    }
 
-if ($spId) {
-    # Get app roles via Graph API with client tenant token
-    $appRolesRaw = (cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/applications?`$filter=appId eq '$ClientId'`" --headers Authorization=`"Bearer $adminRoleToken`" --query value[0].appRoles -o json 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
-    $appRoles = if ($appRolesRaw -and $appRolesRaw -notmatch '^(ERROR|Failed|null|\[\])') {
-        try { $appRolesRaw | ConvertFrom-Json } catch { @() }
-    } else { @() }
-    $adminRole = $appRoles | Where-Object { $_.value -eq "Dashboard.Admin" }
+    if ($spId) {
+        $appRolesRaw = (cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/applications?`$filter=appId eq '$ClientId'`" --headers Authorization=`"Bearer $adminRoleToken`" --query value[0].appRoles -o json 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
+        $appRoles = if ($appRolesRaw -and $appRolesRaw -notmatch '^(ERROR|Failed|null|\[\])') {
+            try { $appRolesRaw | ConvertFrom-Json } catch { @() }
+        } else { @() }
+        $adminRole = $appRoles | Where-Object { $_.value -eq "Dashboard.Admin" }
 
-    if ($adminRole) {
-        $roleId = $adminRole.id
-        if ($isMspMode) {
-            # In MSP mode the CLI is in the MSP tenant, but we captured the client tenant
-            # deploying user's object ID from the Graph token earlier — use it directly.
-            if ($DeployingUserObjectId) {
-                $roleBodyFile = [System.IO.Path]::GetTempFileName()
-                $roleBody = "{`"principalId`":`"$DeployingUserObjectId`",`"resourceId`":`"$spId`",`"appRoleId`":`"$roleId`"}"
-                [System.IO.File]::WriteAllText($roleBodyFile, $roleBody, [System.Text.Encoding]::UTF8)
-                # POST to /users/{userId}/appRoleAssignments — required when principalId is a user object
-                $assignResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/users/$DeployingUserObjectId/appRoleAssignments`" --body @`"$roleBodyFile`" --headers Content-Type=application/json Authorization=`"Bearer $adminRoleToken`" 2>&1"
-                Remove-Item $roleBodyFile -ErrorAction SilentlyContinue
-                $assignResultClean = ($assignResult | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
-                if ($LASTEXITCODE -eq 0) {
-                    Write-Host "  Dashboard Admin role assigned to deploying user" -ForegroundColor Green
-                } elseif ($assignResultClean -match "already exists") {
-                    Write-Host "  Dashboard Admin role already assigned" -ForegroundColor Green
+        if ($adminRole) {
+            $roleId = $adminRole.id
+            if ($isMspMode) {
+                if ($DeployingUserObjectId) {
+                    $roleBodyFile = [System.IO.Path]::GetTempFileName()
+                    $roleBody = "{`"principalId`":`"$DeployingUserObjectId`",`"resourceId`":`"$spId`",`"appRoleId`":`"$roleId`"}"
+                    [System.IO.File]::WriteAllText($roleBodyFile, $roleBody, [System.Text.Encoding]::UTF8)
+                    $assignResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/users/$DeployingUserObjectId/appRoleAssignments`" --body @`"$roleBodyFile`" --headers Content-Type=application/json Authorization=`"Bearer $adminRoleToken`" 2>&1"
+                    Remove-Item $roleBodyFile -ErrorAction SilentlyContinue
+                    $assignResultClean = ($assignResult | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Host "  Dashboard Admin role assigned to deploying user" -ForegroundColor Green
+                    } elseif ($assignResultClean -match "already exists") {
+                        Write-Host "  Dashboard Admin role already assigned" -ForegroundColor Green
+                    } else {
+                        Write-Host "  Role assignment failed: $assignResultClean" -ForegroundColor Yellow
+                        Write-Host "  Assign manually: Entra ID -> Enterprise Apps -> M365 Dashboard -> Users and groups" -ForegroundColor Yellow
+                        Write-Host "  https://entra.microsoft.com/#view/Microsoft_AAD_IAM/ManagedAppMenuBlade/~/Users/objectId/$spId" -ForegroundColor Cyan
+                    }
                 } else {
-                    Write-Host "  Role assignment failed: $assignResultClean" -ForegroundColor Yellow
-                    Write-Host "  Assign manually: Entra ID → Enterprise Apps → M365 Dashboard → Users and groups" -ForegroundColor Yellow
+                    Write-Host "  MSP mode: Dashboard Admin role must be assigned manually in the client tenant." -ForegroundColor Yellow
                     Write-Host "  https://entra.microsoft.com/#view/Microsoft_AAD_IAM/ManagedAppMenuBlade/~/Users/objectId/$spId" -ForegroundColor Cyan
                 }
             } else {
-                Write-Host "  MSP mode: Dashboard Admin role must be assigned manually in the client tenant." -ForegroundColor Yellow
-                Write-Host "  https://entra.microsoft.com/#view/Microsoft_AAD_IAM/ManagedAppMenuBlade/~/Users/objectId/$spId" -ForegroundColor Cyan
-            }
-        } else {
-            $currentUser = (cmd /c "az ad signed-in-user show --query id -o tsv 2>nul").Trim()
-            if ($currentUser) {
-                $roleBodyFile = [System.IO.Path]::GetTempFileName()
-                $roleBody = "{`"principalId`":`"$currentUser`",`"resourceId`":`"$spId`",`"appRoleId`":`"$roleId`"}"
-                [System.IO.File]::WriteAllText($roleBodyFile, $roleBody, [System.Text.Encoding]::UTF8)
-                $assignResult = cmd /c "az rest --method POST --uri https://graph.microsoft.com/v1.0/users/$currentUser/appRoleAssignments --body @`"$roleBodyFile`" --headers Content-Type=application/json 2>&1"
-                Remove-Item $roleBodyFile -ErrorAction SilentlyContinue
-                if ($LASTEXITCODE -eq 0) {
-                    Write-Host "  Dashboard Admin role assigned to current user" -ForegroundColor Green
-                } elseif (($assignResult -join "") -match "already exists") {
-                    Write-Host "  Dashboard Admin role already assigned" -ForegroundColor Green
-                } else {
-                    Write-Host "  Could not assign role automatically (may need to assign manually in Entra Enterprise Apps)" -ForegroundColor Yellow
+                $currentUser = (cmd /c "az ad signed-in-user show --query id -o tsv 2>nul").Trim()
+                if ($currentUser) {
+                    $roleBodyFile = [System.IO.Path]::GetTempFileName()
+                    $roleBody = "{`"principalId`":`"$currentUser`",`"resourceId`":`"$spId`",`"appRoleId`":`"$roleId`"}"
+                    [System.IO.File]::WriteAllText($roleBodyFile, $roleBody, [System.Text.Encoding]::UTF8)
+                    $assignResult = cmd /c "az rest --method POST --uri https://graph.microsoft.com/v1.0/users/$currentUser/appRoleAssignments --body @`"$roleBodyFile`" --headers Content-Type=application/json 2>&1"
+                    Remove-Item $roleBodyFile -ErrorAction SilentlyContinue
+                    if ($LASTEXITCODE -eq 0) {
+                        Write-Host "  Dashboard Admin role assigned to current user" -ForegroundColor Green
+                    } elseif (($assignResult -join "") -match "already exists") {
+                        Write-Host "  Dashboard Admin role already assigned" -ForegroundColor Green
+                    } else {
+                        Write-Host "  Could not assign role automatically (assign manually in Entra Enterprise Apps)" -ForegroundColor Yellow
+                    }
                 }
             }
         }
