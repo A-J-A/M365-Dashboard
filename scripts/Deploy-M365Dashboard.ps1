@@ -1241,11 +1241,16 @@ if ($isMspMode) {
         $appObjectId = if ($appObjectIdNew) { $appObjectIdNew } else { $null }
 
         if ($appObjectId) {
-            # Set redirect URI
+            # Set redirect URI — retry once on transient network errors
             $redirectBody = "{`"spa`":{`"redirectUris`":[`"$appUrlClean`"]}}"
             $redirectFile = [System.IO.Path]::GetTempFileName() + ".json"
             [System.IO.File]::WriteAllText($redirectFile, $redirectBody, [System.Text.Encoding]::UTF8)
             $redirectResult = cmd /c "az rest --method PATCH --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectId`" --body @`"$redirectFile`" --headers Content-Type=application/json Authorization=`"Bearer $graphToken`" 2>&1"
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "  Redirect URI: transient error, retrying..." -ForegroundColor Gray
+                Start-Sleep -Seconds 5
+                $redirectResult = cmd /c "az rest --method PATCH --uri `"https://graph.microsoft.com/v1.0/applications/$appObjectId`" --body @`"$redirectFile`" --headers Content-Type=application/json Authorization=`"Bearer $graphToken`" 2>&1"
+            }
             Remove-Item $redirectFile -ErrorAction SilentlyContinue
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "  Redirect URI configured" -ForegroundColor Green
@@ -1352,12 +1357,14 @@ if ($spId) {
                 [System.IO.File]::WriteAllText($roleBodyFile, $roleBody, [System.Text.Encoding]::UTF8)
                 $assignResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/servicePrincipals/$spId/appRoleAssignments`" --body @`"$roleBodyFile`" --headers Content-Type=application/json Authorization=`"Bearer $adminRoleToken`" 2>&1"
                 Remove-Item $roleBodyFile -ErrorAction SilentlyContinue
+                $assignResultClean = ($assignResult | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
                 if ($LASTEXITCODE -eq 0) {
                     Write-Host "  Dashboard Admin role assigned to deploying user" -ForegroundColor Green
-                } elseif (($assignResult -join "") -match "already exists") {
+                } elseif ($assignResultClean -match "already exists") {
                     Write-Host "  Dashboard Admin role already assigned" -ForegroundColor Green
                 } else {
-                    Write-Host "  Could not assign role automatically — assign manually in the client tenant:" -ForegroundColor Yellow
+                    Write-Host "  Role assignment failed: $assignResultClean" -ForegroundColor Yellow
+                    Write-Host "  Assign manually: Entra ID → Enterprise Apps → M365 Dashboard → Users and groups" -ForegroundColor Yellow
                     Write-Host "  https://entra.microsoft.com/#view/Microsoft_AAD_IAM/ManagedAppMenuBlade/~/Users/objectId/$spId" -ForegroundColor Cyan
                 }
             } else {
