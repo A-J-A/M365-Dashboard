@@ -970,6 +970,36 @@ if ($existingRg) {
     }
 }
 
+# Assign Dashboard Admin role NOW while we still have a fresh client tenant token
+# (doing it here avoids the token expiry problem caused by long vault purge waits)
+if ($isMspMode -and $DeployingUserObjectId -and $appRegToken -and $ClientId) {
+    Write-Host "  Pre-assigning Dashboard Admin role (token still fresh)..." -ForegroundColor Gray
+    $ErrorActionPreference = "Continue"
+    # Look up the SP object ID using the fresh app registration token
+    $preSpIdRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals?`$filter=appId eq '$ClientId'`" --headers Authorization=`"Bearer $appRegToken`" --query value[0].id -o tsv 2>nul"
+    $preSpId = ($preSpIdRaw | Where-Object { $_ -notmatch '^WARNING:' }) -join '' | ForEach-Object { $_.Trim() }
+    # Get the Dashboard.Admin role ID
+    $preRolesRaw = (cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/applications?`$filter=appId eq '$ClientId'`" --headers Authorization=`"Bearer $appRegToken`" --query value[0].appRoles -o json 2>nul" | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
+    $preRoles = if ($preRolesRaw -and $preRolesRaw -notmatch '^(ERROR|null|\[\])') { try { $preRolesRaw | ConvertFrom-Json } catch { @() } } else { @() }
+    $preAdminRole = $preRoles | Where-Object { $_.value -eq 'Dashboard.Admin' }
+    if ($preSpId -and $preAdminRole) {
+        $preRoleFile = [System.IO.Path]::GetTempFileName()
+        $preRoleBody = "{`"principalId`":`"$DeployingUserObjectId`",`"resourceId`":`"$preSpId`",`"appRoleId`":`"$($preAdminRole.id)`"}"
+        [System.IO.File]::WriteAllText($preRoleFile, $preRoleBody, [System.Text.Encoding]::UTF8)
+        $preAssignResult = cmd /c "az rest --method POST --uri `"https://graph.microsoft.com/v1.0/users/$DeployingUserObjectId/appRoleAssignments`" --body @`"$preRoleFile`" --headers Content-Type=application/json Authorization=`"Bearer $appRegToken`" 2>&1"
+        Remove-Item $preRoleFile -ErrorAction SilentlyContinue
+        $preAssignClean = ($preAssignResult | Where-Object { $_ -notmatch '^WARNING:' }) -join ''
+        if ($LASTEXITCODE -eq 0 -or $preAssignClean -match 'already exists') {
+            Write-Host "  Dashboard Admin role assigned to deploying user" -ForegroundColor Green
+            $script:DashboardAdminAssigned = $true
+        } else {
+            Write-Host "  Pre-assignment failed (will retry after deployment): $preAssignClean" -ForegroundColor Gray
+        }
+    }
+    $ErrorActionPreference = "Stop"
+}
+$script:DashboardAdminAssigned = if ($null -eq $script:DashboardAdminAssigned) { $false } else { $script:DashboardAdminAssigned }
+
 # Check for soft-deleted Key Vaults that might conflict
 Write-Host ""
 Write-Host "Checking for soft-deleted Key Vaults..." -ForegroundColor Yellow
@@ -1324,14 +1354,15 @@ if ($isMspMode) {
 }
 $ErrorActionPreference = "Stop"
 
-# Dashboard Admin role assignment - in MSP mode this assigns to the client tenant admin
-# who performed the app registration (we can't assign to the MSP user as they're in a different tenant)
+# Dashboard Admin role assignment (post-deployment retry if pre-assignment failed)
 Write-Host "  Assigning Dashboard Admin role..." -ForegroundColor Gray
 $ErrorActionPreference = "Continue"
-# Always use client tenant Graph token to look up SP — CLI is in MSP tenant in MSP mode
-$adminRoleToken = if ($mspGraphToken) { $mspGraphToken } else {
-    ((Invoke-Az account get-access-token --resource https://graph.microsoft.com --query accessToken -o tsv) -join '').Trim()
-}
+if ($script:DashboardAdminAssigned) {
+    Write-Host "  Dashboard Admin role already assigned (pre-deployment)" -ForegroundColor Green
+} else {
+$adminRoleToken = if ($appRegToken -and $appRegToken.Length -gt 20) { $appRegToken }
+                  elseif ($mspGraphToken -and $mspGraphToken.Length -gt 20) { $mspGraphToken }
+                  else { '' }
 $spId = ''
 if ($adminRoleToken) {
     $spIdRaw = cmd /c "az rest --method GET --uri `"https://graph.microsoft.com/v1.0/servicePrincipals?`$filter=appId eq '$ClientId'`" --headers Authorization=`"Bearer $adminRoleToken`" --query value[0].id -o tsv 2>nul"
@@ -1390,7 +1421,7 @@ if ($spId) {
             }
         }
     }
-}
+} # end else (not pre-assigned)
 $ErrorActionPreference = "Stop"
 
 # $containerAppName is defined further down in the GitHub Actions section.
@@ -1492,7 +1523,15 @@ if ($LASTEXITCODE -ne 0 -or ($spJson -join "") -match '"error"|Insufficient priv
     $existingSpId = ((Invoke-Az ad sp list --display-name "$spName" --query "[0].appId" -o tsv) -join '').Trim()
     if ($existingSpId) {
         Write-Host "  Found existing SP, resetting credentials..." -ForegroundColor Gray
-        $spJson = (Invoke-Az ad sp credential reset --id "$existingSpId" --sdk-auth) -join "`n"
+        # --sdk-auth removed in az cli 2.53+ — get clientId/secret/tenantId/subscriptionId separately
+        $resetRaw = (Invoke-Az ad sp credential reset --id "$existingSpId") -join "`n"
+        $resetClean = ($resetRaw | Where-Object { $_ -notmatch '^WARNING:|^System\.Management\.Automation\.' }) -join "`n"
+        if ($resetClean -match '"password"') {
+            try {
+                $resetObj = $resetClean | ConvertFrom-Json
+                $spJson = "{`"clientId`":`"$($resetObj.appId)`",`"clientSecret`":`"$($resetObj.password)`",`"tenantId`":`"$($resetObj.tenant)`",`"subscriptionId`":`"$subscriptionId`",`"activeDirectoryEndpointUrl`":`"https://login.microsoftonline.com`",`"resourceManagerEndpointUrl`":`"https://management.azure.com/`",`"activeDirectoryGraphResourceId`":`"https://graph.windows.net/`",`"sqlManagementEndpointUrl`":`"https://management.core.windows.net:8443/`",`"galleryEndpointUrl`":`"https://gallery.azure.com/`",`"managementEndpointUrl`":`"https://management.core.windows.net/`"}"
+            } catch { $spJson = "" }
+        }
     }
 }
 $ErrorActionPreference = "Stop"
@@ -1828,7 +1867,14 @@ if ($LASTEXITCODE -ne 0 -or ($spJsonGh -join "") -match '"error"|Insufficient pr
     $existingSpIdGh = ((Invoke-Az ad sp list --display-name "$spNameGh" --query "[0].appId" -o tsv) -join '').Trim()
     if ($existingSpIdGh) {
         Write-Host "  Found existing SP, resetting credentials..." -ForegroundColor Gray
-        $spJsonGh = (Invoke-Az ad sp credential reset --id "$existingSpIdGh" --sdk-auth) -join "`n"
+        $resetRawGh = (Invoke-Az ad sp credential reset --id "$existingSpIdGh") -join "`n"
+        $resetCleanGh = ($resetRawGh | Where-Object { $_ -notmatch '^WARNING:|^System\.Management\.Automation\.' }) -join "`n"
+        if ($resetCleanGh -match '"password"') {
+            try {
+                $resetObjGh = $resetCleanGh | ConvertFrom-Json
+                $spJsonGh = "{`"clientId`":`"$($resetObjGh.appId)`",`"clientSecret`":`"$($resetObjGh.password)`",`"tenantId`":`"$($resetObjGh.tenant)`",`"subscriptionId`":`"$subscriptionId`",`"activeDirectoryEndpointUrl`":`"https://login.microsoftonline.com`",`"resourceManagerEndpointUrl`":`"https://management.azure.com/`",`"activeDirectoryGraphResourceId`":`"https://graph.windows.net/`",`"sqlManagementEndpointUrl`":`"https://management.core.windows.net:8443/`",`"galleryEndpointUrl`":`"https://gallery.azure.com/`",`"managementEndpointUrl`":`"https://management.core.windows.net/`"}"
+            } catch { $spJsonGh = "" }
+        }
     }
 }
 $ErrorActionPreference = "Stop"
