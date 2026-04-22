@@ -1751,7 +1751,9 @@ function Start-Deploy {
         $TxtDeployStatus.Text = "Deployment is running. Do not close this window."
     }
 
-    # GitHub CLI auth — must happen HERE in the wizard process (background jobs can't open browsers)
+    # GitHub CLI auth — use PAT (Personal Access Token) instead of --web browser flow.
+    # Browser OAuth (--web) is unreliable from a WPF wizard because the localhost callback
+    # can't round-trip back to the spawned process reliably. PAT via --with-token is instant.
     $ErrorActionPreference = "Continue"
     $ghAvailable = (cmd /c "gh --version 2>nul")
     $ErrorActionPreference = "Stop"
@@ -1762,20 +1764,109 @@ function Start-Deploy {
         $ErrorActionPreference = "Stop"
         if (-not $ghAuthed) {
             $ghRepoHint = if ($script:RepoSlug) { $script:RepoSlug } else { "your GitHub repository" }
-            Show-LoginPrompt `
-                "Sign in to GitHub" `
-                "GitHub authentication for CI/CD secrets" `
-                "The deployment needs to store GitHub Actions secrets for automatic CI/CD. Sign in with the GitHub account that owns the repository ($ghRepoHint). A console window will open — follow the instructions there to complete the sign-in." `
-                "#24292F" "Open GitHub login"
+
+            # Show PAT input dialog
+            $patXaml = [xml]@"
+<Window
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="GitHub Authentication"
+    Width="520" SizeToContent="Height"
+    WindowStartupLocation="CenterOwner" ResizeMode="NoResize" Topmost="True"
+    Background="#0D1117" Foreground="#E6EDF3" FontFamily="Segoe UI" FontSize="13">
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/>
+      <RowDefinition Height="Auto"/>
+    </Grid.RowDefinitions>
+    <StackPanel Grid.Row="0" Margin="32,28,32,20">
+      <Border Background="#24292F" Width="48" Height="48" CornerRadius="24"
+              HorizontalAlignment="Left" Margin="0,0,0,16">
+        <TextBlock Text="&#xE72E;" FontFamily="Segoe MDL2 Assets" FontSize="22"
+                   HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="White"/>
+      </Border>
+      <TextBlock Text="GitHub Authentication" FontSize="20" FontWeight="Bold"
+                 Foreground="White" Margin="0,0,0,6" TextWrapping="Wrap"/>
+      <TextBlock Text="Paste a GitHub Personal Access Token to enable automatic CI/CD secret setup"
+                 Foreground="#8B949E" FontSize="12" Margin="0,0,0,16" TextWrapping="Wrap"/>
+      <Border Background="#161B22" BorderBrush="#30363D" BorderThickness="1"
+              CornerRadius="7" Padding="16,12" Margin="0,0,0,16">
+        <TextBlock TextWrapping="Wrap" Foreground="#E6EDF3" FontSize="11" LineHeight="19">
+          <Run FontWeight="SemiBold">How to create a PAT:</Run>
+          <LineBreak/>
+          <Run>1. Go to github.com → Settings → Developer settings → Personal access tokens → Tokens (classic)</Run>
+          <LineBreak/>
+          <Run>2. Click Generate new token (classic)</Run>
+          <LineBreak/>
+          <Run>3. Set expiry (e.g. 90 days) and tick the </Run><Run FontWeight="SemiBold">repo</Run><Run> scope</Run>
+          <LineBreak/>
+          <Run>4. Click Generate token and paste it below</Run>
+        </TextBlock>
+      </Border>
+      <TextBlock Text="Personal Access Token:" Foreground="#8B949E" FontSize="11" Margin="0,0,0,4"/>
+      <PasswordBox x:Name="TxtPAT"
+                   Background="#161B22" Foreground="#E6EDF3" BorderBrush="#30363D"
+                   BorderThickness="1" Padding="10,8" FontSize="13" FontFamily="Consolas"/>
+      <TextBlock x:Name="TxtStatus" Text="" Foreground="#D29922" FontSize="11"
+                 Margin="0,8,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+    </StackPanel>
+    <Border Grid.Row="1" Background="#161B22" BorderBrush="#30363D"
+            BorderThickness="0,1,0,0" Padding="32,16">
+      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+        <Button x:Name="BtnSkip" Content="Skip (print secrets manually)" Height="36"
+                Padding="16,0" FontSize="12" Foreground="#8B949E"
+                Background="Transparent" BorderThickness="1" BorderBrush="#30363D"
+                Cursor="Hand" Margin="0,0,12,0"/>
+        <Button x:Name="BtnAuth" Content="Authenticate" Height="36"
+                Padding="20,0" FontSize="13" FontWeight="SemiBold"
+                Foreground="White" Background="#238636" BorderThickness="0" Cursor="Hand"/>
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>
+"@
+            $patReader = New-Object System.Xml.XmlNodeReader $patXaml
+            $patDlg = [Windows.Markup.XamlReader]::Load($patReader)
+            $patDlg.Owner = $Win
+            $patTxt    = $patDlg.FindName('TxtPAT')
+            $patStatus = $patDlg.FindName('TxtStatus')
+            $patSkip   = $patDlg.FindName('BtnSkip')
+            $patAuth   = $patDlg.FindName('BtnAuth')
+
+            $patSkip.Add_Click({ $patDlg.Tag = 'skip'; $patDlg.Close() })
+            $patAuth.Add_Click({
+                $pat = $patTxt.Password.Trim()
+                if ($pat.Length -lt 10) {
+                    $patStatus.Text = 'Please paste a valid token before clicking Authenticate.'
+                    $patStatus.Visibility = 'Visible'
+                    return
+                }
+                $patStatus.Text = 'Authenticating...'
+                $patStatus.Foreground = '#8B949E'
+                $patStatus.Visibility = 'Visible'
+                $patDlg.Dispatcher.Invoke([Action]{}, 'Render')
+
+                # Pipe token to gh auth login --with-token
+                $ErrorActionPreference = 'Continue'
+                $pat | & gh auth login --with-token 2>&1 | Out-Null
+                $authOk = ($LASTEXITCODE -eq 0)
+                cmd /c "gh auth status 2>nul" | Out-Null
+                $authOk = ($authOk -or ($LASTEXITCODE -eq 0))
+                $ErrorActionPreference = 'Stop'
+
+                if ($authOk) {
+                    $patDlg.Tag = 'ok'
+                    $patDlg.Close()
+                } else {
+                    $patStatus.Text = 'Authentication failed. Check the token has the repo scope and try again.'
+                    $patStatus.Foreground = '#F85149'
+                    $patStatus.Visibility = 'Visible'
+                }
+            })
+
             Add-Log "Opening GitHub login..."
-            # gh auth login --web must run in its own console window.
-            # Calling it inline on the WPF STA thread blocks the message pump and
-            # prevents the browser OAuth callback from completing.
-            $Win.WindowState = "Minimized"
-            $ghProc = Start-Process powershell.exe `
-                -ArgumentList "-NoProfile","-ExecutionPolicy","Bypass","-Command","`$host.UI.RawUI.WindowTitle = 'M365 Dashboard - GitHub Login'; Write-Host ''; Write-Host 'Signing in to GitHub for CI/CD secret setup...' -ForegroundColor Cyan; Write-Host ''; gh auth login --web; Write-Host ''; if (`$LASTEXITCODE -eq 0) { Write-Host 'GitHub login successful! You can close this window.' -ForegroundColor Green } else { Write-Host 'Login failed or was cancelled.' -ForegroundColor Yellow }; Write-Host ''; Read-Host 'Press Enter to continue'" `
-                -Wait -PassThru
-            $Win.WindowState = "Normal"; $Win.Activate()
+            [void]$patDlg.ShowDialog()
+
             $ErrorActionPreference = "Continue"
             cmd /c "gh auth status 2>nul" | Out-Null
             $ghAuthed = ($LASTEXITCODE -eq 0)
